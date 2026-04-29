@@ -1,10 +1,11 @@
 // src/lib/standings.ts
-import type { Game, StandingsRow } from '@/types'
+import type { StandingsRow } from '@/types'
 
-export function calculateStandings(games: Game[]): StandingsRow[] {
+// Accepts Game or GameWithTeams (both have the fields we need)
+export function calculateStandings(games: any[]): StandingsRow[] {
   const map = new Map<string, StandingsRow>()
 
-  const ensure = (teamId: string, teamName: string, schoolName: string, schoolSlug: string, teamSlug: string, cls: string, division: string) => {
+  const ensure = (teamId: string, teamName: string, schoolName: string, schoolSlug: string, teamSlug: string, primaryColor: string) => {
     if (!map.has(teamId)) {
       map.set(teamId, {
         team_id: teamId,
@@ -12,11 +13,13 @@ export function calculateStandings(games: Game[]): StandingsRow[] {
         school_name: schoolName,
         school_slug: schoolSlug,
         team_slug: teamSlug,
+        primary_color: primaryColor,
         wins: 0, losses: 0, ties: 0,
         points_for: 0, points_against: 0,
         win_pct: 0,
-        class: cls,
-        division,
+        class: '',
+        division: '',
+        slug: teamSlug,
       })
     }
     return map.get(teamId)!
@@ -24,12 +27,11 @@ export function calculateStandings(games: Game[]): StandingsRow[] {
 
   for (const game of games) {
     if (game.status !== 'Final') continue
-    if (game.home_score === null || game.away_score === null) continue
+    if (game.home_score == null || game.away_score == null) continue
     if (!game.home_team_id || !game.away_team_id) continue
 
     const ht = game.home_team
     const at = game.away_team
-
     if (!ht || !at) continue
 
     const homeRow = ensure(
@@ -38,7 +40,7 @@ export function calculateStandings(games: Game[]): StandingsRow[] {
       ht.school?.school_name || '',
       ht.school?.slug || '',
       ht.slug,
-      '', ''
+      ht.school?.primary_color || '#1e3a5f',
     )
     const awayRow = ensure(
       game.away_team_id,
@@ -46,7 +48,7 @@ export function calculateStandings(games: Game[]): StandingsRow[] {
       at.school?.school_name || '',
       at.school?.slug || '',
       at.slug,
-      '', ''
+      at.school?.primary_color || '#1e3a5f',
     )
 
     homeRow.points_for += game.home_score
@@ -55,14 +57,11 @@ export function calculateStandings(games: Game[]): StandingsRow[] {
     awayRow.points_against += game.home_score
 
     if (game.home_score > game.away_score) {
-      homeRow.wins++
-      awayRow.losses++
+      homeRow.wins++; awayRow.losses++
     } else if (game.away_score > game.home_score) {
-      awayRow.wins++
-      homeRow.losses++
+      awayRow.wins++; homeRow.losses++
     } else {
-      homeRow.ties++
-      awayRow.ties++
+      homeRow.ties++; awayRow.ties++
     }
   }
 

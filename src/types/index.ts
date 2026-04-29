@@ -264,4 +264,6 @@ export interface StandingsRow {
   win_pct: number
   class: string
   division: string
+  primary_color?: string
+  slug?: string
 }
