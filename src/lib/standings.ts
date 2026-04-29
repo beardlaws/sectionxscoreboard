@@ -1,18 +1,28 @@
 // src/lib/standings.ts
 import type { StandingsRow } from '@/types'
 
+// BTM = Binomial Tournament Method - used by Section X for playoff seeding
+// Formula: (wins + 0.5) / (wins + losses + 1)
+// This smooths out records so undefeated short-season teams don't dominate
+function calcBTM(wins: number, losses: number, ties: number): number {
+  const w = wins + ties * 0.5
+  const total = wins + losses + ties
+  if (total === 0) return 0
+  return (w + 0.5) / (total + 1)
+}
+
 export function calculateStandings(games: any[], teamSeasons?: any[]): StandingsRow[] {
   const map = new Map<string, StandingsRow>()
 
-  // Build division/class lookup from team_seasons if provided
+  // Build division/class lookup from team_seasons
   const tsMap: Record<string, { division: string; class: string }> = {}
   if (teamSeasons) {
     for (const ts of teamSeasons) {
-      tsMap[ts.team_id] = { division: ts.division || '', class: ts.class || '' }
+      if (ts.team_id) tsMap[ts.team_id] = { division: ts.division || '', class: ts.class || '' }
     }
   }
 
-  const ensure = (teamId: string, teamName: string, schoolName: string, schoolSlug: string, teamSlug: string, primaryColor: string) => {
+  const ensure = (teamId: string, teamName: string, schoolName: string, schoolSlug: string, teamSlug: string, primaryColor: string): StandingsRow => {
     if (!map.has(teamId)) {
       const ts = tsMap[teamId] || { division: '', class: '' }
       map.set(teamId, {
@@ -24,8 +34,9 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
         slug: teamSlug,
         primary_color: primaryColor,
         wins: 0, losses: 0, ties: 0,
+        league_wins: 0, league_losses: 0, league_ties: 0,
         points_for: 0, points_against: 0,
-        win_pct: 0,
+        win_pct: 0, league_win_pct: 0, btm: 0,
         class: ts.class,
         division: ts.division,
       })
@@ -58,21 +69,41 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
     awayRow.points_for += game.away_score
     awayRow.points_against += game.home_score
 
-    if (game.home_score > game.away_score) { homeRow.wins++; awayRow.losses++ }
-    else if (game.away_score > game.home_score) { awayRow.wins++; homeRow.losses++ }
-    else { homeRow.ties++; awayRow.ties++ }
+    // Is this a league game? Both teams must share same division AND class
+    const homeTs = tsMap[game.home_team_id]
+    const awayTs = tsMap[game.away_team_id]
+    const isLeague = !!(
+      homeTs && awayTs &&
+      homeTs.division && awayTs.division &&
+      homeTs.division === awayTs.division &&
+      homeTs.class === awayTs.class
+    )
+
+    if (game.home_score > game.away_score) {
+      homeRow.wins++; awayRow.losses++
+      if (isLeague) { homeRow.league_wins++; awayRow.league_losses++ }
+    } else if (game.away_score > game.home_score) {
+      awayRow.wins++; homeRow.losses++
+      if (isLeague) { awayRow.league_wins++; homeRow.league_losses++ }
+    } else {
+      homeRow.ties++; awayRow.ties++
+      if (isLeague) { homeRow.league_ties++; awayRow.league_ties++ }
+    }
   }
 
   const rows = Array.from(map.values())
   rows.forEach(r => {
     const total = r.wins + r.losses + r.ties
     r.win_pct = total > 0 ? r.wins / total : 0
+    const leagueTotal = r.league_wins + r.league_losses + r.league_ties
+    r.league_win_pct = leagueTotal > 0 ? r.league_wins / leagueTotal : 0
+    r.btm = calcBTM(r.wins, r.losses, r.ties)
   })
 
+  // Sort by BTM descending within division
   return rows.sort((a, b) => {
-    // Sort by division first, then win_pct
-    if (a.division < b.division) return -1
-    if (a.division > b.division) return 1
-    return b.win_pct - a.win_pct || b.wins - a.wins
+    if (a.division !== b.division) return (a.division || 'Z').localeCompare(b.division || 'Z')
+    if (a.class !== b.class) return (a.class || 'Z').localeCompare(b.class || 'Z')
+    return b.btm - a.btm || b.wins - a.wins
   })
 }

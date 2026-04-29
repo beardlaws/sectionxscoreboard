@@ -1,157 +1,200 @@
-import { createClient } from '@/lib/supabase/server';
-import { Metadata } from 'next';
-import Link from 'next/link';
-import { calculateStandings } from '@/lib/standings';
-import { GameWithTeams } from '@/types';
-import { Trophy } from 'lucide-react';
+import { createClient } from '@/lib/supabase/server'
+import { Metadata } from 'next'
+import Link from 'next/link'
+import { calculateStandings } from '@/lib/standings'
+import { GameWithTeams } from '@/types'
+import { Trophy } from 'lucide-react'
+import PublicLayout from '@/components/layout/PublicLayout'
 
 export const metadata: Metadata = {
   title: 'Standings | Section X Scoreboard',
-  description: 'Section X high school sports standings — East, Central, and West divisions.',
-};
-
-export const revalidate = 60;
+  description: 'Section X high school sports standings with league record, overall record, and BTM rankings.',
+}
+export const revalidate = 60
 
 interface Props { searchParams: { sport?: string } }
 
-const DIVISION_ORDER = ['East', 'Central', 'West', 'Overall']
+const CLASS_ORDER = ['A', 'B', 'C', 'D']
+const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South']
 
 export default async function StandingsPage({ searchParams }: Props) {
-  const supabase = createClient();
+  const supabase = createClient()
 
-  const { data: activeSeason } = await supabase.from('seasons').select('*').eq('is_active', true).single();
-  const seasonId = activeSeason?.id;
+  const { data: activeSeason } = await supabase.from('seasons').select('*').eq('is_active', true).single()
+  const seasonId = activeSeason?.id
 
   // Sports that have final games this season
-  const { data: gamesForSports } = await supabase
+  const { data: gamesForSports } = seasonId ? await supabase
     .from('games')
     .select('sport_id, sport:sports(id, sport_name, slug, gender)')
-    .eq('season_id', seasonId || '')
-    .eq('status', 'Final');
+    .eq('season_id', seasonId)
+    .eq('status', 'Final') : { data: [] }
 
   const uniqueSports: any[] = Object.values(
     ((gamesForSports || []) as any[]).reduce((acc: any, g: any) => {
-      if (g.sport) acc[g.sport_id] = g.sport;
-      return acc;
+      if (g.sport) acc[g.sport_id] = g.sport
+      return acc
     }, {})
-  );
-  uniqueSports.sort((a, b) => a.sport_name.localeCompare(b.sport_name));
+  )
+  uniqueSports.sort((a, b) => a.sport_name.localeCompare(b.sport_name))
 
-  const selectedSlug = searchParams.sport || uniqueSports[0]?.slug;
-  const selectedSport = uniqueSports.find(s => s.slug === selectedSlug) || uniqueSports[0];
+  const selectedSlug = searchParams.sport || uniqueSports[0]?.slug
+  const selectedSport = uniqueSports.find((s: any) => s.slug === selectedSlug) || uniqueSports[0]
 
-  let standings: any[] = [];
+  let standings: any[] = []
+
   if (selectedSport && seasonId) {
-    // Get games and team_seasons in parallel
-    const [{ data: gamesData }, { data: teamSeasonsData }] = await Promise.all([
+    const [{ data: gamesData }, { data: tsData }] = await Promise.all([
       supabase
         .from('games')
         .select(`*, home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`)
         .eq('sport_id', selectedSport.id)
         .eq('season_id', seasonId)
         .eq('status', 'Final'),
-      supabase
-        .from('team_seasons')
-        .select('team_id, division, class')
-        .eq('season_id', seasonId),
-    ]);
-    standings = calculateStandings((gamesData as GameWithTeams[]) || [], teamSeasonsData || []);
+      supabase.from('team_seasons').select('team_id, division, class').eq('season_id', seasonId),
+    ])
+    standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [])
   }
 
-  // Group by division in defined order
-  const byDivision: Record<string, any[]> = {};
-  for (const row of standings) {
-    const div = row.division || 'Overall';
-    if (!byDivision[div]) byDivision[div] = [];
-    byDivision[div].push(row);
+  // Group: if we have divisions, group by class then division. Otherwise just class.
+  const hasDivision = standings.some(r => r.division)
+  const hasClass = standings.some(r => r.class)
+
+  interface Group { label: string; subLabel?: string; rows: any[] }
+  const groups: Group[] = []
+
+  if (hasDivision && hasClass) {
+    // Group by class, then division within class
+    const classes = [...new Set(standings.map(r => r.class || ''))].sort((a, b) => CLASS_ORDER.indexOf(a) - CLASS_ORDER.indexOf(b))
+    for (const cls of classes) {
+      const classRows = standings.filter(r => (r.class || '') === cls)
+      const divisions = [...new Set(classRows.map(r => r.division || ''))].sort((a, b) => DIVISION_ORDER.indexOf(a) - DIVISION_ORDER.indexOf(b))
+      for (const div of divisions) {
+        const rows = classRows.filter(r => (r.division || '') === div).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
+        if (rows.length > 0) groups.push({ label: `Class ${cls}`, subLabel: div ? `${div} Division` : '', rows })
+      }
+      // Non-division rows for this class
+      const noDivRows = classRows.filter(r => !r.division).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
+      if (noDivRows.length > 0) groups.push({ label: `Class ${cls}`, rows: noDivRows })
+    }
+  } else if (hasDivision) {
+    const divs = [...new Set(standings.map(r => r.division || 'Overall'))].sort((a, b) => DIVISION_ORDER.indexOf(a) - DIVISION_ORDER.indexOf(b))
+    for (const div of divs) {
+      const rows = standings.filter(r => (r.division || 'Overall') === div).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
+      if (rows.length > 0) groups.push({ label: `${div} Division`, rows })
+    }
+  } else if (hasClass) {
+    const classes = [...new Set(standings.map(r => r.class || ''))].sort((a, b) => CLASS_ORDER.indexOf(a) - CLASS_ORDER.indexOf(b))
+    for (const cls of classes) {
+      const rows = standings.filter(r => (r.class || '') === cls).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
+      if (rows.length > 0) groups.push({ label: `Class ${cls}`, rows })
+    }
+  } else {
+    groups.push({ label: '', rows: standings.sort((a, b) => b.btm - a.btm || b.wins - a.wins) })
   }
 
-  const divisionKeys = [
-    ...DIVISION_ORDER.filter(d => byDivision[d]),
-    ...Object.keys(byDivision).filter(d => !DIVISION_ORDER.includes(d)),
-  ];
-
-  const StandingsTable = ({ rows, title }: { rows: any[]; title?: string }) => (
+  const StandingsTable = ({ group }: { group: Group }) => (
     <div className="card overflow-hidden mb-5">
-      {title && (
-        <div className="px-4 py-2.5 border-b border-white/10" style={{ background: 'rgba(255,255,255,0.06)' }}>
-          <h3 className="text-white font-bold text-sm font-display uppercase tracking-wide">{title} Division</h3>
+      <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.05)' }}>
+        <div>
+          {group.label && <h3 className="text-white font-bold font-display uppercase tracking-wide">{group.label}</h3>}
+          {group.subLabel && <p className="text-slate-400 text-xs mt-0.5">{group.subLabel}</p>}
         </div>
-      )}
+      </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="text-xs text-slate-400 border-b border-white/10">
-              <th className="text-left px-4 py-2.5 font-medium">Team</th>
-              <th className="text-center px-3 py-2.5 font-medium">W</th>
-              <th className="text-center px-3 py-2.5 font-medium">L</th>
-              <th className="text-center px-3 py-2.5 font-medium hidden sm:table-cell">PCT</th>
-              <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">PF</th>
-              <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">PA</th>
+            <tr className="text-xs text-slate-400 border-b border-white/10 bg-white/[0.02]">
+              <th className="text-left px-4 py-3 font-medium w-8"></th>
+              <th className="text-left px-2 py-3 font-medium">Team</th>
+              <th className="text-center px-3 py-3 font-medium whitespace-nowrap">League<br/>Record</th>
+              <th className="text-center px-3 py-3 font-medium whitespace-nowrap">Overall<br/>Record</th>
+              <th className="text-center px-3 py-3 font-medium whitespace-nowrap">BTM<br/>Ranking</th>
+              <th className="text-center px-3 py-3 font-medium hidden md:table-cell">PF</th>
+              <th className="text-center px-3 py-3 font-medium hidden md:table-cell">PA</th>
+              <th className="text-center px-3 py-3 font-medium hidden md:table-cell">DIFF</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr key={row.team_id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-600 text-xs w-4">{i + 1}</span>
-                    <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: row.primary_color || '#334155' }} />
-                    <Link href={`/teams/${row.slug}`} className="text-white hover:text-ice transition-colors text-sm font-medium">
-                      {row.school_name || row.team_name}
-                    </Link>
-                    {row.class && <span className="text-slate-600 text-xs">({row.class})</span>}
-                  </div>
-                </td>
-                <td className="text-center px-3 py-2.5 text-white font-mono font-bold">{row.wins}</td>
-                <td className="text-center px-3 py-2.5 text-white font-mono">{row.losses}</td>
-                <td className="text-center px-3 py-2.5 text-slate-300 font-mono text-sm hidden sm:table-cell">{row.win_pct.toFixed(3)}</td>
-                <td className="text-center px-3 py-2.5 text-slate-400 font-mono text-xs hidden md:table-cell">{row.points_for}</td>
-                <td className="text-center px-3 py-2.5 text-slate-400 font-mono text-xs hidden md:table-cell">{row.points_against}</td>
-              </tr>
-            ))}
+            {group.rows.map((row, i) => {
+              const diff = row.points_for - row.points_against
+              const leagueRecord = `${row.league_wins}-${row.league_losses}${row.league_ties > 0 ? `-${row.league_ties}` : ''}`
+              const overallRecord = `${row.wins}-${row.losses}${row.ties > 0 ? `-${row.ties}` : ''}`
+              return (
+                <tr key={row.team_id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${i === 0 ? 'bg-yellow-500/5' : ''}`}>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{i + 1}</td>
+                  <td className="px-2 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: row.primary_color || '#334155' }} />
+                      <Link href={`/teams/${row.slug || row.team_slug}`} className="text-white hover:text-ice transition-colors font-medium truncate">
+                        {row.school_name || row.team_name}
+                      </Link>
+                    </div>
+                  </td>
+                  <td className="text-center px-3 py-3 font-mono text-slate-200">{leagueRecord}</td>
+                  <td className="text-center px-3 py-3 font-mono text-slate-300">{overallRecord}</td>
+                  <td className="text-center px-3 py-3 font-mono font-bold text-ice">{row.btm.toFixed(3)}</td>
+                  <td className="text-center px-3 py-3 text-slate-400 font-mono hidden md:table-cell">{row.points_for}</td>
+                  <td className="text-center px-3 py-3 text-slate-400 font-mono hidden md:table-cell">{row.points_against}</td>
+                  <td className={`text-center px-3 py-3 font-mono font-bold hidden md:table-cell ${diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {diff > 0 ? `+${diff}` : diff}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
     </div>
-  );
+  )
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <Trophy size={24} className="text-yellow-400" />
-        <h1 className="text-2xl font-bold font-display text-white">Standings</h1>
+    <PublicLayout>
+      <div className="max-w-5xl mx-auto px-4 py-6">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-2">
+          <Trophy size={28} className="text-yellow-400 flex-shrink-0" />
+          <div>
+            <h1 className="text-3xl font-bold font-display text-white">Standings</h1>
+            {activeSeason && <p className="text-slate-400 text-sm mt-0.5">{activeSeason.name} · BTM = Binomial Tournament Method</p>}
+          </div>
+        </div>
+
+        {/* Sport tabs */}
+        {uniqueSports.length > 0 && (
+          <div className="flex flex-wrap gap-2 my-5">
+            {uniqueSports.map((s: any) => (
+              <Link
+                key={s.slug}
+                href={`/standings?sport=${s.slug}`}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  s.slug === selectedSlug ? 'bg-ice text-navy' : 'bg-white/10 text-slate-300 hover:bg-white/20'
+                }`}
+              >
+                {s.gender === 'Boys' ? '♂ ' : s.gender === 'Girls' ? '♀ ' : ''}{s.sport_name}
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {/* No data */}
+        {standings.length === 0 ? (
+          <div className="card p-10 text-center text-slate-400">
+            <p className="text-3xl mb-3">🏆</p>
+            <p className="font-medium text-lg">No standings yet{selectedSport ? ` for ${selectedSport.sport_name}` : ''}.</p>
+            <p className="text-sm mt-1">Standings calculate automatically from final scores.</p>
+          </div>
+        ) : (
+          groups.map((group, i) => <StandingsTable key={i} group={group} />)
+        )}
+
+        {/* BTM explainer */}
+        {standings.length > 0 && (
+          <p className="text-xs text-slate-500 mt-4">
+            BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better. Rewards winning percentage over raw win totals.
+          </p>
+        )}
       </div>
-      {activeSeason && <p className="text-slate-400 text-sm mb-6 ml-9">{activeSeason.name}</p>}
-
-      {/* Sport tabs */}
-      {uniqueSports.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {uniqueSports.map((s: any) => (
-            <Link key={s.slug} href={`/standings?sport=${s.slug}`}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                s.slug === selectedSlug ? 'bg-ice text-navy' : 'bg-white/10 text-slate-300 hover:bg-white/20'
-              }`}>
-              {s.sport_name}
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {standings.length === 0 ? (
-        <div className="card p-8 text-center text-slate-400">
-          <p className="text-3xl mb-3">🏆</p>
-          <p>No standings yet for {selectedSport?.sport_name}.</p>
-          <p className="text-sm mt-1">Standings calculate automatically once Final scores are entered.</p>
-        </div>
-      ) : divisionKeys.length > 1 ? (
-        divisionKeys.map(div => (
-          <StandingsTable key={div} rows={byDivision[div]} title={div} />
-        ))
-      ) : (
-        <StandingsTable rows={standings} />
-      )}
-    </div>
-  );
+    </PublicLayout>
+  )
 }

@@ -258,14 +258,19 @@ export interface StandingsRow {
   school_name: string
   school_slug: string
   team_slug: string
+  slug?: string
   wins: number
   losses: number
   ties: number
+  league_wins: number
+  league_losses: number
+  league_ties: number
   points_for: number
   points_against: number
   win_pct: number
+  league_win_pct: number
+  btm: number
   class: string
   division: string
   primary_color?: string
-  slug?: string
 }

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import {
   PlusCircle, Upload, CheckSquare, Image, Star, Bell,
-  Calendar, Trophy, School, Users
+  Calendar, Trophy, School, Users, BarChart2
 } from 'lucide-react'
 
 export const revalidate = 0
@@ -46,6 +46,7 @@ export default async function AdminDashboard() {
 
   const quickActions = [
     { href: '/admin/scores/entry', icon: PlusCircle, label: 'Enter Score', desc: 'Add a single game result' },
+    { href: '/admin/scores/manage', icon: BarChart2, label: 'Manage Games', desc: 'Edit or delete games' },
     { href: '/admin/import', icon: Upload, label: 'Import Center', desc: 'Paste or upload scores/schedules' },
     { href: '/admin/submissions', icon: CheckSquare, label: 'Review Submissions', desc: `${pendingSubmissions || 0} pending` },
     { href: '/admin/photos', icon: Image, label: 'Photo Queue', desc: `${pendingPhotos || 0} pending` },
@@ -62,7 +63,7 @@ export default async function AdminDashboard() {
             Admin Dashboard
           </h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-            {activeSeason?.data?.name || 'No active season'} · {format(new Date(), 'EEEE, MMMM d')}
+            {(activeSeason as any)?.name || 'No active season'} · {format(new Date(), 'EEEE, MMMM d')}
           </p>
         </div>
 
@@ -93,7 +94,7 @@ export default async function AdminDashboard() {
             { label: "Today's Games", value: todayGames || 0 },
             { label: 'Total Games', value: totalGames || 0 },
             { label: 'Schools', value: totalSchools || 0 },
-            { label: 'Season', value: activeSeason?.data?.season_type || '—' },
+            { label: 'Season', value: (activeSeason as any)?.season_type || '—' },
           ].map(stat => (
             <div key={stat.label} className="card p-4 text-center">
               <div
