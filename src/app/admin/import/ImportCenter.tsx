@@ -32,7 +32,7 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
   const [parsedRows, setParsedRows] = useState<ParsedGameRow[]>([])
   const [step, setStep] = useState<'input' | 'review' | 'done'>('input')
   const [publishing, setPublishing] = useState(false)
-  const [publishResult, setPublishResult] = useState<{ published: number; skipped: number } | null>(null)
+  const [publishResult, setPublishResult] = useState<{ published: number; skipped: number; errors?: string[]; errorMsg?: string } | null>(null)
 
   const teamRecords = useMemo(() =>
     teams.map(t => ({
@@ -112,9 +112,13 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
         body: JSON.stringify(games),
       })
       const result = await res.json()
-      setPublishResult({ published: result.published || 0, skipped: result.skipped || 0 })
-    } catch (e) {
-      setPublishResult({ published: 0, skipped: toPublish.length })
+      if (!res.ok) {
+        setPublishResult({ published: 0, skipped: toPublish.length, errorMsg: result.error || 'Server error ' + res.status })
+      } else {
+        setPublishResult({ published: result.published || 0, skipped: result.skipped || 0, errors: result.errors })
+      }
+    } catch (e: any) {
+      setPublishResult({ published: 0, skipped: toPublish.length, errorMsg: e.message })
     }
 
     setStep('done')
@@ -172,6 +176,8 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
             {publishResult?.published} game{publishResult?.published !== 1 ? 's' : ''} published
             {(publishResult?.skipped || 0) > 0 && ` · ${publishResult!.skipped} skipped`}
           </p>
+          {publishResult?.errorMsg && <p style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>{publishResult.errorMsg}</p>}
+          {publishResult?.errors?.map((e, i) => <p key={i} style={{ color: '#f87171', fontSize: 11 }}>{e}</p>)}
           <button className="btn-primary mt-4" onClick={reset}>New Import</button>
         </div>
       ) : step === 'input' ? (

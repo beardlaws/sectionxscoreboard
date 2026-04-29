@@ -79,17 +79,21 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
       source: 'manual',
     }
 
-    const res = await fetch('/api/admin/games', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const result = await res.json()
-    if (!res.ok || result.errors?.length) {
-      setError(result.errors?.[0] || result.error || 'Failed to save game')
-    } else {
-      setSuccess('Game saved!')
-      setTimeout(() => { router.push('/admin') }, 1500)
+    try {
+      const res = await fetch('/api/admin/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const result = await res.json()
+      if (!res.ok || result.errors?.length) {
+        setError(result.errors?.[0] || result.error || 'Failed to save game (status ' + res.status + ')')
+      } else {
+        setSuccess('Game saved! ' + result.published + ' saved.')
+        setTimeout(() => { router.push('/admin') }, 1500)
+      }
+    } catch (e: any) {
+      setError('Network error: ' + e.message)
     }
     setLoading(false)
   }
