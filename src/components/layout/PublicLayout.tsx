@@ -27,20 +27,20 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <header style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }} className="sticky top-0 z-50">
+      <header style={{ background: 'rgba(5,8,15,0.92)', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)' }} className="sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2">
               <div
-                className="flex items-center justify-center w-8 h-8 rounded font-bold text-white text-sm"
-                style={{ background: 'var(--accent)', fontFamily: 'var(--font-display)' }}
+                className="flex items-center justify-center w-8 h-8 rounded-lg font-bold text-white text-sm"
+                style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', fontSize: '14px', fontWeight: 900, letterSpacing: '0.02em', boxShadow: '0 0 12px rgba(37,99,235,0.4)' }}
               >
                 SX
               </div>
               <span
-                className="font-semibold text-white hidden sm:block"
-                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.05em', fontSize: '17px' }}
+                className="font-bold text-white hidden sm:block"
+                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em', fontSize: '18px', fontWeight: 800 }}
               >
                 SECTION X SCOREBOARD
               </span>
