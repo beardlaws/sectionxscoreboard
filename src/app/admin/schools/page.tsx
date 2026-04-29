@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { adminDb } from '@/lib/adminDb';
 import { School } from '@/types';
 import { Plus, Edit2, Save, X } from 'lucide-react';
 

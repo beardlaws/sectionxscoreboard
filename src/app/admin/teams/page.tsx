@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { adminDb } from '@/lib/adminDb';
 import { Team, Season } from '@/types';
 import { Search, ToggleLeft, ToggleRight } from 'lucide-react';
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { adminDb } from '@/lib/adminDb';
 import { Sponsor } from '@/types';
 import { Plus, Edit2, Save, X, Trash2 } from 'lucide-react';
 
