@@ -248,6 +248,7 @@ export interface ParsedGameRow {
   duplicate_warning: boolean
   approved: boolean
   error: string | null
+  sport_id?: string | null
 }
 
 // Standings
