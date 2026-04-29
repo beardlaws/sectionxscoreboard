@@ -344,7 +344,8 @@ function parseSingleLine(line: string, options: ParseOptions): ParsedGameRow {
   if (!home_team_name || !away_team_name) {
     confidence = 'Low'
   } else if (homeResolved !== awayResolved) {
-    if (confidence === 'Low') confidence = 'Medium'
+    // One Section X team + one external = valid non-league, bump to Medium
+    confidence = 'Medium'
     notes.push('Non-league game vs external opponent')
   } else if (!homeResolved && !awayResolved) {
     confidence = 'Low'
