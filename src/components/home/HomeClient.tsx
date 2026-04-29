@@ -6,8 +6,8 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import ScoreCard from '@/components/scores/ScoreCard'
 import type { Game, Season, School, GameWithTeams } from '@/types'
-import { HOMEPAGE_SPORTS, isCloseGame, calculateStandings } from '@/lib/constants'
-import { calculateStandings as calcStandings } from '@/lib/standings'
+import { HOMEPAGE_SPORTS, isCloseGame } from '@/lib/constants'
+import { calculateStandings } from '@/lib/standings'
 
 interface HomeClientProps {
   activeSeason: Season | null
