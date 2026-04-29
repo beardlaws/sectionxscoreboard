@@ -197,7 +197,7 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
               <input className="input" type="date" value={defaultDate} onChange={e => setDefaultDate(e.target.value)} />
             </div>
             <div>
-              <label className="label">Sport (optional)</label>
+              <label className="label">Sport <span className="text-amber-400 text-xs">(select for accuracy)</span></label>
               <select className="input" value={defaultSportId} onChange={e => setDefaultSportId(e.target.value)}>
                 <option value="">Auto-detect</option>
                 {sports.map(s => <option key={s.id} value={s.id}>{s.sport_name} ({s.gender})</option>)}
@@ -229,9 +229,17 @@ PH at BM 3:30`}
                 />
               </div>
               <div className="flex items-center gap-3 flex-wrap">
-                <button className="btn-primary" onClick={handleParse} disabled={!pasteText.trim()}>
+                <button 
+                  className="btn-primary" 
+                  onClick={handleParse} 
+                  disabled={!pasteText.trim()}
+                  title={!defaultSportId ? 'Select a sport above for best results' : ''}
+                >
                   Parse & Review →
                 </button>
+                {!defaultSportId && (
+                  <span className="text-xs text-amber-400">⚠ Select a sport for accurate imports</span>
+                )}
                 <label className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--text-secondary)' }}>
                   <input type="checkbox" checked={skipNonFinal} onChange={e => setSkipNonFinal(e.target.checked)} />
                   Skip postponed &amp; canceled

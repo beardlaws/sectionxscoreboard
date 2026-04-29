@@ -42,8 +42,13 @@ export default async function SchoolPage({ params }: PageProps) {
     .eq('active', true)
     .order('team_name')
 
-  // Recent games
+  // Recent games - fetch with sport filter to avoid cross-sport mixing
   const teamIds = (teams || []).map(t => t.id)
+  const { data: activeSeason } = await supabase.from('seasons').select('id').eq('is_active', true).single()
+  
+  // Get unique sport IDs for this school's teams
+  const sportIds = [...new Set((teams || []).map(t => (t.sport as any)?.id).filter(Boolean))]
+  
   const { data: recentGames } = teamIds.length > 0
     ? await supabase
         .from('games')
@@ -57,8 +62,9 @@ export default async function SchoolPage({ params }: PageProps) {
         `)
         .or(`home_team_id.in.(${teamIds.join(',')}),away_team_id.in.(${teamIds.join(',')})`)
         .eq('status', 'Final')
+        .in('sport_id', sportIds.length > 0 ? sportIds : ['none'])
         .order('game_date', { ascending: false })
-        .limit(10)
+        .limit(20)
     : { data: [] }
 
   // Photos

@@ -123,17 +123,17 @@ export default function ScoreTicker() {
     <div className="border-b" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.4)' }}>
       <div className="max-w-7xl mx-auto">
         {/* Date nav */}
-        <div className="flex items-center gap-0 px-4 pt-2 pb-0">
+        <div className="flex items-center gap-1.5 px-4 pt-2 pb-1.5">
           {[yesterday, today, tomorrow].map(d => (
             <button
               key={d}
               onClick={() => setDate(d)}
-              className={`px-3 py-1 text-xs font-semibold rounded-t transition-colors ${
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${
                 date === d
-                  ? 'text-white border-t border-l border-r'
+                  ? 'text-white shadow-sm'
                   : 'text-slate-500 hover:text-slate-300'
               }`}
-              style={date === d ? { borderColor: 'rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)' } : {}}
+              style={date === d ? { background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.3)' } : {}}
             >
               {dateLabel(d)}
             </button>
@@ -142,21 +142,23 @@ export default function ScoreTicker() {
 
         {/* Ticker strip */}
         <div className="relative flex items-center">
-          {/* Left arrow */}
+          {/* Left fade + arrow */}
+          <div className="absolute left-0 top-0 bottom-0 w-12 z-10 pointer-events-none"
+            style={{ background: 'linear-gradient(to right, rgba(4,8,16,0.95), transparent)' }} />
           {canScrollLeft && (
             <button
               onClick={() => scroll('left')}
-              className="absolute left-0 z-10 flex items-center justify-center w-8 h-full text-slate-400 hover:text-white transition-colors"
-              style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.7), transparent)' }}
+              className="absolute left-1 z-20 flex items-center justify-center w-7 h-7 rounded-full text-slate-300 hover:text-white transition-all hover:scale-110"
+              style={{ background: 'rgba(255,255,255,0.1)', top: '50%', transform: 'translateY(-50%)' }}
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={16} />
             </button>
           )}
 
           {/* Scrollable row */}
           <div
             ref={scrollRef}
-            className="flex gap-2 overflow-x-auto py-2 px-4 no-scrollbar"
+            className="flex gap-2 overflow-x-auto py-2.5 px-4 no-scrollbar"
             style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}
           >
             {loading ? (
@@ -187,11 +189,20 @@ export default function ScoreTicker() {
                     className="flex-shrink-0 group"
                     style={{ scrollSnapAlign: 'start' }}
                   >
-                    <div className={`w-44 rounded-lg px-3 py-2 transition-all border ${
+                    <div className={`w-44 rounded-xl px-3 py-2.5 transition-all duration-150 border group-hover:scale-[1.02] group-hover:-translate-y-0.5 ${
                       isLive
-                        ? 'border-red-500/30 bg-red-500/5'
-                        : 'border-white/6 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/12'
-                    }`}>
+                        ? 'border-red-500/40 shadow-red-500/10 shadow-lg'
+                        : isFinal
+                        ? 'border-white/10 shadow-black/20 shadow-md'
+                        : 'border-white/6'
+                    }`}
+                    style={{
+                      background: isLive
+                        ? 'rgba(239,68,68,0.08)'
+                        : isFinal
+                        ? 'rgba(255,255,255,0.04)'
+                        : 'rgba(255,255,255,0.025)',
+                    }}>
                       {/* Sport icon + status */}
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-xs">{sportIcon(game)}</span>
@@ -243,14 +254,16 @@ export default function ScoreTicker() {
             )}
           </div>
 
-          {/* Right arrow */}
+          {/* Right fade + arrow */}
+          <div className="absolute right-0 top-0 bottom-0 w-12 z-10 pointer-events-none"
+            style={{ background: 'linear-gradient(to left, rgba(4,8,16,0.95), transparent)' }} />
           {canScrollRight && (
             <button
               onClick={() => scroll('right')}
-              className="absolute right-0 z-10 flex items-center justify-center w-8 h-full text-slate-400 hover:text-white transition-colors"
-              style={{ background: 'linear-gradient(to left, rgba(0,0,0,0.7), transparent)' }}
+              className="absolute right-1 z-20 flex items-center justify-center w-7 h-7 rounded-full text-slate-300 hover:text-white transition-all hover:scale-110"
+              style={{ background: 'rgba(255,255,255,0.1)', top: '50%', transform: 'translateY(-50%)' }}
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={16} />
             </button>
           )}
         </div>

@@ -44,8 +44,9 @@ export default async function TeamPage({ params }: Props) {
 
   const { data: activeSeason } = await supabase.from('seasons').select('*').eq('is_active', true).single();
 
-  // Team's games
-  const { data: gamesData } = await supabase
+  // Team's games - filter by sport_id to prevent cross-sport contamination
+  const teamSportId = (team.sport as any)?.id || team.sport_id;
+  let gamesQuery = supabase
     .from('games')
     .select(`
       *,
@@ -54,9 +55,12 @@ export default async function TeamPage({ params }: Props) {
       external_home:external_opponents!games_external_home_opponent_id_fkey(name),
       external_away:external_opponents!games_external_away_opponent_id_fkey(name)
     `)
-    .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`)
-    .eq(activeSeason ? 'season_id' : 'id', activeSeason ? activeSeason.id : 'none')
-    .order('game_date', { ascending: false });
+    .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`);
+
+  if (activeSeason) gamesQuery = gamesQuery.eq('season_id', activeSeason.id);
+  if (teamSportId) gamesQuery = gamesQuery.eq('sport_id', teamSportId);
+
+  const { data: gamesData } = await gamesQuery.order('game_date', { ascending: false });
 
   const games = (gamesData as GameWithTeams[]) || [];
 
