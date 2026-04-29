@@ -32,6 +32,7 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
   const [parsedRows, setParsedRows] = useState<ParsedGameRow[]>([])
   const [step, setStep] = useState<'input' | 'review' | 'done'>('input')
   const [publishing, setPublishing] = useState(false)
+  const [skipNonFinal, setSkipNonFinal] = useState(true)
   const [publishResult, setPublishResult] = useState<{ published: number; skipped: number; errors?: string[]; errorMsg?: string } | null>(null)
 
   const teamRecords = useMemo(() =>
@@ -47,12 +48,17 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
 
   const handleParse = () => {
     if (!pasteText.trim()) return
-    const rows = parsePastedGames(pasteText, {
+    let rows = parsePastedGames(pasteText, {
       teams: teamRecords,
       defaultDate,
       defaultSportId,
       defaultSeasonId,
     })
+    if (skipNonFinal) {
+      rows = rows.filter(r => r.status !== 'Postponed' && r.status !== 'Canceled')
+    }
+    // Auto-approve all High confidence rows
+    rows = rows.map(r => r.confidence === 'High' ? { ...r, approved: true } : r)
     setParsedRows(rows)
     setStep('review')
   }
@@ -91,8 +97,10 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
         sport_id: row.sport_id || defaultSportId || null,
         game_date: row.game_date,
         game_time: row.game_time,
-        home_team_id: row.home_team_id,
-        away_team_id: row.away_team_id,
+        home_team_id: row.home_team_id || null,
+        away_team_id: row.away_team_id || null,
+        external_home_name: row.external_home_name || null,
+        external_away_name: row.external_away_name || null,
         home_score: row.home_score,
         away_score: row.away_score,
         status: row.status,
@@ -220,12 +228,16 @@ Heuvelton 5, Brushton-Moira 3 (2nd game)
 PH at BM 3:30`}
                 />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button className="btn-primary" onClick={handleParse} disabled={!pasteText.trim()}>
                   Parse & Review →
                 </button>
+                <label className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  <input type="checkbox" checked={skipNonFinal} onChange={e => setSkipNonFinal(e.target.checked)} />
+                  Skip postponed &amp; canceled
+                </label>
                 <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  One game per line. Parses scores, times, statuses, and team aliases automatically.
+                  Paste the full schedule — dates like "FRIDAY, APRIL 17" are read automatically.
                 </span>
               </div>
             </>

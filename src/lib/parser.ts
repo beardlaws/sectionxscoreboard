@@ -311,12 +311,18 @@ function parseSingleLine(line: string, options: ParseOptions): ParsedGameRow {
   let away_team_match: string | null = null
   let confidence: ImportConfidence = 'High'
 
+  let external_home_name: string | null = null
+  let external_away_name: string | null = null
+
   if (home_team_name && options.teams.length > 0) {
     const res = resolveTeamName(home_team_name, options.teams)
     home_team_id = res.id
     home_team_match = res.matched
-    if (res.confidence === 'Low') confidence = 'Low'
-    else if (res.confidence === 'Medium' && confidence === 'High') confidence = 'Medium'
+    if (res.confidence === 'Low') {
+      external_home_name = home_team_name
+    } else if (res.confidence === 'Medium' && confidence === 'High') {
+      confidence = 'Medium'
+    }
     notes.push(`Home: ${res.note}`)
   }
 
@@ -324,12 +330,25 @@ function parseSingleLine(line: string, options: ParseOptions): ParsedGameRow {
     const res = resolveTeamName(away_team_name, options.teams)
     away_team_id = res.id
     away_team_match = res.matched
-    if (res.confidence === 'Low') confidence = 'Low'
-    else if (res.confidence === 'Medium' && confidence === 'High') confidence = 'Medium'
+    if (res.confidence === 'Low') {
+      external_away_name = away_team_name
+    } else if (res.confidence === 'Medium' && confidence === 'High') {
+      confidence = 'Medium'
+    }
     notes.push(`Away: ${res.note}`)
   }
 
-  if (!home_team_name || !away_team_name) confidence = 'Low'
+  // One internal + one external = valid non-league game, Medium confidence
+  const homeResolved = !!home_team_id
+  const awayResolved = !!away_team_id
+  if (!home_team_name || !away_team_name) {
+    confidence = 'Low'
+  } else if (homeResolved !== awayResolved) {
+    if (confidence === 'Low') confidence = 'Medium'
+    notes.push('Non-league game vs external opponent')
+  } else if (!homeResolved && !awayResolved) {
+    confidence = 'Low'
+  }
 
   return {
     id,
@@ -349,10 +368,12 @@ function parseSingleLine(line: string, options: ParseOptions): ParsedGameRow {
     confidence_notes: notes,
     home_team_id,
     away_team_id,
-    home_team_match,
-    away_team_match,
+    home_team_match: home_team_match || (external_home_name ? '[EXT] ' + external_home_name : null),
+    away_team_match: away_team_match || (external_away_name ? '[EXT] ' + external_away_name : null),
+    external_home_name,
+    external_away_name,
     duplicate_warning: false,
-    approved: false,
+    approved: confidence !== 'Low',
     error: null,
   }
 }

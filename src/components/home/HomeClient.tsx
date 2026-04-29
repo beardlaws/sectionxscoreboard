@@ -129,7 +129,7 @@ export default function HomeClient({
             </span>
           )}
           {closeCount > 0 && (
-            <span className="px-3 py-1.5 rounded-full text-xs font-medium text-amber-400 border border-amber-500/20 bg-amber-500/10">
+            <span className="px-3 py-1.5 rounded-full text-xs font-bold text-amber-300 border border-amber-500/30 bg-amber-500/15 shadow-amber-500/10 shadow-sm">
               🔥 {closeCount} close game{closeCount !== 1 ? 's' : ''}
             </span>
           )}
@@ -182,7 +182,8 @@ export default function HomeClient({
                   className="w-full flex items-center gap-3 mb-4 group"
                 >
                   <div className="flex items-center gap-2 flex-1">
-                    <h2 className={`font-bold font-display ${dateIdx === 0 ? 'text-white text-lg' : 'text-slate-300 text-base'}`}>
+                    <h2 className={`font-bold font-display ${dateIdx === 0 ? 'text-white text-xl tracking-tight' : 'text-slate-400 text-base'}`}>
+                      {dateIdx === 0 && <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 mb-0.5 animate-pulse" />}
                       {label}
                     </h2>
                     <span className="text-xs text-slate-500 font-medium">
@@ -202,11 +203,12 @@ export default function HomeClient({
                       const icon = SPORT_ICONS[sportKey] || '🏆'
                       return (
                         <div key={sportKey}>
-                          {/* Sport sub-header */}
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm">{icon}</span>
-                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{sportKey}</span>
-                            <span className="text-xs text-slate-600">{games.length}</span>
+                          {/* Sport sub-header - broadcast style */}
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-base leading-none">{icon}</span>
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">{sportKey}</span>
+                            <span className="text-xs text-slate-600 font-medium">{games.length} game{games.length !== 1 ? 's' : ''}</span>
+                            <div className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent ml-1" />
                           </div>
                           <div className="space-y-2 pl-0">
                             {games.map(game => (

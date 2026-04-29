@@ -103,11 +103,23 @@ export default function ScoreCard({ game, compact = false, featured = false }: S
   // FULL card
   return (
     <Link href={`/games/${game.id}`} className="block group">
-      <div className={`rounded-xl overflow-hidden border transition-all hover:border-white/20 hover:shadow-lg hover:shadow-black/30 ${
-        featured
-          ? 'border-yellow-500/30 bg-gradient-to-br from-yellow-500/5 to-transparent'
-          : 'border-white/8 bg-white/[0.03]'
-      }`} style={{ background: featured ? undefined : 'rgba(255,255,255,0.03)' }}>
+      <div
+        className={`rounded-xl overflow-hidden border transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/40 ${
+          featured
+            ? 'border-yellow-500/30'
+            : 'border-white/8 hover:border-white/16'
+        }`}
+        style={{
+          background: featured
+            ? 'linear-gradient(135deg, rgba(234,179,8,0.06), rgba(255,255,255,0.02))'
+            : 'rgba(255,255,255,0.025)',
+          borderLeft: isFinal
+            ? `3px solid ${homeWins ? (homeSchool?.primary_color || '#1e3a5f') : awayWins ? (awaySchool?.primary_color || '#1e3a5f') : 'rgba(255,255,255,0.08)'}`
+            : isLive
+            ? '3px solid #ef4444'
+            : '3px solid rgba(255,255,255,0.06)',
+        }}
+      >
 
         {/* Sport + status bar */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1">

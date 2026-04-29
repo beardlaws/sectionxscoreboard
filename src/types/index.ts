@@ -249,6 +249,8 @@ export interface ParsedGameRow {
   approved: boolean
   error: string | null
   sport_id?: string | null
+  external_home_name?: string | null
+  external_away_name?: string | null
 }
 
 // Standings
