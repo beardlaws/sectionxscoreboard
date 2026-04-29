@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { adminDb } from '@/lib/adminDb';
 import { Photo } from '@/types';
 import { Check, X, Star, Trash2, Eye } from 'lucide-react';
 
@@ -31,17 +32,17 @@ export default function AdminPhotosPage() {
   }
 
   async function approvePhoto(id: string) {
-    await supabase.from('photos').update({ approved: true }).eq('id', id);
+    await adminDb.update('photos', { approved: true }, { id });
     fetchPhotos();
   }
 
   async function rejectPhoto(id: string) {
-    await supabase.from('photos').delete().eq('id', id);
+    await adminDb.delete('photos', { id });
     fetchPhotos();
   }
 
   async function featurePhoto(id: string, featured: boolean) {
-    await supabase.from('photos').update({ featured }).eq('id', id);
+    await adminDb.update('photos', { featured }, { id });
     fetchPhotos();
   }
 

@@ -54,16 +54,9 @@ export default function AdminTeamsPage() {
   async function toggleTeamSeason(team: any) {
     const existing = team.current_season;
     if (existing) {
-      await supabase
-        .from('team_seasons')
-        .update({ active_for_season: !existing.active_for_season })
-        .eq('id', existing.id);
+      await adminDb.update('team_seasons', { active_for_season: !existing.active_for_season }, { id: existing.id });
     } else {
-      await supabase.from('team_seasons').insert({
-        team_id: team.id,
-        season_id: selectedSeason,
-        active_for_season: true,
-      });
+      await adminDb.insert('team_seasons', { team_id: team.id, season_id: selectedSeason, active_for_season: true });
     }
     fetchTeams();
   }

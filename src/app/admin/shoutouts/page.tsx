@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { adminDb } from '@/lib/adminDb';
 import { Shoutout } from '@/types';
 import { Check, Trash2, Star } from 'lucide-react';
 
@@ -42,17 +43,17 @@ export default function AdminShoutoutsPage() {
   }
 
   async function approve(id: string) {
-    await supabase.from('shoutouts').update({ approved: true }).eq('id', id);
+    await adminDb.update('shoutouts', { approved: true }, { id });
     fetchShoutouts();
   }
 
   async function remove(id: string) {
-    await supabase.from('shoutouts').delete().eq('id', id);
+    await adminDb.delete('shoutouts', { id });
     fetchShoutouts();
   }
 
   async function feature(id: string, featured: boolean) {
-    await supabase.from('shoutouts').update({ featured }).eq('id', id);
+    await adminDb.update('shoutouts', { featured }, { id });
     fetchShoutouts();
   }
 

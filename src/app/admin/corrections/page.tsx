@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { adminDb } from '@/lib/adminDb';
 import { CorrectionRequest } from '@/types';
 import { Check, ExternalLink, Trash2 } from 'lucide-react';
 
@@ -29,12 +30,12 @@ export default function AdminCorrectionsPage() {
   }
 
   async function resolve(id: string) {
-    await supabase.from('correction_requests').update({ status: 'resolved' }).eq('id', id);
+    await adminDb.update('correction_requests', { status: 'resolved' }, { id });
     fetchCorrections();
   }
 
   async function dismiss(id: string) {
-    await supabase.from('correction_requests').update({ status: 'dismissed' }).eq('id', id);
+    await adminDb.update('correction_requests', { status: 'dismissed' }, { id });
     fetchCorrections();
   }
 

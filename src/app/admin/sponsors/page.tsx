@@ -54,13 +54,13 @@ export default function AdminSponsorsPage() {
   }
 
   async function saveEdit(id: string) {
-    await supabase.from('sponsors').update(editData).eq('id', id);
+    await adminDb.update('sponsors', editData, { id });
     setEditingId(null);
     fetchSponsors();
   }
 
   async function addSponsor() {
-    await supabase.from('sponsors').insert(newData);
+    await adminDb.insert('sponsors', newData);
     setAdding(false);
     setNewData({ ...empty });
     fetchSponsors();
@@ -68,7 +68,7 @@ export default function AdminSponsorsPage() {
 
   async function deleteSponsor(id: string) {
     if (!confirm('Delete this sponsor?')) return;
-    await supabase.from('sponsors').delete().eq('id', id);
+    await adminDb.delete('sponsors', { id });
     fetchSponsors();
   }
 

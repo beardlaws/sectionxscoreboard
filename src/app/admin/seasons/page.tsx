@@ -34,8 +34,11 @@ export default function AdminSeasonsPage() {
   }
 
   async function setActive(id: string) {
-    await supabase.from('seasons').update({ is_active: false }).neq('id', id);
-    await supabase.from('seasons').update({ is_active: true }).eq('id', id);
+    // Deactivate all seasons then activate the selected one
+    const { data: allSeasons } = await supabase.from('seasons').select('id');
+    for (const s of (allSeasons || [])) {
+      await adminDb.update('seasons', { is_active: s.id === id }, { id: s.id });
+    }
     fetchSeasons();
   }
 
@@ -82,7 +85,7 @@ export default function AdminSeasonsPage() {
           coop_schools: ts.coop_schools,
           notes: ts.notes,
         }));
-        await supabase.from('team_seasons').insert(newTeamSeasons);
+        await adminDb.insert('team_seasons', newTeamSeasons);
       }
     }
 

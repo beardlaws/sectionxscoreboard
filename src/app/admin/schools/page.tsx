@@ -39,21 +39,21 @@ export default function AdminSchoolsPage() {
   }
 
   async function saveEdit(id: string) {
-    await supabase.from('schools').update(editData).eq('id', id);
+    await adminDb.update('schools', editData, { id });
     setEditingId(null);
     fetchSchools();
   }
 
   async function saveNew() {
     const slug = newData.slug || slugify(newData.school_name);
-    await supabase.from('schools').insert({ ...newData, slug });
+    await adminDb.insert('schools', { ...newData, slug });
     setAdding(false);
     setNewData({ ...emptySchool });
     fetchSchools();
   }
 
   async function toggleActive(id: string, active: boolean) {
-    await supabase.from('schools').update({ active }).eq('id', id);
+    await adminDb.update('schools', { active }, { id });
     fetchSchools();
   }
 

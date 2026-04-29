@@ -2,7 +2,6 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { parsePastedGames } from '@/lib/parser'
 import { format } from 'date-fns'
 import type { ParsedGameRow, Sport, Season } from '@/types'
@@ -84,43 +83,12 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
     const toPublish = parsedRows.filter(r => r.approved)
     if (toPublish.length === 0) return
     setPublishing(true)
-    const supabase = createClient()
 
-    let published = 0
-    let skipped = 0
-
-    for (const row of toPublish) {
-      if (!row.game_date) { skipped++; continue }
-
-      // Check for duplicate
-      if (row.home_team_id && row.away_team_id) {
-        const { data: existing } = await supabase
-          .from('games')
-          .select('id')
-          .eq('game_date', row.game_date)
-          .eq('sport_id', defaultSportId || '')
-          .or(`home_team_id.eq.${row.home_team_id},away_team_id.eq.${row.home_team_id}`)
-          .limit(1)
-
-        if (existing && existing.length > 0) {
-          // Update instead of insert
-          await supabase
-            .from('games')
-            .update({
-              home_score: row.home_score,
-              away_score: row.away_score,
-              status: row.status,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existing[0].id)
-          published++
-          continue
-        }
-      }
-
-      const { error } = await supabase.from('games').insert({
+    const games = toPublish
+      .filter(row => row.game_date)
+      .map(row => ({
         season_id: defaultSeasonId || null,
-        sport_id: defaultSportId || null,
+        sport_id: row.sport_id || defaultSportId || null,
         game_date: row.game_date,
         game_time: row.game_time,
         home_team_id: row.home_team_id,
@@ -135,13 +103,20 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
         parser_confidence: row.confidence,
         source: 'bulk_paste',
         verification_status: 'Reported',
-      })
+      }))
 
-      if (!error) published++
-      else skipped++
+    try {
+      const res = await fetch('/api/admin/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(games),
+      })
+      const result = await res.json()
+      setPublishResult({ published: result.published || 0, skipped: result.skipped || 0 })
+    } catch (e) {
+      setPublishResult({ published: 0, skipped: toPublish.length })
     }
 
-    setPublishResult({ published, skipped })
     setStep('done')
     setPublishing(false)
   }

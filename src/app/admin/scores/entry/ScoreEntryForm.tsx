@@ -3,7 +3,6 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import type { Sport, Season } from '@/types'
 
@@ -61,8 +60,6 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
     }
     setLoading(true)
     setError('')
-    const supabase = createClient()
-
     const payload = {
       season_id: form.season_id || null,
       sport_id: form.sport_id,
@@ -82,14 +79,17 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
       source: 'manual',
     }
 
-    const { error: err } = await supabase.from('games').insert(payload)
-    if (err) {
-      setError(err.message)
+    const res = await fetch('/api/admin/games', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const result = await res.json()
+    if (!res.ok || result.errors?.length) {
+      setError(result.errors?.[0] || result.error || 'Failed to save game')
     } else {
       setSuccess('Game saved!')
-      setTimeout(() => {
-        router.push('/admin')
-      }, 1500)
+      setTimeout(() => { router.push('/admin') }, 1500)
     }
     setLoading(false)
   }

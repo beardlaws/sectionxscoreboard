@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { adminDb } from '@/lib/adminDb'
 import { format } from 'date-fns'
 import type { Submission, Sport, Season } from '@/types'
 
@@ -48,7 +49,7 @@ export default function SubmissionQueue({ submissions, sports, teams, seasons }:
       const activeSeason = seasons.find(s => s.is_active) || seasons[0]
       const sport = sports.find(s => s.sport_name === (edit.sport_name || sub.sport_name))
 
-      await supabase.from('games').insert({
+      await adminDb.insert('games', {
         season_id: activeSeason?.id || null,
         sport_id: sport?.id || null,
         game_date: edit.game_date || sub.game_date,
@@ -61,10 +62,7 @@ export default function SubmissionQueue({ submissions, sports, teams, seasons }:
       })
     }
 
-    await supabase
-      .from('submissions')
-      .update({ status: action === 'approve' ? 'approved' : 'rejected' })
-      .eq('id', sub.id)
+    await adminDb.update('submissions', { status: action === 'approve' ? 'approved' : 'rejected' }, { id: sub.id })
 
     setItems(prev => prev.filter(s => s.id !== sub.id))
     setLoading(null)

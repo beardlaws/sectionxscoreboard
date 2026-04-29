@@ -45,7 +45,7 @@ export default function AdminSettingsPage() {
       key: def.key,
       value: settings[def.key] ?? def.default ?? '',
     }));
-    await supabase.from('site_settings').upsert(upserts, { onConflict: 'key' });
+    await adminDb.upsert('site_settings', upserts, 'key');
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
