@@ -50,7 +50,9 @@ export default async function TeamPage({ params }: Props) {
     .select(`
       *,
       home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
-      away_team:teams!games_away_team_id_fkey(*, school:schools(*))
+      away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
+      external_home:external_opponents!games_external_home_opponent_id_fkey(name),
+      external_away:external_opponents!games_external_away_opponent_id_fkey(name)
     `)
     .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`)
     .eq(activeSeason ? 'season_id' : 'id', activeSeason ? activeSeason.id : 'none')
@@ -58,12 +60,12 @@ export default async function TeamPage({ params }: Props) {
 
   const games = (gamesData as GameWithTeams[]) || [];
 
-  // Team record
+  // Team record — use team_id fields not nested objects so external games count too
   const finalGames = games.filter(g => g.status === 'Final');
   let wins = 0, losses = 0, ties = 0;
   finalGames.forEach(g => {
     if (g.home_score == null || g.away_score == null) return;
-    const isHome = (g.home_team as any)?.id === team.id;
+    const isHome = g.home_team_id === team.id;
     const myScore = isHome ? g.home_score : g.away_score;
     const oppScore = isHome ? g.away_score : g.home_score;
     if (myScore > oppScore) wins++;

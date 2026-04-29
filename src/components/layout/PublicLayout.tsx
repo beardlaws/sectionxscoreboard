@@ -1,5 +1,6 @@
 // src/components/layout/PublicLayout.tsx
 'use client'
+import ScoreTicker from './ScoreTicker'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -160,6 +161,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
           </div>
         )}
       </header>
+      <ScoreTicker />
 
       {/* Main */}
       <main className="flex-1">

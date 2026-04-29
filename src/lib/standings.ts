@@ -1,9 +1,8 @@
 // src/lib/standings.ts
 import type { StandingsRow } from '@/types'
 
-// BTM = Binomial Tournament Method - used by Section X for playoff seeding
-// Formula: (wins + 0.5) / (wins + losses + 1)
-// This smooths out records so undefeated short-season teams don't dominate
+// BTM = Binomial Tournament Method
+// Formula: (wins + ties*0.5 + 0.5) / (wins + losses + ties + 1)
 function calcBTM(wins: number, losses: number, ties: number): number {
   const w = wins + ties * 0.5
   const total = wins + losses + ties
@@ -47,48 +46,78 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
   for (const game of games) {
     if (game.status !== 'Final') continue
     if (game.home_score == null || game.away_score == null) continue
-    if (!game.home_team_id || !game.away_team_id) continue
 
     const ht = game.home_team
     const at = game.away_team
-    if (!ht || !at) continue
+    const hasHomeTeam = !!game.home_team_id && !!ht
+    const hasAwayTeam = !!game.away_team_id && !!at
 
-    const homeRow = ensure(
-      game.home_team_id, ht.team_name,
-      ht.school?.school_name || '', ht.school?.slug || '',
-      ht.slug, ht.school?.primary_color || '#1e3a5f',
-    )
-    const awayRow = ensure(
-      game.away_team_id, at.team_name,
-      at.school?.school_name || '', at.school?.slug || '',
-      at.slug, at.school?.primary_color || '#1e3a5f',
-    )
+    // Both Section X teams — full processing
+    if (hasHomeTeam && hasAwayTeam) {
+      const homeRow = ensure(
+        game.home_team_id, ht.team_name,
+        ht.school?.school_name || '', ht.school?.slug || '',
+        ht.slug, ht.school?.primary_color || '#1e3a5f',
+      )
+      const awayRow = ensure(
+        game.away_team_id, at.team_name,
+        at.school?.school_name || '', at.school?.slug || '',
+        at.slug, at.school?.primary_color || '#1e3a5f',
+      )
 
-    homeRow.points_for += game.home_score
-    homeRow.points_against += game.away_score
-    awayRow.points_for += game.away_score
-    awayRow.points_against += game.home_score
+      homeRow.points_for += game.home_score
+      homeRow.points_against += game.away_score
+      awayRow.points_for += game.away_score
+      awayRow.points_against += game.home_score
 
-    // Is this a league game? Both teams must share same division AND class
-    const homeTs = tsMap[game.home_team_id]
-    const awayTs = tsMap[game.away_team_id]
-    const isLeague = !!(
-      homeTs && awayTs &&
-      homeTs.division && awayTs.division &&
-      homeTs.division === awayTs.division &&
-      homeTs.class === awayTs.class
-    )
+      // League game = both teams share same division AND class
+      const homeTs = tsMap[game.home_team_id]
+      const awayTs = tsMap[game.away_team_id]
+      const isLeague = !!(
+        homeTs && awayTs &&
+        homeTs.division && awayTs.division &&
+        homeTs.division === awayTs.division &&
+        homeTs.class === awayTs.class
+      )
 
-    if (game.home_score > game.away_score) {
-      homeRow.wins++; awayRow.losses++
-      if (isLeague) { homeRow.league_wins++; awayRow.league_losses++ }
-    } else if (game.away_score > game.home_score) {
-      awayRow.wins++; homeRow.losses++
-      if (isLeague) { awayRow.league_wins++; homeRow.league_losses++ }
-    } else {
-      homeRow.ties++; awayRow.ties++
-      if (isLeague) { homeRow.league_ties++; awayRow.league_ties++ }
+      if (game.home_score > game.away_score) {
+        homeRow.wins++; awayRow.losses++
+        if (isLeague) { homeRow.league_wins++; awayRow.league_losses++ }
+      } else if (game.away_score > game.home_score) {
+        awayRow.wins++; homeRow.losses++
+        if (isLeague) { awayRow.league_wins++; homeRow.league_losses++ }
+      } else {
+        homeRow.ties++; awayRow.ties++
+        if (isLeague) { homeRow.league_ties++; awayRow.league_ties++ }
+      }
+
+    } else if (hasHomeTeam && !hasAwayTeam) {
+      // Home is Section X, away is external — count for overall only, never league
+      const homeRow = ensure(
+        game.home_team_id, ht.team_name,
+        ht.school?.school_name || '', ht.school?.slug || '',
+        ht.slug, ht.school?.primary_color || '#1e3a5f',
+      )
+      homeRow.points_for += game.home_score
+      homeRow.points_against += game.away_score
+      if (game.home_score > game.away_score) homeRow.wins++
+      else if (game.away_score > game.home_score) homeRow.losses++
+      else homeRow.ties++
+
+    } else if (!hasHomeTeam && hasAwayTeam) {
+      // Away is Section X, home is external
+      const awayRow = ensure(
+        game.away_team_id, at.team_name,
+        at.school?.school_name || '', at.school?.slug || '',
+        at.slug, at.school?.primary_color || '#1e3a5f',
+      )
+      awayRow.points_for += game.away_score
+      awayRow.points_against += game.home_score
+      if (game.away_score > game.home_score) awayRow.wins++
+      else if (game.home_score > game.away_score) awayRow.losses++
+      else awayRow.ties++
     }
+    // Both null = can't attribute to anyone, skip
   }
 
   const rows = Array.from(map.values())
@@ -100,7 +129,6 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
     r.btm = calcBTM(r.wins, r.losses, r.ties)
   })
 
-  // Sort by BTM descending within division
   return rows.sort((a, b) => {
     if (a.division !== b.division) return (a.division || 'Z').localeCompare(b.division || 'Z')
     if (a.class !== b.class) return (a.class || 'Z').localeCompare(b.class || 'Z')
