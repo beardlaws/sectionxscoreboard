@@ -171,7 +171,24 @@ export default async function StandingsPage({ searchParams }: Props) {
                   s.slug === selectedSlug ? 'bg-ice text-navy' : 'bg-white/10 text-slate-300 hover:bg-white/20'
                 }`}
               >
-                {s.gender === 'Boys' ? '♂ ' : s.gender === 'Girls' ? '♀ ' : ''}{s.sport_name}
+  {(() => {
+                const icons: Record<string, string> = {
+                  'Baseball': '⚾', 'Softball': '🥎',
+                  'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
+                  'Football': '🏈',
+                  'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
+                  'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
+                  'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
+                  'Volleyball': '🏐', 'Boys Golf': '⛳',
+                  'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
+                  'Boys Track': '🏃', 'Girls Track': '🏃',
+                  'Swimming': '🏊', 'Girls Swimming': '🏊',
+                  'Cross Country': '🏃',
+                }
+                const fullName = (s.gender === 'Boys' || s.gender === 'Girls') ? s.gender + ' ' + s.sport_name : s.sport_name
+                const icon = icons[fullName] || icons[s.sport_name] || '🏆'
+                return icon + ' ' + s.sport_name
+              })()}
               </Link>
             ))}
           </div>
