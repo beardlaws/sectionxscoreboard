@@ -37,8 +37,8 @@ async function getHomepageData() {
     .eq('game_date', today)
     .order('game_time', { ascending: true })
 
-  // Recent finals (last 3 days)
-  const threeDaysAgo = format(new Date(Date.now() - 3 * 86400000), 'yyyy-MM-dd')
+  // Recent finals (last 7 days, grouped by date on client)
+  const sevenDaysAgo = format(new Date(Date.now() - 7 * 86400000), 'yyyy-MM-dd')
   const { data: recentGames } = await supabase
     .from('games')
     .select(`
@@ -50,10 +50,10 @@ async function getHomepageData() {
       external_away:external_opponents!games_external_away_opponent_id_fkey(*)
     `)
     .eq('status', 'Final')
-    .gte('game_date', threeDaysAgo)
-    .lt('game_date', today)
+    .gte('game_date', sevenDaysAgo)
     .order('game_date', { ascending: false })
-    .limit(20)
+    .order('game_time', { ascending: true })
+    .limit(100)
 
   // Featured game
   const { data: featuredGame } = await supabase

@@ -1,35 +1,54 @@
 // src/components/scores/ScoreCard.tsx
 import Link from 'next/link'
 import type { GameWithTeams } from '@/types'
-import { STATUS_COLORS, isCloseGame } from '@/lib/constants'
-import { format } from 'date-fns'
+import { isCloseGame } from '@/lib/constants'
 
 interface ScoreCardProps {
   game: GameWithTeams
   compact?: boolean
   highlightTeamId?: string
+  featured?: boolean
 }
 
-function TeamColorBlock({ color, name }: { color: string; name: string }) {
-  const initials = name
-    .split(' ')
-    .filter(w => w.length > 2)
-    .slice(0, 2)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase() || name.slice(0, 2).toUpperCase()
-
-  return (
-    <div
-      className="team-color-block flex-shrink-0"
-      style={{ background: color || '#1e2d47', color: '#fff' }}
-    >
-      {initials}
-    </div>
-  )
+// Sport identity: icon + accent color
+const SPORT_META: Record<string, { icon: string; color: string }> = {
+  'Baseball':        { icon: '⚾', color: '#b45309' },
+  'Softball':        { icon: '🥎', color: '#c2410c' },
+  'Boys Lacrosse':   { icon: '🥍', color: '#1d4ed8' },
+  'Girls Lacrosse':  { icon: '🥍', color: '#7c3aed' },
+  'Football':        { icon: '🏈', color: '#92400e' },
+  'Boys Basketball': { icon: '🏀', color: '#ea580c' },
+  'Girls Basketball':{ icon: '🏀', color: '#db2777' },
+  'Boys Hockey':     { icon: '🏒', color: '#0284c7' },
+  'Girls Hockey':    { icon: '🏒', color: '#0891b2' },
+  'Boys Soccer':     { icon: '⚽', color: '#16a34a' },
+  'Girls Soccer':    { icon: '⚽', color: '#059669' },
+  'Volleyball':      { icon: '🏐', color: '#4f46e5' },
+  'Boys Wrestling':  { icon: '🤼', color: '#9f1239' },
+  'Girls Wrestling': { icon: '🤼', color: '#be123c' },
+  'Boys Track':      { icon: '🏃', color: '#ca8a04' },
+  'Girls Track':     { icon: '🏃', color: '#d97706' },
+  'Boys Cross Country': { icon: '🏃', color: '#65a30d' },
+  'Girls Cross Country': { icon: '🏃', color: '#4d7c0f' },
+  'Boys Golf':       { icon: '⛳', color: '#15803d' },
+  'Boys Swimming':   { icon: '🏊', color: '#0369a1' },
+  'Girls Swimming':  { icon: '🏊', color: '#0e7490' },
+  'Boys Indoor Track': { icon: '🏃', color: '#ca8a04' },
+  'Girls Indoor Track': { icon: '🏃', color: '#d97706' },
 }
 
-export default function ScoreCard({ game, compact = false }: ScoreCardProps) {
+function getSportMeta(sportName?: string, gender?: string) {
+  if (!sportName) return { icon: '🏆', color: '#334155' }
+  const full = gender && gender !== 'Both' ? `${gender} ${sportName}` : sportName
+  return SPORT_META[full] || SPORT_META[sportName] || { icon: '🏆', color: '#334155' }
+}
+
+function TeamInitials(name: string): string {
+  return name.split(' ').filter(w => w.length > 2).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+    || name.slice(0, 2).toUpperCase()
+}
+
+export default function ScoreCard({ game, compact = false, featured = false }: ScoreCardProps) {
   const homeTeam = game.home_team
   const awayTeam = game.away_team
   const homeSchool = homeTeam?.school
@@ -37,128 +56,144 @@ export default function ScoreCard({ game, compact = false }: ScoreCardProps) {
 
   const homeName = homeSchool?.school_name || game.external_home?.name || 'TBD'
   const awayName = awaySchool?.school_name || game.external_away?.name || 'TBD'
-  const homeAlias = homeSchool?.alias || homeName.slice(0, 4).toUpperCase()
-  const awayAlias = awaySchool?.alias || awayName.slice(0, 4).toUpperCase()
 
   const isFinal = game.status === 'Final'
-  const homeWins = isFinal && game.home_score !== null && game.away_score !== null && game.home_score > game.away_score
-  const awayWins = isFinal && game.home_score !== null && game.away_score !== null && game.away_score > game.home_score
+  const isLive = game.status === 'Live'
+  const isScheduled = game.status === 'Scheduled'
+  const homeWins = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score
+  const awayWins = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score
   const close = isCloseGame(game.home_score, game.away_score)
+  const sportMeta = getSportMeta(game.sport?.sport_name, game.sport?.gender)
 
-  const gameSlug = `${(awaySchool?.slug || 'away')}-vs-${(homeSchool?.slug || 'home')}-${game.sport?.slug || 'sport'}-${game.game_date}`
+  const statusBadge = () => {
+    if (isLive) return <span className="flex items-center gap-1 text-xs font-bold text-red-400"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse inline-block" />LIVE</span>
+    if (isFinal) return <span className="text-xs font-semibold text-green-400 tracking-wide">FINAL</span>
+    if (game.status === 'Postponed') return <span className="text-xs font-medium text-yellow-500">PPD</span>
+    if (game.status === 'Canceled') return <span className="text-xs font-medium text-red-500/70">CANCELED</span>
+    return game.game_time
+      ? <span className="text-xs text-slate-400">{game.game_time}</span>
+      : <span className="text-xs text-slate-500">SCHEDULED</span>
+  }
 
+  // COMPACT — used in recent results lists
   if (compact) {
     return (
-      <Link href={`/games/${game.id}`} className="block card-hover animate-fade-in">
-        <div className="px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`text-sm font-medium truncate ${awayWins ? 'score-winner' : 'score-loser'}`}
-                    style={{ fontFamily: 'var(--font-display)' }}
-                  >
-                    {awayAlias}
-                  </span>
-                  {isFinal && (
-                    <span className={`score-digit text-lg ml-2 ${awayWins ? 'score-winner' : 'score-loser'}`}>
-                      {game.away_score ?? '-'}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`text-sm font-medium truncate ${homeWins ? 'score-winner' : 'score-loser'}`}
-                    style={{ fontFamily: 'var(--font-display)' }}
-                  >
-                    {homeAlias}
-                  </span>
-                  {isFinal && (
-                    <span className={`score-digit text-lg ml-2 ${homeWins ? 'score-winner' : 'score-loser'}`}>
-                      {game.home_score ?? '-'}
-                    </span>
-                  )}
-                </div>
-              </div>
+      <Link href={`/games/${game.id}`} className="block group">
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/10">
+          <div className="text-base w-5 text-center flex-shrink-0">{sportMeta.icon}</div>
+          <div className="flex-1 min-w-0">
+            <div className={`flex items-center justify-between gap-2 ${awayWins ? '' : isFinal ? 'opacity-50' : ''}`}>
+              <span className={`text-sm truncate ${awayWins ? 'text-white font-semibold' : 'text-slate-400'}`}>{awayName}</span>
+              {(isFinal || isLive) && <span className={`font-mono font-bold text-sm tabular-nums ${awayWins ? 'text-white' : 'text-slate-500'}`}>{game.away_score}</span>}
             </div>
-            <div className="flex flex-col items-end gap-1 flex-shrink-0">
-              <span className={`badge ${game.status === 'Final' ? 'badge-final' : game.status === 'Live' ? 'badge-live' : game.status === 'Scheduled' ? 'badge-scheduled' : game.status === 'Postponed' ? 'badge-postponed' : 'badge-canceled'}`}>
-                {game.status}
-              </span>
-              {close && isFinal && (
-                <span className="text-xs" style={{ color: '#fbbf24' }}>🔥 Close</span>
-              )}
+            <div className={`flex items-center justify-between gap-2 mt-0.5 ${homeWins ? '' : isFinal ? 'opacity-50' : ''}`}>
+              <span className={`text-sm truncate ${homeWins ? 'text-white font-semibold' : 'text-slate-400'}`}>{homeName}</span>
+              {(isFinal || isLive) && <span className={`font-mono font-bold text-sm tabular-nums ${homeWins ? 'text-white' : 'text-slate-500'}`}>{game.home_score}</span>}
             </div>
+          </div>
+          <div className="flex-shrink-0 text-right">
+            {statusBadge()}
+            {close && isFinal && <div className="text-xs text-amber-400 mt-0.5">🔥</div>}
           </div>
         </div>
       </Link>
     )
   }
 
+  // FULL card
   return (
-    <Link href={`/games/${game.id}`} className="block card-hover animate-score-in">
-      <div className="p-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+    <Link href={`/games/${game.id}`} className="block group">
+      <div className={`rounded-xl overflow-hidden border transition-all hover:border-white/20 hover:shadow-lg hover:shadow-black/30 ${
+        featured
+          ? 'border-yellow-500/30 bg-gradient-to-br from-yellow-500/5 to-transparent'
+          : 'border-white/8 bg-white/[0.03]'
+      }`} style={{ background: featured ? undefined : 'rgba(255,255,255,0.03)' }}>
+
+        {/* Sport + status bar */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">{sportMeta.icon}</span>
+            <span className="text-xs font-medium" style={{ color: sportMeta.color }}>
               {game.sport?.sport_name}
-              {game.game_time ? ` · ${game.game_time}` : ''}
+              {game.game_number ? ` · Game ${game.game_number}` : ''}
             </span>
             {game.game_of_the_night && (
-              <span className="badge" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>
-                ⭐ Game of Night
-              </span>
+              <span className="text-xs text-yellow-400 font-medium">⭐ GOTN</span>
+            )}
+            {close && isFinal && (
+              <span className="text-xs text-amber-400">🔥 Close</span>
             )}
           </div>
-          <span className={`badge ${game.status === 'Final' ? 'badge-final' : game.status === 'Live' ? 'badge-live' : game.status === 'Scheduled' ? 'badge-scheduled' : game.status === 'Postponed' ? 'badge-postponed' : 'badge-canceled'}`}>
-            {game.status === 'Live' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1" />}
-            {game.status}
-          </span>
+          <div className="flex-shrink-0">{statusBadge()}</div>
         </div>
 
-        {/* Teams */}
-        <div className="space-y-2">
+        {/* Teams + scores */}
+        <div className="px-4 pb-4 pt-2 space-y-1.5">
           {/* Away */}
           <div className="flex items-center gap-3">
-            <TeamColorBlock color={awaySchool?.primary_color || '#1e2d47'} name={awayAlias} />
-            <div className="flex-1 min-w-0">
-              <div className={`font-semibold truncate ${awayWins ? 'score-winner' : 'score-loser'}`} style={{ fontFamily: 'var(--font-display)', fontSize: '15px' }}>
-                {awayName}
-              </div>
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ background: awaySchool?.primary_color || '#1e3a5f' }}
+            >
+              {TeamInitials(awayName)}
             </div>
-            {(isFinal || game.status === 'Live') && (
-              <span className={`score-digit text-2xl font-bold ${awayWins ? 'score-winner' : 'score-loser'}`}>
-                {game.away_score ?? '-'}
+            <span className={`flex-1 truncate font-display transition-colors ${
+              awayWins ? 'text-white font-bold text-base' :
+              isFinal ? 'text-slate-500 font-medium text-sm' :
+              'text-slate-200 font-medium text-sm'
+            }`}>
+              {awayName}
+            </span>
+            {(isFinal || isLive) && (
+              <span className={`font-mono tabular-nums flex-shrink-0 ${
+                awayWins ? 'text-white font-bold text-2xl' : 'text-slate-500 text-xl font-semibold'
+              }`}>
+                {game.away_score ?? '—'}
               </span>
             )}
+            {isScheduled && game.game_time && !isFinal && (
+              <span className="text-slate-500 text-sm">—</span>
+            )}
           </div>
+
+          {/* Divider */}
+          <div className="ml-11 h-px bg-white/5" />
 
           {/* Home */}
           <div className="flex items-center gap-3">
-            <TeamColorBlock color={homeSchool?.primary_color || '#1e2d47'} name={homeAlias} />
-            <div className="flex-1 min-w-0">
-              <div className={`font-semibold truncate ${homeWins ? 'score-winner' : 'score-loser'}`} style={{ fontFamily: 'var(--font-display)', fontSize: '15px' }}>
-                {homeName}
-              </div>
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ background: homeSchool?.primary_color || '#1e3a5f' }}
+            >
+              {TeamInitials(homeName)}
             </div>
-            {(isFinal || game.status === 'Live') && (
-              <span className={`score-digit text-2xl font-bold ${homeWins ? 'score-winner' : 'score-loser'}`}>
-                {game.home_score ?? '-'}
+            <span className={`flex-1 truncate font-display transition-colors ${
+              homeWins ? 'text-white font-bold text-base' :
+              isFinal ? 'text-slate-500 font-medium text-sm' :
+              'text-slate-200 font-medium text-sm'
+            }`}>
+              {homeName}
+            </span>
+            {(isFinal || isLive) && (
+              <span className={`font-mono tabular-nums flex-shrink-0 ${
+                homeWins ? 'text-white font-bold text-2xl' : 'text-slate-500 text-xl font-semibold'
+              }`}>
+                {game.home_score ?? '—'}
               </span>
             )}
+            {isScheduled && game.game_time && !isFinal && (
+              <span className="text-slate-500 text-sm">—</span>
+            )}
           </div>
-        </div>
 
-        {/* Footer */}
-        {(game.location || close || game.notes) && (
-          <div className="mt-3 pt-2 flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)' }}>
-            {game.location && <span>📍 {game.location}</span>}
-            {close && isFinal && <span style={{ color: '#fbbf24' }}>🔥 Close game</span>}
-            {game.notes && <span>{game.notes}</span>}
-          </div>
-        )}
+          {/* Location / notes */}
+          {(game.location || game.notes) && (
+            <p className="ml-11 text-xs text-slate-600 pt-1 truncate">
+              {game.location && `📍 ${game.location}`}
+              {game.notes && ` · ${game.notes}`}
+            </p>
+          )}
+        </div>
       </div>
     </Link>
   )
