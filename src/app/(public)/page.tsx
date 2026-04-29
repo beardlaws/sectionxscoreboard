@@ -102,7 +102,7 @@ async function getHomepageData() {
   // Schools for search
   const { data: schools } = await supabase
     .from('schools')
-    .select('id, school_name, mascot, city, slug, primary_color')
+    .select('*')
     .eq('active', true)
     .order('school_name')
 
