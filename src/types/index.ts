@@ -199,7 +199,7 @@ export interface CorrectionRequest {
   submitter_name: string
   submitter_email: string
   correction_text: string
-  status: 'pending' | 'resolved' | 'dismissed'
+  status: 'open' | 'pending' | 'resolved' | 'dismissed'
   created_at: string
 }
 
