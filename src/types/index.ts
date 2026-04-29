@@ -182,14 +182,15 @@ export interface Shoutout {
 export interface Sponsor {
   id: string
   business_name: string
-  contact_name: string | null
-  contact_email: string | null
-  logo_url: string | null
-  website_url: string | null
-  placement: SponsorPlacement
+  contact_name?: string | null
+  contact_email?: string | null
+  logo_url?: string | null
+  tagline?: string | null
+  website_url?: string | null
+  placement: string
   active: boolean
-  start_date: string | null
-  end_date: string | null
+  start_date?: string | null
+  end_date?: string | null
   created_at: string
 }
 
