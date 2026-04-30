@@ -81,6 +81,36 @@ export default async function GamePage({ params }: PageProps) {
     .eq('game_id', game.id)
     .eq('approved', true)
 
+  // Fetch team records for this season
+  async function getTeamRecord(teamId: string | null, sportId: string | null, seasonId: string | null) {
+    if (!teamId || !seasonId || !sportId) return null
+    const isGolf = game.sport?.sport_name?.toLowerCase().includes('golf')
+    const { data: teamGames } = await supabase
+      .from('games')
+      .select('home_team_id, away_team_id, home_score, away_score, status')
+      .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      .eq('season_id', seasonId)
+      .eq('sport_id', sportId)
+      .eq('status', 'Final')
+    if (!teamGames) return null
+    let w = 0, l = 0, t = 0
+    for (const g of teamGames) {
+      if (g.home_score == null || g.away_score == null) continue
+      const isHome = g.home_team_id === teamId
+      const mine = isHome ? g.home_score : g.away_score
+      const opp = isHome ? g.away_score : g.home_score
+      const iWin = isGolf ? mine < opp : mine > opp
+      const iLose = isGolf ? mine > opp : mine < opp
+      if (iWin) w++; else if (iLose) l++; else t++
+    }
+    return `${w}-${l}${t > 0 ? `-${t}` : ''}`
+  }
+
+  const [homeRecord, awayRecord] = await Promise.all([
+    getTeamRecord(homeTeam?.id || null, game.sport_id || null, game.season_id || null),
+    getTeamRecord(awayTeam?.id || null, game.sport_id || null, game.season_id || null),
+  ])
+
   return (
     <PublicLayout>
       <div className="max-w-3xl mx-auto px-4 py-6">

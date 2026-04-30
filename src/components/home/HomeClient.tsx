@@ -114,14 +114,6 @@ export default function HomeClient({
     .filter(g => g.id !== featuredGame?.id)
     .slice(0, 5)
 
-  // Today's scheduled games for "Up Next" strip
-  const todayScheduled = useMemo(() =>
-    allGames.filter(g =>
-      g.game_date === today &&
-      (g.status === 'Scheduled' || g.status === 'Live')
-    ).sort((a, b) => (a.game_time || '').localeCompare(b.game_time || '')),
-    [allGames, today]
-  )
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
@@ -165,79 +157,6 @@ export default function HomeClient({
               </div>
             </div>
           </div>
-
-          {/* Up Next Today */}
-          {todayScheduled.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
-                <span className="font-black uppercase tracking-widest text-xs text-blue-400"
-                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.14em' }}>
-                  Up Next Today · {todayScheduled.length} game{todayScheduled.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar" style={{ scrollSnapType: 'x mandatory' }}>
-                {todayScheduled.map(game => {
-                  const ht = game.home_team
-                  const at = game.away_team
-                  const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
-                  const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
-                  const homeColor = ht?.school?.primary_color || '#1e3a5f'
-                  const awayColor = at?.school?.primary_color || '#334155'
-                  const timeStr = game.game_time ? formatTime(game.game_time) : 'TBD'
-                  const sportIcon = SPORT_ICONS[
-                    (game.sport?.gender === 'Boys' || game.sport?.gender === 'Girls')
-                      ? `${game.sport.gender} ${game.sport.sport_name}`
-                      : game.sport?.sport_name || ''
-                  ] || '🏆'
-                  const isLive = game.status === 'Live'
-
-                  return (
-                    <Link key={game.id} href={`/games/${game.id}`}
-                      className="flex-shrink-0 group"
-                      style={{ scrollSnapAlign: 'start', width: '160px' }}>
-                      <div className="rounded-xl p-3 border transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-lg"
-                        style={{
-                          background: isLive ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.03)',
-                          border: isLive ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(255,255,255,0.07)',
-                        }}>
-                        {/* Sport + time */}
-                        <div className="flex items-center justify-between mb-2.5">
-                          <span className="text-sm leading-none">{sportIcon}</span>
-                          {isLive
-                            ? <span className="text-xs font-black text-red-400 animate-pulse"
-                                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.08em' }}>LIVE</span>
-                            : <span className="text-xs font-bold text-blue-400"
-                                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>{timeStr}</span>
-                          }
-                        </div>
-                        {/* Away */}
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <div className="w-5 h-5 rounded flex-shrink-0"
-                            style={{ background: awayColor }} />
-                          <span className="text-xs text-slate-300 truncate font-semibold"
-                            style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.02em' }}>
-                            {awayName.split(' ').slice(-1)[0]}
-                          </span>
-                        </div>
-                        {/* Divider */}
-                        <div className="h-px mb-1.5" style={{ background: 'rgba(255,255,255,0.05)' }} />
-                        {/* Home */}
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-5 h-5 rounded flex-shrink-0"
-                            style={{ background: homeColor }} />
-                          <span className="text-xs text-slate-300 truncate font-semibold"
-                            style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.02em' }}>
-                            {homeName.split(' ').slice(-1)[0]}
-                          </span>
-                        </div>
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-          )}
 
           {/* Game of the Night */}
           {featuredGame && (
