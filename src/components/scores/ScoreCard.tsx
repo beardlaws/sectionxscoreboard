@@ -46,9 +46,12 @@ function initials(name: string) {
 
 function formatTime(t: string) {
   // "04:30:00" → "4:30 PM"
+  // High school games are afternoon/evening - if hour < 8 with no AM/PM indicator, it's PM
   try {
     const [h, m] = t.split(':').map(Number)
-    const ampm = h >= 12 ? 'PM' : 'AM'
+    // Times stored without AM/PM: 1-7 = PM (1:00-7:59 PM), 8-11 = AM (morning games), 12+ = PM
+    const isPM = h < 8 || h >= 12
+    const ampm = isPM ? 'PM' : 'AM'
     const h12 = h % 12 || 12
     return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
   } catch { return t }

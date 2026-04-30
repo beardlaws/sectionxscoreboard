@@ -224,8 +224,7 @@ export default async function GamePage({ params }: PageProps) {
             </div>
           )}
 
-          <div className="mt-4 flex items-center justify-between text-xs" style={{ color: 'var(--text-muted)' }}>
-            <span>Source: {game.source}</span>
+          <div className="mt-4 flex items-center justify-end text-xs" style={{ color: 'var(--text-muted)' }}>
             <span>Updated: {format(new Date(game.updated_at), 'M/d/yy h:mm a')}</span>
           </div>
         </div>
