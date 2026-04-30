@@ -59,6 +59,7 @@ export default function HomeClient({
 }: HomeClientProps) {
   const [schoolSearch, setSchoolSearch] = useState('')
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
+  const [compact, setCompact] = useState(false)
 
   const allGames = useMemo(() => {
     const seen = new Set<string>()
@@ -228,6 +229,21 @@ export default function HomeClient({
                     </span>
                   </div>
                   <div className="flex-1 h-px bg-white/5" />
+                  {isToday && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setCompact(c => !c) }}
+                      className="text-xs px-2 py-0.5 rounded flex-shrink-0 transition-colors"
+                      style={{
+                        fontFamily: 'var(--font-display)',
+                        letterSpacing: '0.06em',
+                        background: compact ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.05)',
+                        color: compact ? '#60a5fa' : '#4a5f7a',
+                        border: `1px solid ${compact ? 'rgba(37,99,235,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                      }}
+                    >
+                      {compact ? 'STANDARD' : 'COMPACT'}
+                    </button>
+                  )}
                   {!isToday && (
                     <span className="text-slate-600 text-xs flex-shrink-0">{isExpanded ? '▲' : '▼'}</span>
                   )}
@@ -256,7 +272,7 @@ export default function HomeClient({
                             </span>
                           </div>
 
-                          {/* Final games — newspaper row */}
+                          {/* Final games */}
                           {finals.map(game => {
                             const ht = game.home_team
                             const at = game.away_team
@@ -271,49 +287,106 @@ export default function HomeClient({
                             const awayWins = isGolfGame
                               ? (game.away_score ?? 999) < (game.home_score ?? 999)
                               : (game.away_score ?? 0) > (game.home_score ?? 0)
+                            const diff = Math.abs((game.home_score ?? 0) - (game.away_score ?? 0))
+                            const isClose = diff <= 2
+                            const isBlowout = diff >= 15
+                            const winnerColor = homeWins ? homeColor : awayColor
+
+                            if (compact) {
+                              // COMPACT: single line
+                              return (
+                                <Link key={game.id} href={`/games/${game.id}`}
+                                  className="flex items-center px-4 py-1.5 hover:bg-white/[0.03] transition-colors group">
+                                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 mr-3"
+                                    style={{ background: winnerColor }} />
+                                  <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 700 : 400, fontSize: '13px', color: awayWins ? '#d1d9e8' : '#4a5568' }}>
+                                      {awayName}
+                                    </span>
+                                    <span style={{ color: '#2d3748', fontSize: '11px' }}>at</span>
+                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 700 : 400, fontSize: '13px', color: homeWins ? '#d1d9e8' : '#4a5568' }}>
+                                      {homeName}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                                    {isClose && <span className="text-xs text-amber-400" title="Close game">🔥</span>}
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '13px', color: '#ffffff' }}>
+                                      {awayWins ? game.away_score : game.home_score}
+                                      <span style={{ color: '#374151', fontWeight: 400 }}>–</span>
+                                      {awayWins ? game.home_score : game.away_score}
+                                    </span>
+                                    <span className="text-xs font-bold text-emerald-500" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>F</span>
+                                  </div>
+                                </Link>
+                              )
+                            }
+
+                            // STANDARD: two-line stacked
                             return (
                               <Link key={game.id} href={`/games/${game.id}`}
-                                className="flex items-center px-4 py-2 hover:bg-white/[0.03] transition-colors group">
-                                {/* Color dot */}
-                                <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3 mt-0.5"
-                                  style={{ background: homeWins ? homeColor : awayColor }} />
-                                {/* Teams */}
+                                className="flex items-center px-4 py-2.5 hover:bg-white/[0.025] transition-colors group border-l-2 border-transparent hover:border-l-2"
+                                style={{ borderLeftColor: 'transparent' }}
+                                onMouseEnter={e => (e.currentTarget.style.borderLeftColor = winnerColor + '60')}
+                                onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'transparent')}
+                              >
+                                {/* Winner color bar */}
+                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mr-3 mt-0.5 shadow-sm"
+                                  style={{ background: winnerColor, boxShadow: `0 0 6px ${winnerColor}80` }} />
+
+                                {/* Teams stacked */}
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                                  {/* Away team */}
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
                                     <span style={{
                                       fontFamily: 'var(--font-display)',
-                                      fontWeight: awayWins ? 800 : 400,
-                                      fontSize: '14px',
-                                      color: awayWins ? '#e2e8f5' : '#374151',
+                                      fontWeight: awayWins ? 800 : 500,
+                                      fontSize: awayWins ? '15px' : '14px',
+                                      color: awayWins ? '#e8edf5' : '#6b7a8d',
                                       letterSpacing: '0.02em',
                                     }}>{awayName}</span>
-                                    <span className="text-slate-700 text-xs">at</span>
+                                  </div>
+                                  {/* Home team */}
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>HME</span>
                                     <span style={{
                                       fontFamily: 'var(--font-display)',
-                                      fontWeight: homeWins ? 800 : 400,
-                                      fontSize: '14px',
-                                      color: homeWins ? '#e2e8f5' : '#374151',
+                                      fontWeight: homeWins ? 800 : 500,
+                                      fontSize: homeWins ? '15px' : '14px',
+                                      color: homeWins ? '#e8edf5' : '#6b7a8d',
                                       letterSpacing: '0.02em',
                                     }}>{homeName}</span>
                                   </div>
                                 </div>
-                                {/* Score */}
-                                <div className="flex items-baseline gap-1.5 ml-3 flex-shrink-0">
+
+                                {/* Scores + context */}
+                                <div className="flex flex-col items-end ml-4 flex-shrink-0 gap-0.5">
+                                  {/* Away score */}
                                   <span style={{
                                     fontFamily: 'var(--font-mono)',
-                                    fontWeight: 700,
-                                    fontSize: awayWins ? '16px' : '13px',
-                                    color: awayWins ? '#ffffff' : '#374151',
+                                    fontWeight: awayWins ? 800 : 500,
+                                    fontSize: awayWins ? '20px' : '15px',
+                                    color: awayWins ? '#ffffff' : '#3d4d5e',
+                                    letterSpacing: '-0.02em',
+                                    lineHeight: 1,
                                   }}>{game.away_score}</span>
-                                  <span className="text-slate-700 text-xs">-</span>
+                                  {/* Home score */}
                                   <span style={{
                                     fontFamily: 'var(--font-mono)',
-                                    fontWeight: 700,
-                                    fontSize: homeWins ? '16px' : '13px',
-                                    color: homeWins ? '#ffffff' : '#374151',
+                                    fontWeight: homeWins ? 800 : 500,
+                                    fontSize: homeWins ? '20px' : '15px',
+                                    color: homeWins ? '#ffffff' : '#3d4d5e',
+                                    letterSpacing: '-0.02em',
+                                    lineHeight: 1,
                                   }}>{game.home_score}</span>
-                                  <span className="text-xs font-bold text-emerald-500 ml-1"
-                                    style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>F</span>
+                                </div>
+
+                                {/* Badges */}
+                                <div className="flex flex-col items-center ml-2 flex-shrink-0 gap-1">
+                                  <span className="text-xs font-bold text-emerald-500"
+                                    style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', fontSize: '10px' }}>F</span>
+                                  {isClose && <span title="Close game" className="text-xs leading-none">🔥</span>}
+                                  {isBlowout && <span title="Blowout" className="text-xs leading-none opacity-40">💨</span>}
                                 </div>
                               </Link>
                             )
@@ -441,30 +514,66 @@ export default function HomeClient({
             </div>
           )}
 
-          {/* Sponsor */}
+          {/* Sponsor — premium placement */}
           {homepageSponsor ? (
             <a href={homepageSponsor.website_url || '#'} target="_blank" rel="noopener noreferrer"
-              className="block rounded-2xl p-4 border border-white/8 hover:border-white/14 transition-all group"
-              style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.08), rgba(10,15,28,0.9))' }}>
-              <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1"
-                style={{ fontFamily: 'var(--font-display)' }}>Tonight's Scores Presented By</p>
-              <p className="text-white font-black text-lg" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
-                {homepageSponsor.business_name}
-              </p>
-              {homepageSponsor.tagline && <p className="text-xs text-slate-400 mt-1">{homepageSponsor.tagline}</p>}
-              <div className="mt-3 flex items-center gap-1 text-xs font-bold text-blue-400 group-hover:gap-2 transition-all"
-                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
-                VISIT SPONSOR <ChevronRight size={12} />
+              className="block rounded-2xl overflow-hidden transition-all group hover:-translate-y-0.5"
+              style={{
+                background: 'linear-gradient(135deg, rgba(37,99,235,0.15) 0%, rgba(8,12,24,0.95) 60%)',
+                border: '1px solid rgba(37,99,235,0.25)',
+                boxShadow: '0 8px 32px rgba(37,99,235,0.15)',
+              }}>
+              <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
+                <p className="text-xs font-black uppercase tracking-widest"
+                  style={{ fontFamily: 'var(--font-display)', color: '#3b82f6', letterSpacing: '0.14em' }}>
+                  Tonight's Scores Presented By
+                </p>
+              </div>
+              <div className="px-4 py-4">
+                <p className="font-black text-white leading-tight mb-1"
+                  style={{ fontFamily: 'var(--font-display)', fontSize: '22px', letterSpacing: '0.04em' }}>
+                  {homepageSponsor.business_name}
+                </p>
+                {homepageSponsor.tagline
+                  ? <p className="text-slate-400 text-sm mb-3">{homepageSponsor.tagline}</p>
+                  : <p className="text-slate-600 text-xs mb-3">Supporting North Country athletics</p>
+                }
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-black text-sm text-white transition-all group-hover:gap-3"
+                  style={{
+                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    fontFamily: 'var(--font-display)',
+                    letterSpacing: '0.06em',
+                    boxShadow: '0 4px 16px rgba(37,99,235,0.4)',
+                  }}>
+                  VISIT SPONSOR <ChevronRight size={14} />
+                </div>
               </div>
             </a>
           ) : (
             <Link href="/advertise"
-              className="block rounded-2xl p-4 border border-dashed border-white/8 hover:border-white/16 transition-colors text-center">
-              <Camera size={20} className="mx-auto mb-2 text-slate-600" />
-              <p className="text-xs font-black text-slate-500 uppercase tracking-widest"
-                style={{ fontFamily: 'var(--font-display)' }}>Your Ad Here</p>
-              <p className="text-xs text-slate-600 mt-1">Reach North Country sports families</p>
-              <p className="text-xs text-blue-400 mt-2 font-semibold">Advertise →</p>
+              className="block rounded-2xl overflow-hidden transition-all hover:-translate-y-0.5"
+              style={{
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.03), rgba(8,12,24,0.8))',
+                border: '1px dashed rgba(255,255,255,0.1)',
+              }}>
+              <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-600"
+                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.14em' }}>
+                  Sponsor This Section
+                </p>
+              </div>
+              <div className="px-4 py-4">
+                <p className="font-black text-slate-400 text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>
+                  Your Business Here
+                </p>
+                <p className="text-slate-600 text-xs mb-3">
+                  Reach thousands of North Country sports families every night.
+                </p>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold text-blue-400"
+                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}>
+                  LEARN MORE →
+                </div>
+              </div>
             </Link>
           )}
 
