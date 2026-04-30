@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { format, addDays, subDays, isToday } from 'date-fns'
+import { format, addDays, subDays } from 'date-fns'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface TickerGame {
@@ -19,25 +19,27 @@ interface TickerGame {
   external_away: { name: string } | null
 }
 
+// Team records cache: teamId+seasonId → "W-L"
+const recordCache: Record<string, string> = {}
+
 function teamAbbr(game: TickerGame, side: 'home' | 'away'): string {
-  if (side === 'home') {
-    const s = game.home_team?.school
-    if (s?.alias) return s.alias.toUpperCase()
-    if (s?.school_name) return s.school_name.split(' ').filter((w: string) => w.length > 2).map((w: string) => w[0]).join('').toUpperCase().slice(0, 4)
-    return game.external_home?.name?.slice(0, 4).toUpperCase() || 'TBD'
-  } else {
-    const s = game.away_team?.school
-    if (s?.alias) return s.alias.toUpperCase()
-    if (s?.school_name) return s.school_name.split(' ').filter((w: string) => w.length > 2).map((w: string) => w[0]).join('').toUpperCase().slice(0, 4)
-    return game.external_away?.name?.slice(0, 4).toUpperCase() || 'TBD'
-  }
+  const s = side === 'home' ? game.home_team?.school : game.away_team?.school
+  const ext = side === 'home' ? game.external_home : game.external_away
+  if (s?.alias) return s.alias.toUpperCase()
+  if (s?.school_name) return s.school_name.split(' ').filter((w: string) => w.length > 2).map((w: string) => w[0]).join('').toUpperCase().slice(0, 4)
+  return ext?.name?.slice(0, 4).toUpperCase() || 'TBD'
 }
 
 function teamColor(game: TickerGame, side: 'home' | 'away'): string {
-  const color = side === 'home'
-    ? game.home_team?.school?.primary_color
-    : game.away_team?.school?.primary_color
-  return color || '#334155'
+  return (side === 'home' ? game.home_team?.school?.primary_color : game.away_team?.school?.primary_color) || '#334155'
+}
+
+function formatTime(t: string) {
+  try {
+    const [h, m] = t.split(':').map(Number)
+    const isPM = h < 8 || h >= 12
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`
+  } catch { return t }
 }
 
 const SPORT_ICONS: Record<string, string> = {
@@ -60,6 +62,7 @@ export default function ScoreTicker() {
   const supabase = createClient()
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [games, setGames] = useState<TickerGame[]>([])
+  const [records, setRecords] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -67,26 +70,70 @@ export default function ScoreTicker() {
 
   const fetchGames = useCallback(async (d: string) => {
     setLoading(true)
-    // Yesterday & earlier: show finals only (scores reported)
-    // Today & tomorrow: show all non-canceled games
     const isPast = d < format(new Date(), 'yyyy-MM-dd')
     let q = supabase
       .from('games')
       .select(`
         id, game_date, game_time, home_score, away_score, status,
         sport:sports(sport_name, gender),
-        home_team:teams!games_home_team_id_fkey(team_name, school:schools(school_name, alias, primary_color)),
-        away_team:teams!games_away_team_id_fkey(team_name, school:schools(school_name, alias, primary_color)),
+        home_team:teams!games_home_team_id_fkey(id, team_name, sport_id, school:schools(school_name, alias, primary_color)),
+        away_team:teams!games_away_team_id_fkey(id, team_name, sport_id, school:schools(school_name, alias, primary_color)),
         external_home:external_opponents!games_external_home_opponent_id_fkey(name),
-        external_away:external_opponents!games_external_away_opponent_id_fkey(name)
+        external_away:external_opponents!games_external_away_opponent_id_fkey(name),
+        season_id, sport_id
       `)
       .eq('game_date', d)
       .neq('status', 'Canceled')
       .order('game_time', { ascending: true })
     if (isPast) q = (q as any).eq('status', 'Final')
     const { data } = await q
-    setGames((data as any) || [])
+    const gamesData = (data as any) || []
+    setGames(gamesData)
     setLoading(false)
+
+    // Fetch records for all teams in these games
+    const teamIds = new Set<string>()
+    const teamSeasonSport: Record<string, { seasonId: string; sportId: string }> = {}
+    for (const g of gamesData) {
+      if (g.home_team?.id && g.season_id && g.sport_id) {
+        teamIds.add(g.home_team.id)
+        teamSeasonSport[g.home_team.id] = { seasonId: g.season_id, sportId: g.sport_id }
+      }
+      if (g.away_team?.id && g.season_id && g.sport_id) {
+        teamIds.add(g.away_team.id)
+        teamSeasonSport[g.away_team.id] = { seasonId: g.season_id, sportId: g.sport_id }
+      }
+    }
+
+    const newRecords: Record<string, string> = {}
+    for (const teamId of teamIds) {
+      const cacheKey = `${teamId}-${teamSeasonSport[teamId]?.seasonId}`
+      if (recordCache[cacheKey]) { newRecords[teamId] = recordCache[cacheKey]; continue }
+
+      const { seasonId, sportId } = teamSeasonSport[teamId]
+      const { data: tgames } = await supabase
+        .from('games')
+        .select('home_team_id, away_team_id, home_score, away_score')
+        .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+        .eq('season_id', seasonId)
+        .eq('sport_id', sportId)
+        .eq('status', 'Final')
+
+      const isGolf = gamesData.find((g: any) => g.home_team?.id === teamId || g.away_team?.id === teamId)?.sport?.sport_name?.toLowerCase().includes('golf')
+      let w = 0, l = 0
+      for (const tg of (tgames || [])) {
+        if (tg.home_score == null || tg.away_score == null) continue
+        const isHome = tg.home_team_id === teamId
+        const mine = isHome ? tg.home_score : tg.away_score
+        const opp = isHome ? tg.away_score : tg.home_score
+        if (isGolf ? mine < opp : mine > opp) w++
+        else if (mine !== opp) l++
+      }
+      const rec = `${w}-${l}`
+      recordCache[cacheKey] = rec
+      newRecords[teamId] = rec
+    }
+    setRecords(newRecords)
   }, [])
 
   useEffect(() => { fetchGames(date) }, [date, fetchGames])
@@ -108,167 +155,151 @@ export default function ScoreTicker() {
   }, [games, checkScroll])
 
   function scroll(dir: 'left' | 'right') {
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollBy({ left: dir === 'left' ? -260 : 260, behavior: 'smooth' })
+    scrollRef.current?.scrollBy({ left: dir === 'left' ? -280 : 280, behavior: 'smooth' })
   }
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const yesterday = format(subDays(new Date(), 1), 'yyyy-MM-dd')
   const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
-
-  const dateLabel = (d: string) => {
-    if (d === today) return 'Today'
-    if (d === yesterday) return 'Yesterday'
-    if (d === tomorrow) return 'Tomorrow'
-    return format(new Date(d + 'T12:00:00'), 'MMM d')
-  }
+  const dateLabel = (d: string) => d === today ? 'Today' : d === yesterday ? 'Yesterday' : d === tomorrow ? 'Tomorrow' : format(new Date(d + 'T12:00:00'), 'MMM d')
 
   return (
-    <div className="border-b" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.4)' }}>
+    <div className="border-b" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.5)' }}>
       <div className="max-w-7xl mx-auto">
-        {/* Date nav */}
+        {/* Date tabs */}
         <div className="flex items-center gap-1.5 px-4 pt-2 pb-1.5">
           {[yesterday, today, tomorrow].map(d => (
-            <button
-              key={d}
-              onClick={() => setDate(d)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${
-                date === d
-                  ? 'text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
-              style={date === d ? { background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.3)' } : {}}
-            >
+            <button key={d} onClick={() => setDate(d)}
+              className={`px-3 py-1 text-xs font-black rounded-full transition-all uppercase tracking-widest`}
+              style={{
+                fontFamily: 'var(--font-display)',
+                letterSpacing: '0.1em',
+                background: date === d ? 'rgba(96,165,250,0.15)' : 'transparent',
+                color: date === d ? '#60a5fa' : '#374151',
+                border: date === d ? '1px solid rgba(96,165,250,0.3)' : '1px solid transparent',
+              }}>
               {dateLabel(d)}
             </button>
           ))}
+          {games.length > 0 && (
+            <span className="ml-auto text-xs text-slate-700" style={{ fontFamily: 'var(--font-display)' }}>
+              {games.length} game{games.length !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
 
-        {/* Ticker strip */}
+        {/* Strip */}
         <div className="relative flex items-center">
-          {/* Left fade + arrow */}
-          <div className="absolute left-0 top-0 bottom-0 w-12 z-10 pointer-events-none"
-            style={{ background: 'linear-gradient(to right, rgba(4,8,16,0.95), transparent)' }} />
+          <div className="absolute left-0 top-0 bottom-0 w-10 z-10 pointer-events-none"
+            style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.8), transparent)' }} />
           {canScrollLeft && (
-            <button
-              onClick={() => scroll('left')}
-              className="absolute left-1 z-20 flex items-center justify-center w-7 h-7 rounded-full text-slate-300 hover:text-white transition-all hover:scale-110"
-              style={{ background: 'rgba(255,255,255,0.1)', top: '50%', transform: 'translateY(-50%)' }}
-            >
-              <ChevronLeft size={16} />
+            <button onClick={() => scroll('left')}
+              className="absolute left-1.5 z-20 w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white transition-all"
+              style={{ top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)' }}>
+              <ChevronLeft size={14} />
             </button>
           )}
 
-          {/* Scrollable row */}
-          <div
-            ref={scrollRef}
-            className="flex gap-2 overflow-x-auto py-2.5 px-4 no-scrollbar"
-            style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}
-          >
+          <div ref={scrollRef} className="flex gap-2 overflow-x-auto py-2 px-4 no-scrollbar"
+            style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
             {loading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex-shrink-0 w-44 h-16 rounded-lg animate-pulse"
+              Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="flex-shrink-0 w-40 h-[72px] rounded-xl animate-pulse"
                   style={{ background: 'rgba(255,255,255,0.04)', scrollSnapAlign: 'start' }} />
               ))
             ) : games.length === 0 ? (
-              <div className="flex items-center px-3 py-2 text-xs text-slate-500">
+              <div className="px-3 py-3 text-xs text-slate-600" style={{ fontFamily: 'var(--font-display)' }}>
                 No games {dateLabel(date).toLowerCase()}
               </div>
-            ) : (
-              games.map(game => {
-                const isFinal = game.status === 'Final'
-                const isLive = game.status === 'Live'
-                const isPpd = game.status === 'Postponed'
-                const homeAbbr = teamAbbr(game, 'home')
-                const awayAbbr = teamAbbr(game, 'away')
-                const homeColor = teamColor(game, 'home')
-                const awayColor = teamColor(game, 'away')
-                const homeWins = isFinal && game.home_score != null && game.away_score != null && game.home_score > game.away_score
-                const awayWins = isFinal && game.home_score != null && game.away_score != null && game.away_score > game.home_score
+            ) : games.map(game => {
+              const isFinal = game.status === 'Final'
+              const isLive = game.status === 'Live'
+              const isPpd = game.status === 'Postponed'
+              const isGolf = game.sport?.sport_name?.toLowerCase().includes('golf')
+              const homeId = (game.home_team as any)?.id
+              const awayId = (game.away_team as any)?.id
+              const homeAbbr = teamAbbr(game, 'home')
+              const awayAbbr = teamAbbr(game, 'away')
+              const homeColor = teamColor(game, 'home')
+              const awayColor = teamColor(game, 'away')
+              const homeWins = isFinal && game.home_score != null && game.away_score != null &&
+                (isGolf ? game.home_score < game.away_score : game.home_score > game.away_score)
+              const awayWins = isFinal && game.home_score != null && game.away_score != null &&
+                (isGolf ? game.away_score < game.home_score : game.away_score > game.home_score)
+              const homeRec = homeId ? records[homeId] : null
+              const awayRec = awayId ? records[awayId] : null
 
-                return (
-                  <Link
-                    key={game.id}
-                    href={`/games/${game.id}`}
-                    className="flex-shrink-0 group"
-                    style={{ scrollSnapAlign: 'start' }}
-                  >
-                    <div className={`w-44 rounded-xl px-3 py-2.5 transition-all duration-150 border group-hover:scale-[1.02] group-hover:-translate-y-0.5 ${
-                      isLive
-                        ? 'border-red-500/40 shadow-red-500/10 shadow-lg'
-                        : isFinal
-                        ? 'border-white/10 shadow-black/20 shadow-md'
-                        : 'border-white/6'
-                    }`}
+              return (
+                <Link key={game.id} href={`/games/${game.id}`} className="flex-shrink-0 group"
+                  style={{ scrollSnapAlign: 'start' }}>
+                  <div className="w-44 rounded-xl px-3 py-2 transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-lg"
                     style={{
-                      background: isLive
-                        ? 'rgba(239,68,68,0.08)'
-                        : isFinal
-                        ? 'rgba(255,255,255,0.04)'
-                        : 'rgba(255,255,255,0.025)',
+                      background: isLive ? 'rgba(239,68,68,0.08)' : isFinal ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.025)',
+                      border: isLive ? '1px solid rgba(239,68,68,0.35)' : isFinal ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.05)',
                     }}>
-                      {/* Sport icon + status */}
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs">{sportIcon(game)}</span>
-                        <span className={`text-xs font-bold tracking-wide ${
-                          isFinal ? 'text-green-400' :
-                          isLive ? 'text-red-400 animate-pulse' :
-                          isPpd ? 'text-yellow-500' :
-                          'text-slate-500'
-                        }`}>
-                          {isFinal ? 'F' : isLive ? '●' : isPpd ? 'PPD' : game.game_time?.slice(0, 5) || '—'}
-                        </span>
-                      </div>
-
-                      {/* Away team */}
-                      <div className={`flex items-center justify-between gap-1 ${isFinal && !awayWins ? 'opacity-45' : ''}`}>
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <div className="w-4 h-4 rounded flex-shrink-0"
-                            style={{ backgroundColor: awayColor }} />
-                          <span className={`text-xs font-bold font-display truncate ${awayWins ? 'text-white' : 'text-slate-300'}`}>
-                            {awayAbbr}
-                          </span>
-                        </div>
-                        {(isFinal || isLive) && (
-                          <span className={`text-sm font-bold font-mono tabular-nums ${awayWins ? 'text-white' : 'text-slate-400'}`}>
-                            {game.away_score}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Home team */}
-                      <div className={`flex items-center justify-between gap-1 mt-0.5 ${isFinal && !homeWins ? 'opacity-45' : ''}`}>
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <div className="w-4 h-4 rounded flex-shrink-0"
-                            style={{ backgroundColor: homeColor }} />
-                          <span className={`text-xs font-bold font-display truncate ${homeWins ? 'text-white' : 'text-slate-300'}`}>
-                            {homeAbbr}
-                          </span>
-                        </div>
-                        {(isFinal || isLive) && (
-                          <span className={`text-sm font-bold font-mono tabular-nums ${homeWins ? 'text-white' : 'text-slate-400'}`}>
-                            {game.home_score}
-                          </span>
-                        )}
-                      </div>
+                    {/* Sport + status */}
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs leading-none">{sportIcon(game)}</span>
+                      <span className="text-xs font-black tracking-wider" style={{ fontFamily: 'var(--font-display)' , color:
+                        isFinal ? '#4ade80' : isLive ? '#f87171' : isPpd ? '#f59e0b' : '#374151' }}>
+                        {isFinal ? 'FINAL' : isLive ? '● LIVE' : isPpd ? 'PPD' : game.game_time ? formatTime(game.game_time) : '—'}
+                      </span>
                     </div>
-                  </Link>
-                )
-              })
-            )}
+
+                    {/* Away */}
+                    <div className={`flex items-center justify-between gap-1 ${isFinal && !awayWins ? 'opacity-40' : ''}`}>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <div className="w-3.5 h-3.5 rounded-sm flex-shrink-0" style={{ backgroundColor: awayColor }} />
+                        <div className="min-w-0">
+                          <div className="text-xs font-black leading-none truncate" style={{
+                            fontFamily: 'var(--font-display)',
+                            color: awayWins ? '#ffffff' : '#94a3b8',
+                            letterSpacing: '0.04em',
+                          }}>{awayAbbr}</div>
+                          {awayRec && <div className="text-xs leading-none mt-0.5" style={{ color: '#374151', fontSize: '10px', fontFamily: 'var(--font-mono)' }}>{awayRec}</div>}
+                        </div>
+                      </div>
+                      {(isFinal || isLive) && (
+                        <span className="font-mono font-black tabular-nums text-sm flex-shrink-0"
+                          style={{ color: awayWins ? '#ffffff' : '#374151' }}>
+                          {game.away_score}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Home */}
+                    <div className={`flex items-center justify-between gap-1 mt-1 ${isFinal && !homeWins ? 'opacity-40' : ''}`}>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <div className="w-3.5 h-3.5 rounded-sm flex-shrink-0" style={{ backgroundColor: homeColor }} />
+                        <div className="min-w-0">
+                          <div className="text-xs font-black leading-none truncate" style={{
+                            fontFamily: 'var(--font-display)',
+                            color: homeWins ? '#ffffff' : '#94a3b8',
+                            letterSpacing: '0.04em',
+                          }}>{homeAbbr}</div>
+                          {homeRec && <div className="text-xs leading-none mt-0.5" style={{ color: '#374151', fontSize: '10px', fontFamily: 'var(--font-mono)' }}>{homeRec}</div>}
+                        </div>
+                      </div>
+                      {(isFinal || isLive) && (
+                        <span className="font-mono font-black tabular-nums text-sm flex-shrink-0"
+                          style={{ color: homeWins ? '#ffffff' : '#374151' }}>
+                          {game.home_score}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
           </div>
 
-          {/* Right fade + arrow */}
-          <div className="absolute right-0 top-0 bottom-0 w-12 z-10 pointer-events-none"
-            style={{ background: 'linear-gradient(to left, rgba(4,8,16,0.95), transparent)' }} />
+          <div className="absolute right-0 top-0 bottom-0 w-10 z-10 pointer-events-none"
+            style={{ background: 'linear-gradient(to left, rgba(0,0,0,0.8), transparent)' }} />
           {canScrollRight && (
-            <button
-              onClick={() => scroll('right')}
-              className="absolute right-1 z-20 flex items-center justify-center w-7 h-7 rounded-full text-slate-300 hover:text-white transition-all hover:scale-110"
-              style={{ background: 'rgba(255,255,255,0.1)', top: '50%', transform: 'translateY(-50%)' }}
-            >
-              <ChevronRight size={16} />
+            <button onClick={() => scroll('right')}
+              className="absolute right-1.5 z-20 w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white transition-all"
+              style={{ top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)' }}>
+              <ChevronRight size={14} />
             </button>
           )}
         </div>
