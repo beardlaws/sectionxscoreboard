@@ -8,6 +8,16 @@ import type { Season, School, GameWithTeams } from '@/types'
 import { isCloseGame } from '@/lib/constants'
 import { Camera, Star, ChevronRight } from 'lucide-react'
 
+function formatTime(t: string) {
+  try {
+    const [h, m] = t.split(':').map(Number)
+    const isPM = h < 8 || h >= 12
+    const ampm = isPM ? 'PM' : 'AM'
+    const h12 = h % 12 || 12
+    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+  } catch { return t }
+}
+
 interface HomeClientProps {
   activeSeason: Season | null
   todayGames: GameWithTeams[]
@@ -150,22 +160,6 @@ export default function HomeClient({
             </div>
           )}
 
-          {/* Latest Finals strip */}
-          {latestFinals.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs font-black text-slate-400 tracking-widest uppercase"
-                  style={{ fontFamily: 'var(--font-display)' }}>Latest Finals</span>
-                <div className="flex-1 h-px bg-white/5" />
-              </div>
-              <div className="grid grid-cols-1 gap-1.5">
-                {latestFinals.map(game => (
-                  <ScoreCard key={game.id} game={game} compact />
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Empty state */}
           {allGames.length === 0 && (
             <div className="rounded-2xl p-12 text-center border border-white/6"
@@ -178,93 +172,187 @@ export default function HomeClient({
             </div>
           )}
 
-          {/* Date sections */}
+          {/* Scores feed — newspaper style grouped by date then sport */}
           {dates.map((date, dateIdx) => {
             const dateGames = byDate.get(date)!
             const sportGroups = groupBySport(dateGames)
             const sportKeys = Array.from(sportGroups.keys()).sort()
             const label = dateLabel(date)
             const isExpanded = dateIdx === 0 || expandedDates.has(date)
-            const finalCount = dateGames.filter(g => g.status === 'Final').length
-            const scheduledCount = dateGames.filter(g => g.status === 'Scheduled').length
+            const isToday = dateIdx === 0
 
-            // Skip "Latest Finals" games from the main list if they're in today's section
-            // to avoid duplication — show them only in Latest Finals strip
-            const isLatestFinalsDate = dateIdx === 0
-
+            // Today: show featured card + newspaper list
+            // Past dates: newspaper list only, collapsible
             return (
-              <div key={date}>
+              <div key={date} className={dateIdx > 0 ? 'mt-2' : ''}>
+
                 {/* Date header */}
                 <button
                   onClick={() => {
-                    if (dateIdx === 0) return
+                    if (isToday) return
                     setExpandedDates(prev => {
                       const n = new Set(prev)
                       n.has(date) ? n.delete(date) : n.add(date)
                       return n
                     })
                   }}
-                  className="w-full flex items-center gap-3 mb-4 group"
+                  className="w-full flex items-center gap-3 mb-3 group"
                 >
-                  <div className="flex items-center gap-2">
-                    {dateIdx === 0 && (
-                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                    )}
-                    <h2 className="font-black" style={{
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {isToday && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
+                    <span style={{
                       fontFamily: 'var(--font-display)',
-                      fontSize: dateIdx === 0 ? '20px' : '16px',
-                      color: dateIdx === 0 ? '#f0f4ff' : '#7a90b8',
-                      letterSpacing: '0.04em',
+                      fontWeight: 900,
+                      fontSize: isToday ? '22px' : '15px',
+                      color: isToday ? '#f0f4ff' : '#4a5f7a',
+                      letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                     }}>
                       {label}
-                    </h2>
-                    <span className="text-xs text-slate-600 font-medium">
-                      {finalCount > 0 && `${finalCount} final${finalCount !== 1 ? 's' : ''}`}
-                      {finalCount > 0 && scheduledCount > 0 && ' · '}
-                      {scheduledCount > 0 && `${scheduledCount} scheduled`}
+                    </span>
+                    <span className="text-xs text-slate-600">
+                      {dateGames.filter(g => g.status === 'Final').length > 0
+                        ? `${dateGames.filter(g => g.status === 'Final').length} finals`
+                        : `${dateGames.length} games`}
                     </span>
                   </div>
                   <div className="flex-1 h-px bg-white/5" />
-                  {dateIdx > 0 && (
-                    <span className="text-slate-600 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                  {!isToday && (
+                    <span className="text-slate-600 text-xs flex-shrink-0">{isExpanded ? '▲' : '▼'}</span>
                   )}
                 </button>
 
                 {isExpanded && (
-                  <div className="space-y-6">
-                    {sportKeys.map(sportKey => {
+                  <div className="rounded-2xl overflow-hidden border border-white/6 mb-6"
+                    style={{ background: 'rgba(8,12,20,0.7)' }}>
+                    {sportKeys.map((sportKey, sportIdx) => {
                       const games = sportGroups.get(sportKey)!
                       const icon = SPORT_ICONS[sportKey] || '🏆'
                       const finals = games.filter(g => g.status === 'Final')
                       const scheduled = games.filter(g => g.status !== 'Final' && g.status !== 'Canceled')
+                      const ppd = games.filter(g => g.status === 'Postponed' || g.status === 'Canceled')
 
                       return (
                         <div key={sportKey}>
-                          {/* Sport header */}
-                          <div className="flex items-center gap-2 mb-2.5">
-                            <span className="text-base">{icon}</span>
-                            <span className="font-black text-slate-300 uppercase tracking-widest text-xs"
-                              style={{ fontFamily: 'var(--font-display)' }}>
+                          {sportIdx > 0 && <div className="mx-4 h-px bg-white/[0.04]" />}
+
+                          {/* Sport label */}
+                          <div className="px-4 pt-3 pb-1 flex items-center gap-2">
+                            <span className="text-sm leading-none">{icon}</span>
+                            <span className="font-black text-xs uppercase tracking-widest"
+                              style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a', letterSpacing: '0.14em' }}>
                               {sportKey}
                             </span>
-                            <span className="text-xs text-slate-600">{games.length}</span>
-                            <div className="flex-1 h-px bg-gradient-to-r from-white/8 to-transparent" />
                           </div>
 
-                          {/* Finals first */}
-                          {finals.length > 0 && (
-                            <div className="space-y-2 mb-2">
-                              {finals.map(game => <ScoreCard key={game.id} game={game} />)}
-                            </div>
-                          )}
+                          {/* Final games — newspaper row */}
+                          {finals.map(game => {
+                            const ht = game.home_team
+                            const at = game.away_team
+                            const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
+                            const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
+                            const homeColor = ht?.school?.primary_color || '#334155'
+                            const awayColor = at?.school?.primary_color || '#334155'
+                            const homeWins = (game.home_score ?? 0) > (game.away_score ?? 0)
+                            const awayWins = (game.away_score ?? 0) > (game.home_score ?? 0)
+                            return (
+                              <Link key={game.id} href={`/games/${game.id}`}
+                                className="flex items-center px-4 py-2 hover:bg-white/[0.03] transition-colors group">
+                                {/* Color dot */}
+                                <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3 mt-0.5"
+                                  style={{ background: homeWins ? homeColor : awayColor }} />
+                                {/* Teams */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                                    <span style={{
+                                      fontFamily: 'var(--font-display)',
+                                      fontWeight: awayWins ? 800 : 400,
+                                      fontSize: '14px',
+                                      color: awayWins ? '#e2e8f5' : '#374151',
+                                      letterSpacing: '0.02em',
+                                    }}>{awayName}</span>
+                                    <span className="text-slate-700 text-xs">at</span>
+                                    <span style={{
+                                      fontFamily: 'var(--font-display)',
+                                      fontWeight: homeWins ? 800 : 400,
+                                      fontSize: '14px',
+                                      color: homeWins ? '#e2e8f5' : '#374151',
+                                      letterSpacing: '0.02em',
+                                    }}>{homeName}</span>
+                                  </div>
+                                </div>
+                                {/* Score */}
+                                <div className="flex items-baseline gap-1.5 ml-3 flex-shrink-0">
+                                  <span style={{
+                                    fontFamily: 'var(--font-mono)',
+                                    fontWeight: 700,
+                                    fontSize: awayWins ? '16px' : '13px',
+                                    color: awayWins ? '#ffffff' : '#374151',
+                                  }}>{game.away_score}</span>
+                                  <span className="text-slate-700 text-xs">-</span>
+                                  <span style={{
+                                    fontFamily: 'var(--font-mono)',
+                                    fontWeight: 700,
+                                    fontSize: homeWins ? '16px' : '13px',
+                                    color: homeWins ? '#ffffff' : '#374151',
+                                  }}>{game.home_score}</span>
+                                  <span className="text-xs font-bold text-emerald-500 ml-1"
+                                    style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>F</span>
+                                </div>
+                              </Link>
+                            )
+                          })}
 
-                          {/* Then scheduled */}
-                          {scheduled.length > 0 && (
-                            <div className="space-y-2">
-                              {scheduled.map(game => <ScoreCard key={game.id} game={game} />)}
-                            </div>
-                          )}
+                          {/* Scheduled games */}
+                          {scheduled.map(game => {
+                            const ht = game.home_team
+                            const at = game.away_team
+                            const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
+                            const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
+                            const timeStr = game.game_time ? formatTime(game.game_time) : 'TBD'
+                            return (
+                              <Link key={game.id} href={`/games/${game.id}`}
+                                className="flex items-center px-4 py-2 hover:bg-white/[0.03] transition-colors">
+                                <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3 bg-slate-700" />
+                                <div className="flex-1 min-w-0">
+                                  <span style={{
+                                    fontFamily: 'var(--font-display)',
+                                    fontWeight: 500,
+                                    fontSize: '14px',
+                                    color: '#4a5f7a',
+                                    letterSpacing: '0.02em',
+                                  }}>{awayName} at {homeName}</span>
+                                </div>
+                                <span className="text-xs font-bold ml-3 flex-shrink-0"
+                                  style={{ fontFamily: 'var(--font-display)', color: '#60a5fa', letterSpacing: '0.06em' }}>
+                                  {timeStr}
+                                </span>
+                              </Link>
+                            )
+                          })}
+
+                          {/* Postponed */}
+                          {ppd.map(game => {
+                            const ht = game.home_team
+                            const at = game.away_team
+                            const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
+                            const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
+                            return (
+                              <Link key={game.id} href={`/games/${game.id}`}
+                                className="flex items-center px-4 py-2 opacity-40">
+                                <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3 bg-slate-700" />
+                                <div className="flex-1 min-w-0">
+                                  <span style={{ fontFamily: 'var(--font-display)', fontSize: '13px', color: '#374151' }}>
+                                    {awayName} at {homeName}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-amber-600 ml-3 flex-shrink-0"
+                                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>PPD</span>
+                              </Link>
+                            )
+                          })}
+
+                          <div className="pb-1" />
                         </div>
                       )
                     })}
