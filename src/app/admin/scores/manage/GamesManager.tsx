@@ -240,6 +240,13 @@ export default function GamesManager({ sports, seasons }: Props) {
                     <>
                       <button
                         onClick={async () => {
+                          // If turning ON: clear all other GOTNs for this date first
+                          if (!game.game_of_the_night) {
+                            const sameDayGames = games.filter(g => g.game_date === game.game_date && g.game_of_the_night && g.id !== game.id)
+                            for (const g of sameDayGames) {
+                              await adminDb.update('games', { game_of_the_night: false }, { id: g.id })
+                            }
+                          }
                           await adminDb.update('games', { game_of_the_night: !game.game_of_the_night }, { id: game.id })
                           fetchGames()
                         }}

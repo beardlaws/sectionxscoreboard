@@ -66,7 +66,9 @@ async function getHomepageData() {
     `)
     .eq('game_of_the_night', true)
     .eq('game_date', today)
-    .single()
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   // Featured photo
   const { data: featuredPhoto } = await supabase
