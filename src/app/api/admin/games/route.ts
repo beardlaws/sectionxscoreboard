@@ -15,30 +15,14 @@ function checkAuth(req: NextRequest) {
 async function findOrCreateExternalOpponent(supabase: any, name: string): Promise<string | null> {
   if (!name?.trim()) return null
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-  
-  // Try to find existing
-  const { data: existing } = await supabase
-    .from('external_opponents')
-    .select('id')
-    .ilike('name', name.trim())
-    .limit(1)
-  
+  const { data: existing } = await supabase.from('external_opponents').select('id').ilike('name', name.trim()).limit(1)
   if (existing && existing.length > 0) return existing[0].id
-
-  // Create new
-  const { data: created } = await supabase
-    .from('external_opponents')
-    .insert({ name: name.trim(), slug, is_section_x: false })
-    .select('id')
-    .single()
-
+  const { data: created } = await supabase.from('external_opponents').insert({ name: name.trim(), slug, is_section_x: false }).select('id').single()
   return created?.id || null
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkAuth(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!checkAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
   const supabase = getAdminClient()
@@ -51,34 +35,48 @@ export async function POST(req: NextRequest) {
       if (v !== undefined) clean[k] = v
     }
 
-    // Handle external opponent names — create external_opponents records
+    // Handle external opponent names
     if (clean.external_home_name && !clean.home_team_id) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_home_name)
       if (extId) clean.external_home_opponent_id = extId
-      delete clean.external_home_name
     }
     if (clean.external_away_name && !clean.away_team_id) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_away_name)
       if (extId) clean.external_away_opponent_id = extId
-      delete clean.external_away_name
     }
     delete clean.external_home_name
     delete clean.external_away_name
 
-    // Duplicate check
+    // DOUBLEHEADER LOGIC:
+    // A duplicate = same teams + same date + same sport + same game_number
+    // If game_number is null/undefined, treat as game 1 for dedup purposes
+    // Two games on same day between same teams are ONLY duplicates if they have the same game_number
+    const gameNumber = clean.game_number ?? null
+
     if (clean.game_date && clean.sport_id && (clean.home_team_id || clean.away_team_id)) {
       let dupQuery = supabase.from('games').select('id').eq('game_date', clean.game_date).eq('sport_id', clean.sport_id)
       if (clean.home_team_id) dupQuery = dupQuery.eq('home_team_id', clean.home_team_id)
       if (clean.away_team_id) dupQuery = dupQuery.eq('away_team_id', clean.away_team_id)
+      
+      // Only match on game_number if it's specified — allows two games same day same teams
+      if (gameNumber !== null) {
+        dupQuery = dupQuery.eq('game_number', gameNumber)
+      } else {
+        // No game_number: only match games that also have no game_number (game_number IS NULL)
+        dupQuery = dupQuery.is('game_number', null)
+      }
+
       const { data: existing } = await dupQuery.limit(1)
 
       if (existing && existing.length > 0) {
-        await supabase.from('games').update({
+        const { error } = await supabase.from('games').update({
           home_score: clean.home_score ?? null,
           away_score: clean.away_score ?? null,
           status: clean.status ?? 'Final',
+          game_time: clean.game_time ?? null,
+          notes: clean.notes ?? null,
         }).eq('id', existing[0].id)
-        results.push({ action: 'updated' })
+        results.push({ action: 'updated', error: error?.message })
         continue
       }
     }
