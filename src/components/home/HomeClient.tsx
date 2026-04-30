@@ -68,15 +68,21 @@ export default function HomeClient({
     }).sort((a, b) => b.game_date > a.game_date ? 1 : b.game_date < a.game_date ? -1 : 0)
   }, [todayGames, recentGames])
 
+  // Main feed = finals only, newest first. Scheduled games are on team/school pages.
+  const finalGamesOnly = useMemo(() =>
+    allGames.filter(g => g.status === 'Final'),
+    [allGames]
+  )
+
   const byDate = useMemo(() => {
     const map = new Map<string, GameWithTeams[]>()
-    for (const g of allGames) {
+    for (const g of finalGamesOnly) {
       const d = g.game_date || today
       if (!map.has(d)) map.set(d, [])
       map.get(d)!.push(g)
     }
     return map
-  }, [allGames, today])
+  }, [finalGamesOnly, today])
 
   const dates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a))
 
@@ -103,8 +109,8 @@ export default function HomeClient({
   const closeCount = allGames.filter(g => isCloseGame(g.home_score, g.away_score) && g.status === 'Final').length
 
   // Latest finals (most recent 5, excluding featured)
-  const latestFinals = allGames
-    .filter(g => g.status === 'Final' && g.id !== featuredGame?.id)
+  const latestFinals = finalGamesOnly
+    .filter(g => g.id !== featuredGame?.id)
     .slice(0, 5)
 
   return (
@@ -126,9 +132,14 @@ export default function HomeClient({
               <div>
                 <h1 className="text-4xl md:text-5xl font-black text-white leading-none tracking-tight"
                   style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
-                  Section X Scores
+                  Latest Results
                 </h1>
-                <p className="text-slate-500 text-sm mt-1.5">{format(new Date(today + 'T12:00:00'), 'EEEE, MMMM d, yyyy')}</p>
+                <p className="text-slate-500 text-sm mt-1.5">
+                  {finalGamesOnly.length > 0
+                    ? `${finalGamesOnly.length} final score${finalGamesOnly.length !== 1 ? 's' : ''} · ${format(new Date(today + 'T12:00:00'), 'MMMM d, yyyy')}`
+                    : format(new Date(today + 'T12:00:00'), 'EEEE, MMMM d, yyyy')
+                  }
+                </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {todayLive.length > 0 && (
@@ -161,14 +172,14 @@ export default function HomeClient({
           )}
 
           {/* Empty state */}
-          {allGames.length === 0 && (
-            <div className="rounded-2xl p-12 text-center border border-white/6"
-              style={{ background: 'rgba(10,15,28,0.6)' }}>
-              <p className="text-4xl mb-3">🏆</p>
-              <p className="text-slate-300 font-bold text-xl" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
-                No Games Yet
+          {finalGamesOnly.length === 0 && (
+            <div className="rounded-2xl p-10 text-center border border-white/6"
+              style={{ background: 'rgba(8,12,20,0.7)' }}>
+              <p className="text-3xl mb-3">🏆</p>
+              <p className="text-slate-300 font-bold text-lg" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
+                No Final Scores Yet
               </p>
-              <p className="text-slate-500 text-sm mt-1">Import scores from the admin to get started.</p>
+              <p className="text-slate-600 text-sm mt-1">Check back after tonight's games.</p>
             </div>
           )}
 
@@ -253,8 +264,13 @@ export default function HomeClient({
                             const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
                             const homeColor = ht?.school?.primary_color || '#334155'
                             const awayColor = at?.school?.primary_color || '#334155'
-                            const homeWins = (game.home_score ?? 0) > (game.away_score ?? 0)
-                            const awayWins = (game.away_score ?? 0) > (game.home_score ?? 0)
+                            const isGolfGame = game.sport?.sport_name?.toLowerCase().includes('golf')
+                            const homeWins = isGolfGame
+                              ? (game.home_score ?? 999) < (game.away_score ?? 999)
+                              : (game.home_score ?? 0) > (game.away_score ?? 0)
+                            const awayWins = isGolfGame
+                              ? (game.away_score ?? 999) < (game.home_score ?? 999)
+                              : (game.away_score ?? 0) > (game.home_score ?? 0)
                             return (
                               <Link key={game.id} href={`/games/${game.id}`}
                                 className="flex items-center px-4 py-2 hover:bg-white/[0.03] transition-colors group">
@@ -303,54 +319,7 @@ export default function HomeClient({
                             )
                           })}
 
-                          {/* Scheduled games */}
-                          {scheduled.map(game => {
-                            const ht = game.home_team
-                            const at = game.away_team
-                            const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
-                            const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
-                            const timeStr = game.game_time ? formatTime(game.game_time) : 'TBD'
-                            return (
-                              <Link key={game.id} href={`/games/${game.id}`}
-                                className="flex items-center px-4 py-2 hover:bg-white/[0.03] transition-colors">
-                                <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3 bg-slate-700" />
-                                <div className="flex-1 min-w-0">
-                                  <span style={{
-                                    fontFamily: 'var(--font-display)',
-                                    fontWeight: 500,
-                                    fontSize: '14px',
-                                    color: '#4a5f7a',
-                                    letterSpacing: '0.02em',
-                                  }}>{awayName} at {homeName}</span>
-                                </div>
-                                <span className="text-xs font-bold ml-3 flex-shrink-0"
-                                  style={{ fontFamily: 'var(--font-display)', color: '#60a5fa', letterSpacing: '0.06em' }}>
-                                  {timeStr}
-                                </span>
-                              </Link>
-                            )
-                          })}
-
-                          {/* Postponed */}
-                          {ppd.map(game => {
-                            const ht = game.home_team
-                            const at = game.away_team
-                            const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
-                            const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
-                            return (
-                              <Link key={game.id} href={`/games/${game.id}`}
-                                className="flex items-center px-4 py-2 opacity-40">
-                                <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3 bg-slate-700" />
-                                <div className="flex-1 min-w-0">
-                                  <span style={{ fontFamily: 'var(--font-display)', fontSize: '13px', color: '#374151' }}>
-                                    {awayName} at {homeName}
-                                  </span>
-                                </div>
-                                <span className="text-xs text-amber-600 ml-3 flex-shrink-0"
-                                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>PPD</span>
-                              </Link>
-                            )
-                          })}
+                          {/* Scheduled/PPD games not shown on homepage - go to team/school pages */}
 
                           <div className="pb-1" />
                         </div>

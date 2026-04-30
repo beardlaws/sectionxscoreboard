@@ -67,7 +67,10 @@ export default function ScoreTicker() {
 
   const fetchGames = useCallback(async (d: string) => {
     setLoading(true)
-    const { data } = await supabase
+    // Yesterday & earlier: show finals only (scores reported)
+    // Today & tomorrow: show all non-canceled games
+    const isPast = d < format(new Date(), 'yyyy-MM-dd')
+    let q = supabase
       .from('games')
       .select(`
         id, game_date, game_time, home_score, away_score, status,
@@ -80,6 +83,8 @@ export default function ScoreTicker() {
       .eq('game_date', d)
       .neq('status', 'Canceled')
       .order('game_time', { ascending: true })
+    if (isPast) q = (q as any).eq('status', 'Final')
+    const { data } = await q
     setGames((data as any) || [])
     setLoading(false)
   }, [])
