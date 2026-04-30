@@ -52,7 +52,7 @@ export default async function StandingsPage({ searchParams }: Props) {
         .eq('status', 'Final'),
       supabase.from('team_seasons').select('team_id, division, class').eq('season_id', seasonId),
     ])
-    standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [])
+    standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [], selectedSport?.sport_name)
   }
 
   // Group by DIVISION only (class is for playoffs, not regular season standings)

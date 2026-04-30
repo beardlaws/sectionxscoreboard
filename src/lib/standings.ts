@@ -10,7 +10,7 @@ function calcBTM(wins: number, losses: number, ties: number): number {
   return (w + 0.5) / (total + 1)
 }
 
-export function calculateStandings(games: any[], teamSeasons?: any[]): StandingsRow[] {
+export function calculateStandings(games: any[], teamSeasons?: any[], sportName?: string): StandingsRow[] {
   const map = new Map<string, StandingsRow>()
 
   // Build division/class lookup from team_seasons
@@ -70,10 +70,11 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
       awayRow.points_for += game.away_score
       awayRow.points_against += game.home_score
 
-      // League game = both teams in the SAME DIVISION (class is for playoffs only)
+      // Golf: all games count as league. Other sports: same division = league
+      const isGolf2 = sportName?.toLowerCase().includes('golf') || game.sport?.sport_name?.toLowerCase().includes('golf')
       const homeTs = tsMap[game.home_team_id]
       const awayTs = tsMap[game.away_team_id]
-      const isLeague = !!(
+      const isLeague = isGolf2 ? true : !!(
         homeTs && awayTs &&
         homeTs.division && awayTs.division &&
         homeTs.division === awayTs.division
