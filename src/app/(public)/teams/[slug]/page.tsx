@@ -64,7 +64,8 @@ export default async function TeamPage({ params }: Props) {
 
   const games = (gamesData as GameWithTeams[]) || [];
 
-  // Team record — use team_id fields not nested objects so external games count too
+  // Team record — golf: lower score wins; all other sports: higher score wins
+  const isGolfTeam = (sport as any)?.sport_name?.toLowerCase().includes('golf');
   const finalGames = games.filter(g => g.status === 'Final');
   let wins = 0, losses = 0, ties = 0;
   finalGames.forEach(g => {
@@ -72,8 +73,10 @@ export default async function TeamPage({ params }: Props) {
     const isHome = g.home_team_id === team.id;
     const myScore = isHome ? g.home_score : g.away_score;
     const oppScore = isHome ? g.away_score : g.home_score;
-    if (myScore > oppScore) wins++;
-    else if (myScore < oppScore) losses++;
+    const iWin = isGolfTeam ? myScore < oppScore : myScore > oppScore;
+    const iLose = isGolfTeam ? myScore > oppScore : myScore < oppScore;
+    if (iWin) wins++;
+    else if (iLose) losses++;
     else ties++;
   });
 
