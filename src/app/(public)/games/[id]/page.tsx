@@ -160,13 +160,21 @@ export default async function GamePage({ params }: PageProps) {
                 {(awaySchool?.alias || awayName).slice(0, 3).toUpperCase()}
               </div>
               <div className="flex-1">
-                <Link
-                  href={awaySchool ? `/schools/${awaySchool.slug}` : '#'}
-                  className={`text-xl font-bold hover:text-blue-400 transition-colors ${awayWins ? '' : 'opacity-70'}`}
-                  style={{ fontFamily: 'var(--font-display)' }}
-                >
-                  {awayName}
-                </Link>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Link
+                    href={awaySchool ? `/schools/${awaySchool.slug}` : '#'}
+                    className={`text-xl font-bold hover:text-blue-400 transition-colors ${awayWins ? '' : 'opacity-60'}`}
+                    style={{ fontFamily: 'var(--font-display)' }}
+                  >
+                    {awayName}
+                  </Link>
+                  {awayRecord && (
+                    <span className="text-sm font-bold px-2 py-0.5 rounded-lg font-mono"
+                      style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      {awayRecord}
+                    </span>
+                  )}
+                </div>
                 {awayTeam && (
                   <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
                     Away · {awaySchool?.city}
@@ -193,13 +201,21 @@ export default async function GamePage({ params }: PageProps) {
                 {(homeSchool?.alias || homeName).slice(0, 3).toUpperCase()}
               </div>
               <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
                 <Link
                   href={homeSchool ? `/schools/${homeSchool.slug}` : '#'}
-                  className={`text-xl font-bold hover:text-blue-400 transition-colors ${homeWins ? '' : 'opacity-70'}`}
+                  className={`text-xl font-bold hover:text-blue-400 transition-colors ${homeWins ? '' : 'opacity-60'}`}
                   style={{ fontFamily: 'var(--font-display)' }}
                 >
                   {homeName}
                 </Link>
+                {homeRecord && (
+                  <span className="text-sm font-bold px-2 py-0.5 rounded-lg font-mono"
+                    style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    {homeRecord}
+                  </span>
+                )}
+                </div>
                 {homeTeam && (
                   <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
                     Home · {homeSchool?.city}
