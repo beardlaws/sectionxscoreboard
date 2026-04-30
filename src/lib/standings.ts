@@ -1,8 +1,5 @@
-// src/lib/standings.ts
 import type { StandingsRow } from '@/types'
 
-// BTM = Binomial Tournament Method
-// Formula: (wins + ties*0.5 + 0.5) / (wins + losses + ties + 1)
 function calcBTM(wins: number, losses: number, ties: number): number {
   const w = wins + ties * 0.5
   const total = wins + losses + ties
@@ -13,7 +10,9 @@ function calcBTM(wins: number, losses: number, ties: number): number {
 export function calculateStandings(games: any[], teamSeasons?: any[], sportName?: string): StandingsRow[] {
   const map = new Map<string, StandingsRow>()
 
-  // Build division/class lookup from team_seasons
+  // Golf: LOWER score wins
+  const isGolf = !!(sportName?.toLowerCase().includes('golf'))
+
   const tsMap: Record<string, { division: string; class: string }> = {}
   if (teamSeasons) {
     for (const ts of teamSeasons) {
@@ -25,23 +24,23 @@ export function calculateStandings(games: any[], teamSeasons?: any[], sportName?
     if (!map.has(teamId)) {
       const ts = tsMap[teamId] || { division: '', class: '' }
       map.set(teamId, {
-        team_id: teamId,
-        team_name: teamName,
-        school_name: schoolName,
-        school_slug: schoolSlug,
-        team_slug: teamSlug,
-        slug: teamSlug,
+        team_id: teamId, team_name: teamName, school_name: schoolName,
+        school_slug: schoolSlug, team_slug: teamSlug, slug: teamSlug,
         primary_color: primaryColor,
         wins: 0, losses: 0, ties: 0,
         league_wins: 0, league_losses: 0, league_ties: 0,
         points_for: 0, points_against: 0,
         win_pct: 0, league_win_pct: 0, btm: 0,
-        class: ts.class,
-        division: ts.division,
+        class: ts.class, division: ts.division,
       })
     }
     return map.get(teamId)!
   }
+
+  const didHomeWin = (homeScore: number, awayScore: number): boolean =>
+    isGolf ? homeScore < awayScore : homeScore > awayScore
+  const didAwayWin = (homeScore: number, awayScore: number): boolean =>
+    isGolf ? awayScore < homeScore : awayScore > homeScore
 
   for (const game of games) {
     if (game.status !== 'Final') continue
@@ -52,7 +51,6 @@ export function calculateStandings(games: any[], teamSeasons?: any[], sportName?
     const hasHomeTeam = !!game.home_team_id && !!ht
     const hasAwayTeam = !!game.away_team_id && !!at
 
-    // Both Section X teams — full processing
     if (hasHomeTeam && hasAwayTeam) {
       const homeRow = ensure(
         game.home_team_id, ht.team_name,
@@ -70,20 +68,19 @@ export function calculateStandings(games: any[], teamSeasons?: any[], sportName?
       awayRow.points_for += game.away_score
       awayRow.points_against += game.home_score
 
-      // Golf: all games count as league. Other sports: same division = league
-      const isGolf2 = sportName?.toLowerCase().includes('golf') || game.sport?.sport_name?.toLowerCase().includes('golf')
+      // Golf: all games count as league. Others: same division only
       const homeTs = tsMap[game.home_team_id]
       const awayTs = tsMap[game.away_team_id]
-      const isLeague = isGolf2 ? true : !!(
+      const isLeague = isGolf ? true : !!(
         homeTs && awayTs &&
         homeTs.division && awayTs.division &&
         homeTs.division === awayTs.division
       )
 
-      if (game.home_score > game.away_score) {
+      if (didHomeWin(game.home_score, game.away_score)) {
         homeRow.wins++; awayRow.losses++
         if (isLeague) { homeRow.league_wins++; awayRow.league_losses++ }
-      } else if (game.away_score > game.home_score) {
+      } else if (didAwayWin(game.home_score, game.away_score)) {
         awayRow.wins++; homeRow.losses++
         if (isLeague) { awayRow.league_wins++; homeRow.league_losses++ }
       } else {
@@ -92,7 +89,6 @@ export function calculateStandings(games: any[], teamSeasons?: any[], sportName?
       }
 
     } else if (hasHomeTeam && !hasAwayTeam) {
-      // Home is Section X, away is external — count for overall only, never league
       const homeRow = ensure(
         game.home_team_id, ht.team_name,
         ht.school?.school_name || '', ht.school?.slug || '',
@@ -100,12 +96,11 @@ export function calculateStandings(games: any[], teamSeasons?: any[], sportName?
       )
       homeRow.points_for += game.home_score
       homeRow.points_against += game.away_score
-      if (game.home_score > game.away_score) homeRow.wins++
-      else if (game.away_score > game.home_score) homeRow.losses++
+      if (didHomeWin(game.home_score, game.away_score)) homeRow.wins++
+      else if (didAwayWin(game.home_score, game.away_score)) homeRow.losses++
       else homeRow.ties++
 
     } else if (!hasHomeTeam && hasAwayTeam) {
-      // Away is Section X, home is external
       const awayRow = ensure(
         game.away_team_id, at.team_name,
         at.school?.school_name || '', at.school?.slug || '',
@@ -113,28 +108,30 @@ export function calculateStandings(games: any[], teamSeasons?: any[], sportName?
       )
       awayRow.points_for += game.away_score
       awayRow.points_against += game.home_score
-      if (game.away_score > game.home_score) awayRow.wins++
-      else if (game.home_score > game.away_score) awayRow.losses++
+      if (didAwayWin(game.home_score, game.away_score)) awayRow.wins++
+      else if (didHomeWin(game.home_score, game.away_score)) awayRow.losses++
       else awayRow.ties++
     }
-    // Both null = can't attribute to anyone, skip
   }
 
   const rows = Array.from(map.values())
   rows.forEach(r => {
     const total = r.wins + r.losses + r.ties
     r.win_pct = total > 0 ? r.wins / total : 0
-    const leagueTotal = r.league_wins + r.league_losses + r.league_ties
-    r.league_win_pct = leagueTotal > 0 ? r.league_wins / leagueTotal : 0
+    const lt = r.league_wins + r.league_losses + r.league_ties
+    r.league_win_pct = lt > 0 ? r.league_wins / lt : 0
     r.btm = calcBTM(r.wins, r.losses, r.ties)
   })
 
+  const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South']
   return rows.sort((a, b) => {
-    // Sort by division first, then BTM within division
-    const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South', '']
     const aDivIdx = DIVISION_ORDER.indexOf(a.division || '')
     const bDivIdx = DIVISION_ORDER.indexOf(b.division || '')
-    if (aDivIdx !== bDivIdx) return aDivIdx - bDivIdx
+    if (aDivIdx !== bDivIdx) {
+      if (aDivIdx === -1) return 1
+      if (bDivIdx === -1) return -1
+      return aDivIdx - bDivIdx
+    }
     return b.btm - a.btm || b.wins - a.wins
   })
 }
