@@ -45,7 +45,7 @@ function getSportKey(game: GameWithTeams): string {
 
 export default function HomeClient({
   activeSeason, todayGames, recentGames, featuredGame,
-  featuredPhoto, homepageSponsor, schools, today,
+  featuredPhoto, homepageSponsor, latestShoutout, schools, today,
 }: HomeClientProps) {
   const [schoolSearch, setSchoolSearch] = useState('')
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
