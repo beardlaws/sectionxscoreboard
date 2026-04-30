@@ -106,6 +106,14 @@ async function getHomepageData() {
     .eq('active', true)
     .order('school_name')
 
+  const { data: latestShoutout } = await supabase
+    .from('shoutouts')
+    .select('*')
+    .eq('approved', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
   return {
     activeSeason,
     todayGames: todayGames || [],
@@ -114,6 +122,7 @@ async function getHomepageData() {
     featuredPhoto: featuredPhoto || null,
     allStandingsGames: standings || [],
     homepageSponsor: homepageSponsor || null,
+    latestShoutout: latestShoutout || null,
     schools: schools || [],
     today,
   }
@@ -121,15 +130,6 @@ async function getHomepageData() {
 
 export default async function HomePage() {
   const data = await getHomepageData()
-
-  // Latest shoutout for sidebar
-  const { data: latestShoutout } = await supabase
-    .from('shoutouts')
-    .select('*')
-    .eq('approved', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
 
   return (
     <PublicLayout>
