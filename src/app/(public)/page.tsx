@@ -122,6 +122,15 @@ async function getHomepageData() {
 export default async function HomePage() {
   const data = await getHomepageData()
 
+  // Latest shoutout for sidebar
+  const { data: latestShoutout } = await supabase
+    .from('shoutouts')
+    .select('*')
+    .eq('approved', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
   return (
     <PublicLayout>
       <HomeClient {...data} />

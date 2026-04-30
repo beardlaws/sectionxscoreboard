@@ -219,6 +219,40 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
           </div>
         </div>
       </footer>
+      {/* Mobile bottom nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
+        style={{
+          background: 'rgba(5,8,15,0.97)',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          backdropFilter: 'blur(20px)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}>
+        <div className="flex items-center justify-around px-2 py-2">
+          {[
+            { href: '/', icon: '🏠', label: 'Home' },
+            { href: '/scores', icon: '📅', label: 'Scores' },
+            { href: '/standings', icon: '📊', label: 'Stand.' },
+            { href: '/schools', icon: '🏫', label: 'Schools' },
+            { href: '/submit-score', icon: '✏️', label: 'Submit' },
+          ].map(item => {
+            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+            return (
+              <Link key={item.href} href={item.href}
+                className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-all"
+                style={{ color: active ? '#60a5fa' : '#384d6b', minWidth: '52px' }}>
+                <span className="text-xl leading-none">{item.icon}</span>
+                <span className="text-xs font-bold uppercase tracking-wider"
+                  style={{ fontFamily: 'var(--font-display)', fontSize: '9px' }}>
+                  {item.label}
+                </span>
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
+
+      {/* Bottom nav spacer on mobile */}
+      <div className="h-16 md:hidden" />
     </div>
   )
 }

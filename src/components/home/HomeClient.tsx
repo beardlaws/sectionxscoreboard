@@ -18,6 +18,7 @@ interface HomeClientProps {
   homepageSponsor: any | null
   schools: School[]
   today: string
+  latestShoutout?: any | null
 }
 
 const SPORT_ICONS: Record<string, string> = {
@@ -327,6 +328,25 @@ export default function HomeClient({
               ))}
             </div>
           </div>
+
+          {/* Latest Shoutout */}
+          {latestShoutout && (
+            <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
+              <p className="text-xs font-black text-yellow-500 uppercase tracking-widest mb-2"
+                style={{ fontFamily: 'var(--font-display)' }}>🏆 Latest Shoutout</p>
+              {latestShoutout.athlete_name && (
+                <p className="text-white font-black text-base leading-tight mb-1"
+                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.03em' }}>
+                  {latestShoutout.athlete_name}
+                </p>
+              )}
+              <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">{latestShoutout.description}</p>
+              <Link href="/shoutout" className="block mt-2 text-xs text-yellow-500 font-bold hover:text-yellow-400 transition-colors"
+                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
+                SEND A SHOUTOUT →
+              </Link>
+            </div>
+          )}
 
           {/* Quick links */}
           <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>

@@ -239,6 +239,16 @@ export default function GamesManager({ sports, seasons }: Props) {
                   ) : (
                     <>
                       <button
+                        onClick={async () => {
+                          await adminDb.update('games', { game_of_the_night: !game.game_of_the_night }, { id: game.id })
+                          fetchGames()
+                        }}
+                        className={`p-1.5 transition-colors text-lg leading-none ${game.game_of_the_night ? 'opacity-100' : 'opacity-20 hover:opacity-60'}`}
+                        title="Game of the Night"
+                      >
+                        ⭐
+                      </button>
+                      <button
                         onClick={() => { setEditingId(game.id); setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status }) }}
                         className="p-1.5 text-slate-400 hover:text-white"
                       >
