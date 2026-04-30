@@ -176,6 +176,16 @@ body::before {
   background: rgba(255,255,255,0.07);
 }
 .input::placeholder { color: var(--text-muted); }
+
+/* Fix dropdown option colors - critical for dark theme */
+.input option,
+select option {
+  background-color: #0f1729;
+  color: #e2e8f0;
+}
+select {
+  color-scheme: dark;
+}
 .textarea { @apply input; resize: vertical; min-height: 120px; }
 .label { @apply block mb-1 text-sm font-medium; color: var(--text-secondary); }
 

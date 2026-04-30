@@ -56,41 +56,27 @@ export default async function StandingsPage({ searchParams }: Props) {
     standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [])
   }
 
-  // Group: if we have divisions, group by class then division. Otherwise just class.
-  const hasDivision = standings.some(r => r.division)
-  const hasClass = standings.some(r => r.class)
-
+  // Group by DIVISION only (class is for playoffs, not regular season standings)
   interface Group { label: string; subLabel?: string; rows: any[] }
   const groups: Group[] = []
 
-  if (hasDivision && hasClass) {
-    // Group by class, then division within class
-    const classes = [...new Set(standings.map(r => r.class || ''))].sort((a, b) => CLASS_ORDER.indexOf(a) - CLASS_ORDER.indexOf(b))
-    for (const cls of classes) {
-      const classRows = standings.filter(r => (r.class || '') === cls)
-      const divisions = [...new Set(classRows.map(r => r.division || ''))].sort((a, b) => DIVISION_ORDER.indexOf(a) - DIVISION_ORDER.indexOf(b))
-      for (const div of divisions) {
-        const rows = classRows.filter(r => (r.division || '') === div).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
-        if (rows.length > 0) groups.push({ label: `Class ${cls}`, subLabel: div ? `${div} Division` : '', rows })
-      }
-      // Non-division rows for this class
-      const noDivRows = classRows.filter(r => !r.division).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
-      if (noDivRows.length > 0) groups.push({ label: `Class ${cls}`, rows: noDivRows })
-    }
-  } else if (hasDivision) {
-    const divs = [...new Set(standings.map(r => r.division || 'Overall'))].sort((a, b) => DIVISION_ORDER.indexOf(a) - DIVISION_ORDER.indexOf(b))
-    for (const div of divs) {
-      const rows = standings.filter(r => (r.division || 'Overall') === div).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
+  const hasDivision = standings.some(r => r.division)
+
+  if (hasDivision) {
+    const divs = [...new Set(standings.map(r => r.division || ''))].filter(Boolean)
+    const sortedDivs = [
+      ...DIVISION_ORDER.filter(d => divs.includes(d)),
+      ...divs.filter(d => !DIVISION_ORDER.includes(d)),
+    ]
+    for (const div of sortedDivs) {
+      const rows = standings.filter(r => r.division === div)
       if (rows.length > 0) groups.push({ label: `${div} Division`, rows })
     }
-  } else if (hasClass) {
-    const classes = [...new Set(standings.map(r => r.class || ''))].sort((a, b) => CLASS_ORDER.indexOf(a) - CLASS_ORDER.indexOf(b))
-    for (const cls of classes) {
-      const rows = standings.filter(r => (r.class || '') === cls).sort((a, b) => b.btm - a.btm || b.wins - a.wins)
-      if (rows.length > 0) groups.push({ label: `Class ${cls}`, rows })
-    }
+    // Teams with no division assigned
+    const noDivRows = standings.filter(r => !r.division)
+    if (noDivRows.length > 0) groups.push({ label: 'Non-League', rows: noDivRows })
   } else {
-    groups.push({ label: '', rows: standings.sort((a, b) => b.btm - a.btm || b.wins - a.wins) })
+    groups.push({ label: '', rows: standings })
   }
 
   const StandingsTable = ({ group }: { group: Group }) => (
@@ -205,10 +191,13 @@ export default async function StandingsPage({ searchParams }: Props) {
           groups.map((group, i) => <StandingsTable key={i} group={group} />)
         )}
 
-        {/* BTM explainer */}
+        {/* Explainer */}
         {standings.length > 0 && (
           <p className="text-xs text-slate-500 mt-4">
-            BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better. Rewards winning percentage over raw win totals.
+            {selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
+              ? 'Golf standings: lower scores are better. Points = match play points vs opponents.'
+              : 'BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better.'
+            }
           </p>
         )}
       </div>

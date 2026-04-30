@@ -70,14 +70,13 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
       awayRow.points_for += game.away_score
       awayRow.points_against += game.home_score
 
-      // League game = both teams share same division AND class
+      // League game = both teams in the SAME DIVISION (class is for playoffs only)
       const homeTs = tsMap[game.home_team_id]
       const awayTs = tsMap[game.away_team_id]
       const isLeague = !!(
         homeTs && awayTs &&
         homeTs.division && awayTs.division &&
-        homeTs.division === awayTs.division &&
-        homeTs.class === awayTs.class
+        homeTs.division === awayTs.division
       )
 
       if (game.home_score > game.away_score) {
@@ -130,8 +129,11 @@ export function calculateStandings(games: any[], teamSeasons?: any[]): Standings
   })
 
   return rows.sort((a, b) => {
-    if (a.division !== b.division) return (a.division || 'Z').localeCompare(b.division || 'Z')
-    if (a.class !== b.class) return (a.class || 'Z').localeCompare(b.class || 'Z')
+    // Sort by division first, then BTM within division
+    const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South', '']
+    const aDivIdx = DIVISION_ORDER.indexOf(a.division || '')
+    const bDivIdx = DIVISION_ORDER.indexOf(b.division || '')
+    if (aDivIdx !== bDivIdx) return aDivIdx - bDivIdx
     return b.btm - a.btm || b.wins - a.wins
   })
 }
