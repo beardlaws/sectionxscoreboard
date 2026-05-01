@@ -17,6 +17,7 @@ const navSections = [
       { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/admin/scores/entry', label: 'Enter Score', icon: PlusCircle },
       { href: '/admin/scores/manage', label: 'Manage Games', icon: BarChart2 },
+      { href: '/admin/games/recap', label: 'Game Recaps', icon: PlusCircle },
       { href: '/admin/import', label: 'Import Center', icon: Upload },
       { href: '/admin/submissions', label: 'Submission Queue', icon: CheckSquare },
     ],

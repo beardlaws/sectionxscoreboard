@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { PhotoGalleryGrid } from '@/components/PhotoLightbox'
 import { createClient } from '@/lib/supabase/server'
 import PublicLayout from '@/components/layout/PublicLayout'
 import { format, parseISO } from 'date-fns'
@@ -274,6 +275,22 @@ export default async function GamePage({ params }: PageProps) {
             <span>Updated: {format(new Date(game.updated_at), 'M/d/yy h:mm a')}</span>
           </div>
         </div>
+
+        {/* Game Recap */}
+        {game.recap && (
+          <div className="rounded-2xl p-5 border border-white/8 mb-6"
+            style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">📝</span>
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest"
+                style={{ fontFamily: 'var(--font-display)' }}>Game Recap</span>
+              {game.recap_author && (
+                <span className="text-xs text-slate-600">· by {game.recap_author}</span>
+              )}
+            </div>
+            <p className="text-slate-200 text-sm leading-relaxed">{game.recap}</p>
+          </div>
+        )}
 
         {/* Photos */}
         {photos && photos.length > 0 && (

@@ -109,6 +109,8 @@ export interface Game {
   neutral_site: boolean
   import_id: string | null
   parser_confidence: ImportConfidence | null
+  recap: string | null
+  recap_author: string | null
   created_at: string
   updated_at: string
   // Joined
