@@ -5,6 +5,7 @@ import { calculateStandings } from '@/lib/standings'
 import { GameWithTeams } from '@/types'
 import { Trophy } from 'lucide-react'
 import PublicLayout from '@/components/layout/PublicLayout'
+import StandingsToggle from '@/components/StandingsToggle'
 
 export const metadata: Metadata = {
   title: 'Standings | Section X Scoreboard',
@@ -55,11 +56,13 @@ export default async function StandingsPage({ searchParams }: Props) {
     standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [], selectedSport?.sport_name)
   }
 
-  // Group by DIVISION only (class is for playoffs, not regular season standings)
+  // Group by DIVISION
   interface Group { label: string; subLabel?: string; rows: any[] }
-  const groups: Group[] = []
+  const divisionGroups: Group[] = []
+  const classGroups: Group[] = []
 
   const hasDivision = standings.some(r => r.division)
+  const hasClass = standings.some(r => r.class)
 
   if (hasDivision) {
     const divs = [...new Set(standings.map(r => r.division || ''))].filter(Boolean)
@@ -69,43 +72,33 @@ export default async function StandingsPage({ searchParams }: Props) {
     ]
     for (const div of sortedDivs) {
       const rows = standings.filter(r => r.division === div)
-      if (rows.length > 0) groups.push({ label: `${div} Division`, rows })
+      if (rows.length > 0) divisionGroups.push({ label: `${div} Division`, rows })
     }
-    // Teams with no division assigned
     const noDivRows = standings.filter(r => !r.division)
-    if (noDivRows.length > 0) groups.push({ label: 'Non-League', rows: noDivRows })
+    if (noDivRows.length > 0) divisionGroups.push({ label: 'Non-League', rows: noDivRows })
   } else {
-    groups.push({ label: '', rows: standings })
+    divisionGroups.push({ label: '', rows: standings })
   }
 
-  const StandingsTable = ({ group }: { group: Group }) => (
-    <div className="card overflow-hidden mb-5">
-      <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.05)' }}>
-        <div>
-          {group.label && <h3 className="text-white font-bold font-display uppercase tracking-wide">{group.label}</h3>}
-          {group.subLabel && <p className="text-slate-400 text-xs mt-0.5">{group.subLabel}</p>}
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-slate-400 border-b border-white/10 bg-white/[0.02]">
-              <th className="text-left px-4 py-3 font-medium w-8"></th>
-              <th className="text-left px-2 py-3 font-medium">Team</th>
-              <th className="text-center px-3 py-3 font-medium whitespace-nowrap">League<br/>Record</th>
-              <th className="text-center px-3 py-3 font-medium whitespace-nowrap">Overall<br/>Record</th>
-              <th className="text-center px-3 py-3 font-medium whitespace-nowrap">BTM<br/>Ranking</th>
-              <th className="text-center px-3 py-3 font-medium hidden md:table-cell">PF</th>
-              <th className="text-center px-3 py-3 font-medium hidden md:table-cell">PA</th>
-              <th className="text-center px-3 py-3 font-medium hidden md:table-cell">DIFF</th>
-            </tr>
-          </thead>
-          <tbody>
-            {group.rows.map((row, i) => {
-              const diff = row.points_for - row.points_against
-              const leagueRecord = `${row.league_wins}-${row.league_losses}${row.league_ties > 0 ? `-${row.league_ties}` : ''}`
-              const overallRecord = `${row.wins}-${row.losses}${row.ties > 0 ? `-${row.ties}` : ''}`
-              return (
+  // Group by CLASS (for playoff seeding view)
+  const CLASS_ORDER_SORT = ['A', 'B', 'C', 'D']
+  if (hasClass) {
+    const classes = [...new Set(standings.map(r => r.class || ''))].filter(Boolean)
+      .sort((a, b) => CLASS_ORDER_SORT.indexOf(a) - CLASS_ORDER_SORT.indexOf(b))
+    for (const cls of classes) {
+      const rows = standings.filter(r => r.class === cls).sort((a, b) => b.btm - a.btm)
+      if (rows.length > 0) classGroups.push({ label: `Class ${cls}`, rows })
+    }
+    const noClassRows = standings.filter(r => !r.class)
+    if (noClassRows.length > 0) classGroups.push({ label: 'Unclassified', rows: noClassRows })
+  } else {
+    classGroups.push({ label: '', rows: standings })
+  }
+
+  // Pass both to client for toggle
+  const groups = divisionGroups // default, client will toggle
+
+  return (
                 <tr key={row.team_id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${i === 0 ? 'bg-yellow-500/5' : ''}`}>
                   <td className="px-4 py-3 text-slate-500 text-xs">{i + 1}</td>
                   <td className="px-2 py-3">
@@ -187,7 +180,12 @@ export default async function StandingsPage({ searchParams }: Props) {
             <p className="text-sm mt-1">Standings calculate automatically from final scores.</p>
           </div>
         ) : (
-          groups.map((group, i) => <StandingsTable key={i} group={group} />)
+          <StandingsToggle
+            divisionGroups={divisionGroups}
+            classGroups={classGroups}
+            hasDivision={hasDivision}
+            hasClass={hasClass}
+          />
         )}
 
         {/* Explainer */}
