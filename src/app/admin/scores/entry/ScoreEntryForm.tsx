@@ -82,6 +82,7 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
     try {
       const res = await fetch('/api/admin/games', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -103,7 +104,7 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
       {error && <div className="text-sm p-3 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171' }}>{error}</div>}
       {success && <div className="text-sm p-3 rounded-lg" style={{ background: 'rgba(34,197,94,0.1)', color: '#4ade80' }}>{success}</div>}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="label">Sport *</label>
           <select className="input" required value={form.sport_id} onChange={e => set('sport_id', e.target.value)}>
@@ -119,7 +120,7 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="label">Game Date *</label>
           <input className="input" type="date" required value={form.game_date} onChange={e => set('game_date', e.target.value)} />
@@ -133,36 +134,36 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
       {/* Away team */}
       <div className="rounded-lg p-4 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
         <div className="section-label">Away Team</div>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2">
-            <select className="input" value={form.away_team_id} onChange={e => set('away_team_id', e.target.value)}>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <select className="input w-full" value={form.away_team_id} onChange={e => set('away_team_id', e.target.value)}>
               <option value="">Select team...</option>
               {filteredTeams.map(t => (
                 <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
               ))}
             </select>
           </div>
-          <input className="input" type="number" min="0" placeholder="Score" value={form.away_score} onChange={e => set('away_score', e.target.value)} />
+          <input className="input w-24 text-center text-lg font-bold font-mono" type="number" min="0" placeholder="0" value={form.away_score} onChange={e => set('away_score', e.target.value)} />
         </div>
       </div>
 
       {/* Home team */}
       <div className="rounded-lg p-4 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
         <div className="section-label">Home Team</div>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2">
-            <select className="input" value={form.home_team_id} onChange={e => set('home_team_id', e.target.value)}>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <select className="input w-full" value={form.home_team_id} onChange={e => set('home_team_id', e.target.value)}>
               <option value="">Select team...</option>
               {filteredTeams.map(t => (
                 <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
               ))}
             </select>
           </div>
-          <input className="input" type="number" min="0" placeholder="Score" value={form.home_score} onChange={e => set('home_score', e.target.value)} />
+          <input className="input w-24 text-center text-lg font-bold font-mono" type="number" min="0" placeholder="0" value={form.home_score} onChange={e => set('home_score', e.target.value)} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="label">Status</label>
           <select className="input" value={form.status} onChange={e => set('status', e.target.value)}>

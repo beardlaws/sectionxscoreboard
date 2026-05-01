@@ -60,7 +60,14 @@ function sportIcon(game: TickerGame): string {
 
 export default function ScoreTicker() {
   const supabase = createClient()
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [date, setDate] = useState(() => {
+    const now = new Date()
+    // Before 10am, default to yesterday so last night's scores are visible
+    if (now.getHours() < 10) {
+      return format(subDays(now, 1), 'yyyy-MM-dd')
+    }
+    return format(now, 'yyyy-MM-dd')
+  })
   const [games, setGames] = useState<TickerGame[]>([])
   const [records, setRecords] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
