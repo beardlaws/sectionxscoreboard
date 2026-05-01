@@ -5,6 +5,7 @@
 async function dbAction(action: string, table: string, data?: any, match?: Record<string, any>, onConflict?: string) {
   const res = await fetch('/api/admin/db', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, table, data, match, onConflict }),
   })
