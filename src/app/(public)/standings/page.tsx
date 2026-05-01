@@ -95,37 +95,6 @@ export default async function StandingsPage({ searchParams }: Props) {
     classGroups.push({ label: '', rows: standings })
   }
 
-  // Pass both to client for toggle
-  const groups = divisionGroups // default, client will toggle
-
-  return (
-                <tr key={row.team_id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${i === 0 ? 'bg-yellow-500/5' : ''}`}>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{i + 1}</td>
-                  <td className="px-2 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: row.primary_color || '#334155' }} />
-                      <Link href={`/teams/${row.slug || row.team_slug}`} className="text-white hover:text-ice transition-colors font-medium truncate">
-                        {row.school_name || row.team_name}
-                      </Link>
-                    </div>
-                  </td>
-                  <td className="text-center px-3 py-3 font-mono text-slate-200">{leagueRecord}</td>
-                  <td className="text-center px-3 py-3 font-mono text-slate-300">{overallRecord}</td>
-                  <td className="text-center px-3 py-3 font-mono font-bold text-ice">{row.btm.toFixed(3)}</td>
-                  <td className="text-center px-3 py-3 text-slate-400 font-mono hidden md:table-cell">{row.points_for}</td>
-                  <td className="text-center px-3 py-3 text-slate-400 font-mono hidden md:table-cell">{row.points_against}</td>
-                  <td className={`text-center px-3 py-3 font-mono font-bold hidden md:table-cell ${diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {diff > 0 ? `+${diff}` : diff}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 py-6">
