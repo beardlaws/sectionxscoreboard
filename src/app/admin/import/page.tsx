@@ -13,7 +13,7 @@ export default async function ImportPage() {
     { data: sports },
     { data: seasons },
   ] = await Promise.all([
-    supabase.from('teams').select('*, school:schools(school_name, alias, primary_color, slug)').eq('active', true),
+    supabase.from('teams').select('*, school:schools(school_name, alias, primary_color, slug)'),
     supabase.from('sports').select('*').order('sport_name'),
     supabase.from('seasons').select('*').order('year', { ascending: false }),
   ])
