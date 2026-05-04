@@ -252,12 +252,28 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                   </div>
                 </div>
 
-                {/* Status */}
-                <div className="flex-shrink-0">
+                {/* Status + Date + Time */}
+                <div className="flex-shrink-0 flex flex-col gap-1.5">
                   {isEditing ? (
-                    <select value={editScores.status} onChange={e => setEditScores(p => ({ ...p, status: e.target.value }))} className="input text-xs py-0.5 px-1">
-                      <option>Final</option><option>Scheduled</option><option>Postponed</option><option>Canceled</option>
-                    </select>
+                    <>
+                      <select value={editScores.status} onChange={e => setEditScores(p => ({ ...p, status: e.target.value }))} className="input text-xs py-0.5 px-1">
+                        <option>Final</option><option>Scheduled</option><option>Postponed</option><option>Canceled</option>
+                      </select>
+                      <input
+                        type="date"
+                        value={editScores.date}
+                        onChange={e => setEditScores(p => ({ ...p, date: e.target.value }))}
+                        className="input text-xs py-0.5 px-1"
+                        style={{ colorScheme: 'dark' }}
+                      />
+                      <input
+                        type="time"
+                        value={editScores.time}
+                        onChange={e => setEditScores(p => ({ ...p, time: e.target.value }))}
+                        className="input text-xs py-0.5 px-1"
+                        style={{ colorScheme: 'dark' }}
+                      />
+                    </>
                   ) : (
                     <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColors[game.status] || 'bg-white/10 text-slate-400'}`}>
                       {game.status}
