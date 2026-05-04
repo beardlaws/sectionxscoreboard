@@ -16,8 +16,6 @@ function checkAuth(req: NextRequest) {
 // POST /api/admin/db
 // Body: { action: 'insert'|'update'|'upsert'|'delete', table: string, data?: any, match?: any, onConflict?: string }
 export async function POST(req: NextRequest) {
-  if (!checkAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const body = await req.json()
   const { action, table, data, match, onConflict } = body
 

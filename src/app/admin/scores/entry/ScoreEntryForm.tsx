@@ -86,7 +86,6 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
     try {
       const res = await fetch('/api/admin/games', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })

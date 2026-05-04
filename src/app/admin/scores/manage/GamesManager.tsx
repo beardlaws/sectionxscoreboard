@@ -83,38 +83,33 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
     try {
       const hasExternalAway = editTeams.away_team_id === 'EXTERNAL'
       const hasExternalHome = editTeams.home_team_id === 'EXTERNAL'
+      const game = games.find((g: any) => g.id === id)
 
-      // Build update - write DIRECTLY to Supabase, bypassing API routes entirely
-      // RLS is disabled so anon key can write
-      const updates: any = {}
-      if (editScores.home !== '') updates.home_score = parseInt(editScores.home)
-      if (editScores.away !== '') updates.away_score = parseInt(editScores.away)
-      if (editScores.status) updates.status = editScores.status
-      if (editScores.date) updates.game_date = editScores.date
-      if (editScores.time) updates.game_time = editScores.time.length === 5 ? editScores.time + ':00' : editScores.time
-      if (!hasExternalHome && editTeams.home_team_id) updates.home_team_id = editTeams.home_team_id
-      if (!hasExternalAway && editTeams.away_team_id) updates.away_team_id = editTeams.away_team_id
+      // Build payload - send everything through the games API
+      // which handles external opponents, sport validation, and updates by id
+      const payload: any = { id }
+      if (editScores.home !== '') payload.home_score = parseInt(editScores.home)
+      if (editScores.away !== '') payload.away_score = parseInt(editScores.away)
+      if (editScores.status) payload.status = editScores.status
+      if (editScores.date) payload.game_date = editScores.date
+      if (editScores.time) payload.game_time = editScores.time.length === 5 ? editScores.time + ':00' : editScores.time
+      if (game?.sport_id) payload.sport_id = game.sport_id
 
-      const { error } = await supabase.from('games').update(updates).eq('id', id)
-      if (error) {
-        alert('Save failed: ' + error.message)
+      if (!hasExternalHome && editTeams.home_team_id) payload.home_team_id = editTeams.home_team_id
+      if (!hasExternalAway && editTeams.away_team_id) payload.away_team_id = editTeams.away_team_id
+      if (hasExternalAway && editTeams.external_away_name) payload.external_away_name = editTeams.external_away_name
+      if (hasExternalHome && editTeams.external_home_name) payload.external_home_name = editTeams.external_home_name
+
+      const res = await fetch('/api/admin/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([payload]),
+      })
+      const json = await res.json()
+      if (!res.ok || (json.errors && json.errors.length > 0)) {
+        alert('Save failed: ' + (json.errors?.[0] || res.status))
         setSaving(false)
         return
-      }
-
-      // Handle external opponent names via API
-      if ((hasExternalAway && editTeams.external_away_name) || (hasExternalHome && editTeams.external_home_name)) {
-        const extPayload: any = { id }
-        const game = games.find((g: any) => g.id === id)
-        if (game) extPayload.sport_id = game.sport_id
-        if (hasExternalAway && editTeams.external_away_name) extPayload.external_away_name = editTeams.external_away_name
-        if (hasExternalHome && editTeams.external_home_name) extPayload.external_home_name = editTeams.external_home_name
-        await fetch('/api/admin/games', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify([extPayload]),
-        })
       }
 
       await fetchGames()

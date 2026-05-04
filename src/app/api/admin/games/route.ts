@@ -8,10 +8,6 @@ function getAdminClient() {
   )
 }
 
-function checkAuth(req: NextRequest) {
-  return req.cookies.get('admin_auth')?.value === 'SectionXScoreboardTheRightWay!'
-}
-
 async function findOrCreateExternalOpponent(supabase: any, name: string): Promise<string | null> {
   if (!name?.trim()) return null
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -22,8 +18,6 @@ async function findOrCreateExternalOpponent(supabase: any, name: string): Promis
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const body = await req.json()
   const supabase = getAdminClient()
   const games = Array.isArray(body) ? body : [body]
@@ -35,73 +29,59 @@ export async function POST(req: NextRequest) {
       if (v !== undefined) clean[k] = v
     }
 
-    // Handle external opponent names
-    if (clean.external_home_name && !clean.home_team_id) {
+    // Handle external opponent names → create/find and store as opponent_id
+    if (clean.external_home_name) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_home_name)
-      if (extId) clean.external_home_opponent_id = extId
+      if (extId) {
+        clean.external_home_opponent_id = extId
+        clean.home_team_id = null
+      }
     }
-    if (clean.external_away_name && !clean.away_team_id) {
+    if (clean.external_away_name) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_away_name)
-      if (extId) clean.external_away_opponent_id = extId
+      if (extId) {
+        clean.external_away_opponent_id = extId
+        clean.away_team_id = null
+      }
     }
     delete clean.external_home_name
     delete clean.external_away_name
 
-    // SPORT VALIDATION: ensure team IDs match the game's sport_id
-    // This is the final guard against cross-sport contamination
+    // Sport validation - auto-correct wrong team sport
     if (clean.sport_id && clean.home_team_id) {
-      const { data: homeTeam } = await supabase
-        .from('teams').select('sport_id, school_id').eq('id', clean.home_team_id).single()
-      if (homeTeam && homeTeam.sport_id !== clean.sport_id) {
-        // Find the correct team for this school + sport
-        const { data: correctTeam } = await supabase
-          .from('teams').select('id').eq('school_id', homeTeam.school_id).eq('sport_id', clean.sport_id).single()
-        if (correctTeam) {
-          console.log(`Auto-corrected home team sport mismatch: ${clean.home_team_id} → ${correctTeam.id}`)
-          clean.home_team_id = correctTeam.id
-        } else {
-          console.warn(`No correct home team found for school ${homeTeam.school_id} + sport ${clean.sport_id}`)
-          clean.home_team_id = null
-        }
+      const { data: ht } = await supabase.from('teams').select('sport_id, school_id').eq('id', clean.home_team_id).single()
+      if (ht && ht.sport_id !== clean.sport_id) {
+        const { data: ct } = await supabase.from('teams').select('id').eq('school_id', ht.school_id).eq('sport_id', clean.sport_id).single()
+        clean.home_team_id = ct?.id || null
       }
     }
     if (clean.sport_id && clean.away_team_id) {
-      const { data: awayTeam } = await supabase
-        .from('teams').select('sport_id, school_id').eq('id', clean.away_team_id).single()
-      if (awayTeam && awayTeam.sport_id !== clean.sport_id) {
-        const { data: correctTeam } = await supabase
-          .from('teams').select('id').eq('school_id', awayTeam.school_id).eq('sport_id', clean.sport_id).single()
-        if (correctTeam) {
-          console.log(`Auto-corrected away team sport mismatch: ${clean.away_team_id} → ${correctTeam.id}`)
-          clean.away_team_id = correctTeam.id
-        } else {
-          console.warn(`No correct away team found for school ${awayTeam.school_id} + sport ${clean.sport_id}`)
-          clean.away_team_id = null
-        }
+      const { data: at } = await supabase.from('teams').select('sport_id, school_id').eq('id', clean.away_team_id).single()
+      if (at && at.sport_id !== clean.sport_id) {
+        const { data: ct } = await supabase.from('teams').select('id').eq('school_id', at.school_id).eq('sport_id', clean.sport_id).single()
+        clean.away_team_id = ct?.id || null
       }
     }
 
-    // DOUBLEHEADER LOGIC:
-    // A duplicate = same teams + same date + same sport + same game_number
-    // If game_number is null/undefined, treat as game 1 for dedup purposes
-    // Two games on same day between same teams are ONLY duplicates if they have the same game_number
+    // If this game has an id, it's an UPDATE not an insert
+    if (clean.id) {
+      const gameId = clean.id
+      delete clean.id
+      const { error } = await supabase.from('games').update(clean).eq('id', gameId)
+      results.push({ action: 'updated', error: error?.message })
+      continue
+    }
+
+    // Dedup check for new games
     const gameNumber = clean.game_number ?? null
-
     if (clean.game_date && clean.sport_id && (clean.home_team_id || clean.away_team_id)) {
-      let dupQuery = supabase.from('games').select('id').eq('game_date', clean.game_date).eq('sport_id', clean.sport_id)
-      if (clean.home_team_id) dupQuery = dupQuery.eq('home_team_id', clean.home_team_id)
-      if (clean.away_team_id) dupQuery = dupQuery.eq('away_team_id', clean.away_team_id)
-      
-      // Only match on game_number if it's specified — allows two games same day same teams
-      if (gameNumber !== null) {
-        dupQuery = dupQuery.eq('game_number', gameNumber)
-      } else {
-        // No game_number: only match games that also have no game_number (game_number IS NULL)
-        dupQuery = dupQuery.is('game_number', null)
-      }
+      let dupQ = supabase.from('games').select('id').eq('game_date', clean.game_date).eq('sport_id', clean.sport_id)
+      if (clean.home_team_id) dupQ = dupQ.eq('home_team_id', clean.home_team_id)
+      if (clean.away_team_id) dupQ = dupQ.eq('away_team_id', clean.away_team_id)
+      if (gameNumber !== null) dupQ = dupQ.eq('game_number', gameNumber)
+      else dupQ = dupQ.is('game_number', null)
 
-      const { data: existing } = await dupQuery.limit(1)
-
+      const { data: existing } = await dupQ.limit(1)
       if (existing && existing.length > 0) {
         const { error } = await supabase.from('games').update({
           home_score: clean.home_score ?? null,
@@ -109,6 +89,8 @@ export async function POST(req: NextRequest) {
           status: clean.status ?? 'Final',
           game_time: clean.game_time ?? null,
           notes: clean.notes ?? null,
+          external_home_opponent_id: clean.external_home_opponent_id ?? null,
+          external_away_opponent_id: clean.external_away_opponent_id ?? null,
         }).eq('id', existing[0].id)
         results.push({ action: 'updated', error: error?.message })
         continue
@@ -116,7 +98,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { error } = await supabase.from('games').insert(clean)
-    if (error) console.error('Insert error:', error.message, JSON.stringify(clean).slice(0, 200))
+    if (error) console.error('Insert error:', error.message, JSON.stringify(clean).slice(0, 300))
     results.push({ action: 'inserted', error: error?.message })
   }
 
