@@ -23,7 +23,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editScores, setEditScores] = useState({ home: '', away: '', status: '', date: '', time: '' })
-  const [editTeams, setEditTeams] = useState({ home_team_id: '', away_team_id: '' })
+  const [editTeams, setEditTeams] = useState({ home_team_id: '', away_team_id: '', external_home_name: '', external_away_name: '' })
   const [editSportId, setEditSportId] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -81,8 +81,10 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       game_date: editScores.date || null,
       game_time: editScores.time ? editScores.time + ':00' : null,
     }
-    if (editTeams.home_team_id) updates.home_team_id = editTeams.home_team_id
-    if (editTeams.away_team_id) updates.away_team_id = editTeams.away_team_id
+    if (editTeams.home_team_id && editTeams.home_team_id !== 'EXTERNAL') updates.home_team_id = editTeams.home_team_id
+    if (editTeams.away_team_id && editTeams.away_team_id !== 'EXTERNAL') updates.away_team_id = editTeams.away_team_id
+    if (editTeams.home_team_id === 'EXTERNAL' && editTeams.external_home_name) updates.external_home_name = editTeams.external_home_name
+    if (editTeams.away_team_id === 'EXTERNAL' && editTeams.external_away_name) updates.external_away_name = editTeams.external_away_name
     if (editScores.date) updates.game_date = editScores.date
     await adminDb.update('games', updates, { id })
     fetchGames()
@@ -202,18 +204,26 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: atColor }} />
                     {isEditing ? (
-                      <select
-                        className="input py-0.5 text-xs flex-1"
-                        value={editTeams.away_team_id}
-                        onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}
-                      >
-                        <option value="">— Away Team —</option>
-                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
-                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
-                          .map(t => (
-                          <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
-                        ))}
-                      </select>
+                      <div className="flex-1 space-y-1">
+                        <select
+                          className="input py-0.5 text-xs w-full"
+                          value={editTeams.away_team_id}
+                          onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}
+                        >
+                          <option value="">— Away Team —</option>
+                          <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
+                          {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                            .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                            .map(t => (
+                            <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
+                          ))}
+                        </select>
+                        {editTeams.away_team_id === 'EXTERNAL' && (
+                          <input className="input py-0.5 text-xs w-full" placeholder="e.g. Peru Central"
+                            value={editTeams.external_away_name}
+                            onChange={e => setEditTeams(p => ({ ...p, external_away_name: e.target.value }))} />
+                        )}
+                      </div>
                     ) : (
                       <span className="text-sm text-slate-200 truncate">{at}</span>
                     )}
@@ -311,7 +321,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                         onClick={() => {
                         setEditingId(game.id)
                         setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status, date: game.game_date || '', time: game.game_time?.slice(0,5) || '' })
-                        setEditTeams({ home_team_id: game.home_team_id || '', away_team_id: game.away_team_id || '' })
+                        setEditTeams({ home_team_id: game.home_team_id || (game.external_home_opponent_id ? 'EXTERNAL' : ''), away_team_id: game.away_team_id || (game.external_away_opponent_id ? 'EXTERNAL' : ''), external_home_name: (game as any).external_home?.name || '', external_away_name: (game as any).external_away?.name || '' })
                         setEditSportId(game.sport_id || '')
                       }}
                         className="p-1.5 text-slate-400 hover:text-white"
