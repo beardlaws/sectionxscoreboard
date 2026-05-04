@@ -26,6 +26,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   const [editTeams, setEditTeams] = useState({ home_team_id: '', away_team_id: '', external_home_name: '', external_away_name: '' })
   const [editSportId, setEditSportId] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
 
@@ -78,21 +79,50 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   }
 
   async function saveEdit(id: string) {
-    const updates: any = {
-      home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
-      away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
-      status: editScores.status,
-      game_date: editScores.date || null,
-      game_time: editScores.time ? editScores.time + ':00' : null,
+    setSaving(true)
+    try {
+      const updates: any = {
+        home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
+        away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
+        status: editScores.status,
+        game_date: editScores.date || null,
+        game_time: editScores.time ? editScores.time + ':00' : null,
+      }
+      if (editTeams.home_team_id && editTeams.home_team_id !== 'EXTERNAL') updates.home_team_id = editTeams.home_team_id
+      if (editTeams.away_team_id && editTeams.away_team_id !== 'EXTERNAL') updates.away_team_id = editTeams.away_team_id
+      if (editTeams.away_team_id === 'EXTERNAL' && editTeams.external_away_name) updates.external_away_name = editTeams.external_away_name
+      if (editTeams.home_team_id === 'EXTERNAL' && editTeams.external_home_name) updates.external_home_name = editTeams.external_home_name
+
+      // Use direct fetch instead of adminDb wrapper to see exact errors
+      const res = await fetch('/api/admin/db', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', table: 'games', data: updates, match: { id } }),
+      })
+      const json = await res.json()
+      if (!res.ok || json.error) {
+        alert('Save failed: ' + (json.error || res.status))
+        setSaving(false)
+        return
+      }
+
+      // Handle external opponent separately via games API
+      if (updates.external_away_name || updates.external_home_name) {
+        await fetch('/api/admin/games', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{ id, ...updates }]),
+        })
+      }
+
+      fetchGames()
+      setEditingId(null)
+    } catch(e: any) {
+      alert('Error: ' + e.message)
     }
-    if (editTeams.home_team_id && editTeams.home_team_id !== 'EXTERNAL') updates.home_team_id = editTeams.home_team_id
-    if (editTeams.away_team_id && editTeams.away_team_id !== 'EXTERNAL') updates.away_team_id = editTeams.away_team_id
-    if (editTeams.home_team_id === 'EXTERNAL' && editTeams.external_home_name) updates.external_home_name = editTeams.external_home_name
-    if (editTeams.away_team_id === 'EXTERNAL' && editTeams.external_away_name) updates.external_away_name = editTeams.external_away_name
-    if (editScores.date) updates.game_date = editScores.date
-    await adminDb.update('games', updates, { id })
-    fetchGames()
-    setEditingId(null)
+    setSaving(false)
   }
 
   function toggleSelect(id: string) {
@@ -354,8 +384,8 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
 
                   <div className="flex gap-2 justify-end pt-1">
                     <button onClick={() => setEditingId(null)} className="btn-ghost">Cancel</button>
-                    <button onClick={() => saveEdit(game.id)} className="btn-primary flex items-center gap-2">
-                      <Save size={14} /> Save Changes
+                    <button onClick={() => saveEdit(game.id)} disabled={saving} className="btn-primary flex items-center gap-2">
+                      <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
                 </div>
