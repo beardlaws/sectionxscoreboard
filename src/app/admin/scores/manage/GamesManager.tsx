@@ -34,9 +34,13 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
     let q = supabase
       .from('games')
       .select(`id, game_date, game_time, home_score, away_score, status, source, parser_confidence, neutral_site, game_number,
-        sport:sports(sport_name),
-        home_team:teams!games_home_team_id_fkey(team_name, school:schools(school_name, primary_color)),
-        away_team:teams!games_away_team_id_fkey(team_name, school:schools(school_name, primary_color))
+        sport_id, home_team_id, away_team_id, external_home_opponent_id, external_away_opponent_id,
+        game_of_the_night,
+        sport:sports(id, sport_name),
+        home_team:teams!games_home_team_id_fkey(id, team_name, school:schools(school_name, primary_color)),
+        away_team:teams!games_away_team_id_fkey(id, team_name, school:schools(school_name, primary_color)),
+        external_home:external_opponents!games_external_home_opponent_id_fkey(name),
+        external_away:external_opponents!games_external_away_opponent_id_fkey(name)
       `)
       .order('game_date', { ascending: false })
       .order('game_time', { ascending: true })
@@ -178,8 +182,8 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
           {filtered.map(game => {
             const isEditing = editingId === game.id
             const isSelected = selected.has(game.id)
-            const ht = game.home_team?.school?.school_name || game.home_team?.team_name || '?'
-            const at = game.away_team?.school?.school_name || game.away_team?.team_name || '?'
+            const ht = game.home_team?.school?.school_name || (game as any).external_home?.name || '?'
+            const at = game.away_team?.school?.school_name || (game as any).external_away?.name || '?'
             const htColor = game.home_team?.school?.primary_color || '#334155'
             const atColor = game.away_team?.school?.primary_color || '#334155'
 
@@ -249,9 +253,20 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                       <button
                         onClick={() => {
                         setEditingId(game.id)
-                        setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status, date: game.game_date || '', time: game.game_time?.slice(0,5) || '' })
-                        setEditTeams({ home_team_id: game.home_team_id || (game.external_home_opponent_id ? 'EXTERNAL' : ''), away_team_id: game.away_team_id || (game.external_away_opponent_id ? 'EXTERNAL' : ''), external_home_name: (game as any).external_home?.name || '', external_away_name: (game as any).external_away?.name || '' })
-                        setEditSportId(game.sport_id || '')
+                        setEditScores({
+                          home: game.home_score != null ? String(game.home_score) : '',
+                          away: game.away_score != null ? String(game.away_score) : '',
+                          status: game.status || 'Final',
+                          date: game.game_date || '',
+                          time: game.game_time ? game.game_time.slice(0,5) : ''
+                        })
+                        setEditTeams({
+                          home_team_id: game.home_team_id || (game.external_home_opponent_id ? 'EXTERNAL' : ''),
+                          away_team_id: game.away_team_id || (game.external_away_opponent_id ? 'EXTERNAL' : ''),
+                          external_home_name: (game as any).external_home?.name || '',
+                          external_away_name: (game as any).external_away?.name || ''
+                        })
+                        setEditSportId((game as any).sport?.id || game.sport_id || '')
                       }}
                         className="p-1.5 text-slate-400 hover:text-white"
                       >
@@ -306,7 +321,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                           .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
                       </select>
                       {editTeams.away_team_id === 'EXTERNAL' && (
-                        <input className="input w-full" placeholder="Team name e.g. Peru Central"
+                        <input className="input w-full mt-1" placeholder="Team name e.g. Peru Central"
                           value={editTeams.external_away_name}
                           onChange={e => setEditTeams(p => ({ ...p, external_away_name: e.target.value }))} />
                       )}
@@ -326,7 +341,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                           .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
                       </select>
                       {editTeams.home_team_id === 'EXTERNAL' && (
-                        <input className="input w-full" placeholder="Team name e.g. Peru Central"
+                        <input className="input w-full mt-1" placeholder="Team name e.g. Peru Central"
                           value={editTeams.external_home_name}
                           onChange={e => setEditTeams(p => ({ ...p, external_home_name: e.target.value }))} />
                       )}
