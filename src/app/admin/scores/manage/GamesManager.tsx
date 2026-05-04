@@ -84,18 +84,24 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       const hasExternalAway = editTeams.away_team_id === 'EXTERNAL'
       const hasExternalHome = editTeams.home_team_id === 'EXTERNAL'
 
-      // Fields that go directly to the games table
-      const dbUpdates: any = {
-        home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
-        away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
-        status: editScores.status,
-        game_date: editScores.date || null,
-        game_time: editScores.time ? editScores.time + ':00' : null,
-      }
-      if (!hasExternalHome && editTeams.home_team_id) dbUpdates.home_team_id = editTeams.home_team_id
-      if (!hasExternalAway && editTeams.away_team_id) dbUpdates.away_team_id = editTeams.away_team_id
+      // Build update payload - only include fields that have values
+      const dbUpdates: any = {}
+      
+      // Scores
+      if (editScores.home !== '') dbUpdates.home_score = parseInt(editScores.home)
+      if (editScores.away !== '') dbUpdates.away_score = parseInt(editScores.away)
+      
+      // Status, date, time
+      if (editScores.status) dbUpdates.status = editScores.status
+      if (editScores.date) dbUpdates.game_date = editScores.date
+      if (editScores.time) dbUpdates.game_time = editScores.time.length === 5 ? editScores.time + ':00' : editScores.time
+      
+      // Teams (only Section X teams go in the direct update)
+      if (editTeams.home_team_id && !hasExternalHome) dbUpdates.home_team_id = editTeams.home_team_id
+      if (editTeams.away_team_id && !hasExternalAway) dbUpdates.away_team_id = editTeams.away_team_id
 
-      // Direct DB update for standard fields
+      console.log('Saving game', id, 'with updates:', dbUpdates)
+
       const res = await fetch('/api/admin/db', {
         method: 'POST',
         credentials: 'include',
@@ -103,26 +109,35 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
         body: JSON.stringify({ action: 'update', table: 'games', data: dbUpdates, match: { id } }),
       })
       const json = await res.json()
+      console.log('Save response:', json)
+      
       if (!res.ok || json.error) {
         alert('Save failed: ' + (json.error || res.status))
         setSaving(false)
         return
       }
 
-      // External opponents go through the games API which handles creation
+      // External opponents go through the games API
       if (hasExternalAway || hasExternalHome) {
-        const extPayload: any = { id, ...dbUpdates }
-        if (hasExternalAway) extPayload.external_away_name = editTeams.external_away_name
-        if (hasExternalHome) extPayload.external_home_name = editTeams.external_home_name
-        await fetch('/api/admin/games', {
+        const extPayload: any = { id }
+        if (hasExternalAway && editTeams.external_away_name) extPayload.external_away_name = editTeams.external_away_name
+        if (hasExternalHome && editTeams.external_home_name) extPayload.external_home_name = editTeams.external_home_name
+        // Also pass sport_id so the games route knows which sport
+        const game = games.find(g => g.id === id)
+        if (game) extPayload.sport_id = game.sport_id
+        
+        const extRes = await fetch('/api/admin/games', {
           method: 'POST',
-          credentials: 'include',
+          credentials: 'include', 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify([extPayload]),
         })
+        const extJson = await extRes.json()
+        console.log('External update response:', extJson)
       }
 
-      fetchGames()
+      alert('Saved! Reloading...')
+      await fetchGames()
       setEditingId(null)
     } catch(e: any) {
       alert('Error: ' + e.message)
