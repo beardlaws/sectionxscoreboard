@@ -32,22 +32,24 @@ export async function POST(req: NextRequest) {
     }
 
     // Resolve external opponent names to IDs
+    // ALWAYS delete these fields - they are not DB columns
     if (clean.external_home_name) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_home_name)
       if (extId) {
         clean.external_home_opponent_id = extId
         clean.home_team_id = null
       }
-      delete clean.external_home_name
     }
+    delete clean.external_home_name
+
     if (clean.external_away_name) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_away_name)
       if (extId) {
         clean.external_away_opponent_id = extId
         clean.away_team_id = null
       }
-      delete clean.external_away_name
     }
+    delete clean.external_away_name
 
     // Sport validation - auto-correct wrong team sport
     if (clean.sport_id && clean.home_team_id) {
