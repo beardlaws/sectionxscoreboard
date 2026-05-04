@@ -81,24 +81,26 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   async function saveEdit(id: string) {
     setSaving(true)
     try {
-      const updates: any = {
+      const hasExternalAway = editTeams.away_team_id === 'EXTERNAL'
+      const hasExternalHome = editTeams.home_team_id === 'EXTERNAL'
+
+      // Fields that go directly to the games table
+      const dbUpdates: any = {
         home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
         away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
         status: editScores.status,
         game_date: editScores.date || null,
         game_time: editScores.time ? editScores.time + ':00' : null,
       }
-      if (editTeams.home_team_id && editTeams.home_team_id !== 'EXTERNAL') updates.home_team_id = editTeams.home_team_id
-      if (editTeams.away_team_id && editTeams.away_team_id !== 'EXTERNAL') updates.away_team_id = editTeams.away_team_id
-      if (editTeams.away_team_id === 'EXTERNAL' && editTeams.external_away_name) updates.external_away_name = editTeams.external_away_name
-      if (editTeams.home_team_id === 'EXTERNAL' && editTeams.external_home_name) updates.external_home_name = editTeams.external_home_name
+      if (!hasExternalHome && editTeams.home_team_id) dbUpdates.home_team_id = editTeams.home_team_id
+      if (!hasExternalAway && editTeams.away_team_id) dbUpdates.away_team_id = editTeams.away_team_id
 
-      // Use direct fetch instead of adminDb wrapper to see exact errors
+      // Direct DB update for standard fields
       const res = await fetch('/api/admin/db', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update', table: 'games', data: updates, match: { id } }),
+        body: JSON.stringify({ action: 'update', table: 'games', data: dbUpdates, match: { id } }),
       })
       const json = await res.json()
       if (!res.ok || json.error) {
@@ -107,13 +109,16 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
         return
       }
 
-      // Handle external opponent separately via games API
-      if (updates.external_away_name || updates.external_home_name) {
+      // External opponents go through the games API which handles creation
+      if (hasExternalAway || hasExternalHome) {
+        const extPayload: any = { id, ...dbUpdates }
+        if (hasExternalAway) extPayload.external_away_name = editTeams.external_away_name
+        if (hasExternalHome) extPayload.external_home_name = editTeams.external_home_name
         await fetch('/api/admin/games', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify([{ id, ...updates }]),
+          body: JSON.stringify([extPayload]),
         })
       }
 
