@@ -83,6 +83,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
     }
     if (editTeams.home_team_id) updates.home_team_id = editTeams.home_team_id
     if (editTeams.away_team_id) updates.away_team_id = editTeams.away_team_id
+    if (editScores.date) updates.game_date = editScores.date
     await adminDb.update('games', updates, { id })
     fetchGames()
     setEditingId(null)
@@ -203,10 +204,13 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                     {isEditing ? (
                       <select
                         className="input py-0.5 text-xs flex-1"
-                        value={editTeams.away_team_id || game.away_team?.id || ''}
+                        value={editTeams.away_team_id}
                         onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}
                       >
-                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams).map(t => (
+                        <option value="">— Away Team —</option>
+                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                          .map(t => (
                           <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
                         ))}
                       </select>
@@ -226,10 +230,13 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                     {isEditing ? (
                       <select
                         className="input py-0.5 text-xs flex-1"
-                        value={editTeams.home_team_id || game.home_team?.id || ''}
+                        value={editTeams.home_team_id}
                         onChange={e => setEditTeams(p => ({ ...p, home_team_id: e.target.value }))}
                       >
-                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams).map(t => (
+                        <option value="">— Home Team —</option>
+                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                          .map(t => (
                           <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
                         ))}
                       </select>
@@ -288,8 +295,8 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                         onClick={() => {
                         setEditingId(game.id)
                         setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status, date: game.game_date || '', time: game.game_time?.slice(0,5) || '' })
-                        setEditTeams({ home_team_id: '', away_team_id: '' })
-                        setEditSportId(sports.find(s => s.sport_name === game.sport?.sport_name)?.id || '')
+                        setEditTeams({ home_team_id: game.home_team_id || '', away_team_id: game.away_team_id || '' })
+                        setEditSportId(game.sport_id || '')
                       }}
                         className="p-1.5 text-slate-400 hover:text-white"
                       >
