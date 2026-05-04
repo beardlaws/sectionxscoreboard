@@ -22,7 +22,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editScores, setEditScores] = useState({ home: '', away: '', status: '' })
+  const [editScores, setEditScores] = useState({ home: '', away: '', status: '', date: '', time: '' })
   const [editTeams, setEditTeams] = useState({ home_team_id: '', away_team_id: '' })
   const [editSportId, setEditSportId] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -78,6 +78,8 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
       away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
       status: editScores.status,
+      game_date: editScores.date || null,
+      game_time: editScores.time ? editScores.time + ':00' : null,
     }
     if (editTeams.home_team_id) updates.home_team_id = editTeams.home_team_id
     if (editTeams.away_team_id) updates.away_team_id = editTeams.away_team_id
@@ -285,7 +287,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                       <button
                         onClick={() => {
                         setEditingId(game.id)
-                        setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status })
+                        setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status, date: game.game_date || '', time: game.game_time?.slice(0,5) || '' })
                         setEditTeams({ home_team_id: '', away_team_id: '' })
                         setEditSportId(sports.find(s => s.sport_name === game.sport?.sport_name)?.id || '')
                       }}
