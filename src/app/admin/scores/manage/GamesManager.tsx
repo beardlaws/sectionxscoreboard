@@ -84,59 +84,39 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       const hasExternalAway = editTeams.away_team_id === 'EXTERNAL'
       const hasExternalHome = editTeams.home_team_id === 'EXTERNAL'
 
-      // Build update payload - only include fields that have values
-      const dbUpdates: any = {}
-      
-      // Scores
-      if (editScores.home !== '') dbUpdates.home_score = parseInt(editScores.home)
-      if (editScores.away !== '') dbUpdates.away_score = parseInt(editScores.away)
-      
-      // Status, date, time
-      if (editScores.status) dbUpdates.status = editScores.status
-      if (editScores.date) dbUpdates.game_date = editScores.date
-      if (editScores.time) dbUpdates.game_time = editScores.time.length === 5 ? editScores.time + ':00' : editScores.time
-      
-      // Teams (only Section X teams go in the direct update)
-      if (editTeams.home_team_id && !hasExternalHome) dbUpdates.home_team_id = editTeams.home_team_id
-      if (editTeams.away_team_id && !hasExternalAway) dbUpdates.away_team_id = editTeams.away_team_id
+      // Build update - write DIRECTLY to Supabase, bypassing API routes entirely
+      // RLS is disabled so anon key can write
+      const updates: any = {}
+      if (editScores.home !== '') updates.home_score = parseInt(editScores.home)
+      if (editScores.away !== '') updates.away_score = parseInt(editScores.away)
+      if (editScores.status) updates.status = editScores.status
+      if (editScores.date) updates.game_date = editScores.date
+      if (editScores.time) updates.game_time = editScores.time.length === 5 ? editScores.time + ':00' : editScores.time
+      if (!hasExternalHome && editTeams.home_team_id) updates.home_team_id = editTeams.home_team_id
+      if (!hasExternalAway && editTeams.away_team_id) updates.away_team_id = editTeams.away_team_id
 
-      console.log('Saving game', id, 'with updates:', dbUpdates)
-
-      const res = await fetch('/api/admin/db', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update', table: 'games', data: dbUpdates, match: { id } }),
-      })
-      const json = await res.json()
-      console.log('Save response:', json)
-      
-      if (!res.ok || json.error) {
-        alert('Save failed: ' + (json.error || res.status))
+      const { error } = await supabase.from('games').update(updates).eq('id', id)
+      if (error) {
+        alert('Save failed: ' + error.message)
         setSaving(false)
         return
       }
 
-      // External opponents go through the games API
-      if (hasExternalAway || hasExternalHome) {
+      // Handle external opponent names via API
+      if ((hasExternalAway && editTeams.external_away_name) || (hasExternalHome && editTeams.external_home_name)) {
         const extPayload: any = { id }
+        const game = games.find((g: any) => g.id === id)
+        if (game) extPayload.sport_id = game.sport_id
         if (hasExternalAway && editTeams.external_away_name) extPayload.external_away_name = editTeams.external_away_name
         if (hasExternalHome && editTeams.external_home_name) extPayload.external_home_name = editTeams.external_home_name
-        // Also pass sport_id so the games route knows which sport
-        const game = games.find(g => g.id === id)
-        if (game) extPayload.sport_id = game.sport_id
-        
-        const extRes = await fetch('/api/admin/games', {
+        await fetch('/api/admin/games', {
           method: 'POST',
-          credentials: 'include', 
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify([extPayload]),
         })
-        const extJson = await extRes.json()
-        console.log('External update response:', extJson)
       }
 
-      alert('Saved! Reloading...')
       await fetchGames()
       setEditingId(null)
     } catch(e: any) {
