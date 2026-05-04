@@ -184,7 +184,8 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
             const atColor = game.away_team?.school?.primary_color || '#334155'
 
             return (
-              <div key={game.id} className={`card p-3 flex items-center gap-3 transition-colors ${isSelected ? 'border-ice/40 bg-ice/5' : ''}`}>
+              <div key={game.id} className={`card overflow-hidden transition-colors ${isSelected ? 'border-ice/40 bg-ice/5' : ''}`}>
+              <div className="p-3 flex items-center gap-3">
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(game.id)} className="flex-shrink-0" />
 
                 {/* Date */}
@@ -262,6 +263,88 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                     </>
                   )}
                 </div>
+              </div>
+
+              {/* Edit panel - expands below when pencil clicked */}
+              {isEditing && (
+                <div className="border-t border-white/8 p-4 space-y-3" style={{ background: 'rgba(10,15,28,0.8)' }}>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Date</label>
+                      <input type="date" value={editScores.date}
+                        onChange={e => setEditScores(p => ({ ...p, date: e.target.value }))}
+                        className="input w-full" style={{ colorScheme: 'dark' }} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Time</label>
+                      <input type="time" value={editScores.time}
+                        onChange={e => setEditScores(p => ({ ...p, time: e.target.value }))}
+                        className="input w-full" style={{ colorScheme: 'dark' }} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Status</label>
+                      <select value={editScores.status}
+                        onChange={e => setEditScores(p => ({ ...p, status: e.target.value }))}
+                        className="input w-full">
+                        <option>Final</option>
+                        <option>Scheduled</option>
+                        <option>Postponed</option>
+                        <option>Canceled</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Away Team</label>
+                      <select className="input w-full mb-1" value={editTeams.away_team_id}
+                        onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}>
+                        <option value="">— Select —</option>
+                        <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
+                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                          .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
+                      </select>
+                      {editTeams.away_team_id === 'EXTERNAL' && (
+                        <input className="input w-full" placeholder="Team name e.g. Peru Central"
+                          value={editTeams.external_away_name}
+                          onChange={e => setEditTeams(p => ({ ...p, external_away_name: e.target.value }))} />
+                      )}
+                      <label className="block text-xs text-slate-400 mb-1 mt-2 font-semibold">Away Score</label>
+                      <input type="number" min="0" value={editScores.away} placeholder="0"
+                        onChange={e => setEditScores(p => ({ ...p, away: e.target.value }))}
+                        className="input w-full text-center text-xl font-bold font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Home Team</label>
+                      <select className="input w-full mb-1" value={editTeams.home_team_id}
+                        onChange={e => setEditTeams(p => ({ ...p, home_team_id: e.target.value }))}>
+                        <option value="">— Select —</option>
+                        <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
+                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                          .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
+                      </select>
+                      {editTeams.home_team_id === 'EXTERNAL' && (
+                        <input className="input w-full" placeholder="Team name e.g. Peru Central"
+                          value={editTeams.external_home_name}
+                          onChange={e => setEditTeams(p => ({ ...p, external_home_name: e.target.value }))} />
+                      )}
+                      <label className="block text-xs text-slate-400 mb-1 mt-2 font-semibold">Home Score</label>
+                      <input type="number" min="0" value={editScores.home} placeholder="0"
+                        onChange={e => setEditScores(p => ({ ...p, home: e.target.value }))}
+                        className="input w-full text-center text-xl font-bold font-mono" />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 justify-end pt-1">
+                    <button onClick={() => setEditingId(null)} className="btn-ghost">Cancel</button>
+                    <button onClick={() => saveEdit(game.id)} className="btn-primary flex items-center gap-2">
+                      <Save size={14} /> Save Changes
+                    </button>
+                  </div>
+                </div>
+              )}
               </div>
             )
           })}
