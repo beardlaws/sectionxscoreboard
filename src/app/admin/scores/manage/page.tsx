@@ -12,7 +12,7 @@ export default async function ManageGamesPage() {
   ])
   return (
     <AdminLayout>
-      <GamesManager sports={sports || []} seasons={seasons || []} />
+      <GamesManager sports={sports || []} seasons={seasons || []} teams={teams || []} />
     </AdminLayout>
   )
 }

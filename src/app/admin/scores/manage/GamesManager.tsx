@@ -8,9 +8,10 @@ import { format } from 'date-fns'
 interface Props {
   sports: { id: string; sport_name: string; gender: string }[]
   seasons: { id: string; name: string; is_active: boolean }[]
+  teams: { id: string; team_name: string; sport_id: string; school: { school_name: string } | null }[]
 }
 
-export default function GamesManager({ sports, seasons }: Props) {
+export default function GamesManager({ sports, seasons, teams }: Props) {
   const supabase = createClient()
   const activeSeason = seasons.find(s => s.is_active) || seasons[0]
 
@@ -22,6 +23,8 @@ export default function GamesManager({ sports, seasons }: Props) {
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editScores, setEditScores] = useState({ home: '', away: '', status: '' })
+  const [editTeams, setEditTeams] = useState({ home_team_id: '', away_team_id: '' })
+  const [editSportId, setEditSportId] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
@@ -71,17 +74,15 @@ export default function GamesManager({ sports, seasons }: Props) {
   }
 
   async function saveEdit(id: string) {
-    await adminDb.update('games', {
+    const updates: any = {
       home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
       away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
       status: editScores.status,
-    }, { id })
-    setGames(prev => prev.map(g => g.id === id ? {
-      ...g,
-      home_score: editScores.home !== '' ? parseInt(editScores.home) : null,
-      away_score: editScores.away !== '' ? parseInt(editScores.away) : null,
-      status: editScores.status,
-    } : g))
+    }
+    if (editTeams.home_team_id) updates.home_team_id = editTeams.home_team_id
+    if (editTeams.away_team_id) updates.away_team_id = editTeams.away_team_id
+    await adminDb.update('games', updates, { id })
+    fetchGames()
     setEditingId(null)
   }
 
@@ -194,22 +195,48 @@ export default function GamesManager({ sports, seasons }: Props) {
 
                 {/* Teams + Scores */}
                 <div className="flex-1 min-w-0">
+                  {/* Away team row */}
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: atColor }} />
-                    <span className="text-sm text-slate-200 truncate">{at}</span>
+                    {isEditing ? (
+                      <select
+                        className="input py-0.5 text-xs flex-1"
+                        value={editTeams.away_team_id || game.away_team?.id || ''}
+                        onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}
+                      >
+                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams).map(t => (
+                          <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm text-slate-200 truncate">{at}</span>
+                    )}
                     {isEditing ? (
                       <input type="number" value={editScores.away} onChange={e => setEditScores(p => ({ ...p, away: e.target.value }))}
-                        className="input w-14 text-center py-0.5 text-sm" placeholder="—" />
+                        className="input w-16 text-center py-0.5 text-sm" placeholder="—" />
                     ) : (
                       <span className="text-sm font-mono font-bold text-white ml-auto">{game.away_score ?? '—'}</span>
                     )}
                   </div>
+                  {/* Home team row */}
                   <div className="flex items-center gap-2 mt-1">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: htColor }} />
-                    <span className="text-sm text-slate-200 truncate">{ht}</span>
+                    {isEditing ? (
+                      <select
+                        className="input py-0.5 text-xs flex-1"
+                        value={editTeams.home_team_id || game.home_team?.id || ''}
+                        onChange={e => setEditTeams(p => ({ ...p, home_team_id: e.target.value }))}
+                      >
+                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams).map(t => (
+                          <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm text-slate-200 truncate">{ht}</span>
+                    )}
                     {isEditing ? (
                       <input type="number" value={editScores.home} onChange={e => setEditScores(p => ({ ...p, home: e.target.value }))}
-                        className="input w-14 text-center py-0.5 text-sm" placeholder="—" />
+                        className="input w-16 text-center py-0.5 text-sm" placeholder="—" />
                     ) : (
                       <span className="text-sm font-mono font-bold text-white ml-auto">{game.home_score ?? '—'}</span>
                     )}
@@ -256,7 +283,12 @@ export default function GamesManager({ sports, seasons }: Props) {
                         ⭐
                       </button>
                       <button
-                        onClick={() => { setEditingId(game.id); setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status }) }}
+                        onClick={() => {
+                        setEditingId(game.id)
+                        setEditScores({ home: game.home_score ?? '', away: game.away_score ?? '', status: game.status })
+                        setEditTeams({ home_team_id: '', away_team_id: '' })
+                        setEditSportId(sports.find(s => s.sport_name === game.sport?.sport_name)?.id || '')
+                      }}
                         className="p-1.5 text-slate-400 hover:text-white"
                       >
                         <Edit2 size={14} />
