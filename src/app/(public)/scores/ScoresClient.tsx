@@ -19,6 +19,8 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
   const router = useRouter()
   const [sportFilter, setSportFilter] = useState<string>('All')
   const [statusFilter, setStatusFilter] = useState<string>('All')
+  const [viewMode, setViewMode] = useState<'sport' | 'division'>('sport')
+  const [showScheduled, setShowScheduled] = useState(true)
 
   const filteredGames = useMemo(() => {
     return games.filter(g => {
@@ -28,15 +30,38 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
     })
   }, [games, sportFilter, statusFilter])
 
+  const displayGames = useMemo(() =>
+    showScheduled ? filteredGames : filteredGames.filter(g => g.status === 'Final' || g.status === 'Live'),
+    [filteredGames, showScheduled]
+  )
+
   const grouped = useMemo(() => {
     const map = new Map<string, GameWithTeams[]>()
-    for (const game of filteredGames) {
-      const key = game.sport?.sport_name || 'Other'
+    for (const game of displayGames) {
+      let key: string
+      if (viewMode === 'division') {
+        const homeDiv = (game.home_team as any)?.team_seasons?.[0]?.division
+        const awayDiv = (game.away_team as any)?.team_seasons?.[0]?.division
+        key = homeDiv || awayDiv || 'Non-League'
+      } else {
+        const g = game.sport?.gender
+        const n = game.sport?.sport_name || 'Other'
+        key = (g === 'Boys' || g === 'Girls') ? `${g} ${n}` : n
+      }
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(game)
     }
     return map
-  }, [filteredGames])
+  }, [displayGames, viewMode])
+
+  const SPORT_ICONS: Record<string, string> = {
+    Baseball: '⚾', Softball: '🥎', Football: '🏈',
+    'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
+    'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
+    'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
+    'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
+    Volleyball: '🏐', 'Boys Golf': '⛳',
+  }
 
   const handleDateChange = (date: string) => {
     router.push(`/scores?date=${date}`)
