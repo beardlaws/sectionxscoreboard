@@ -35,16 +35,20 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
   const [skipNonFinal, setSkipNonFinal] = useState(true)
   const [publishResult, setPublishResult] = useState<{ published: number; skipped: number; errors?: string[]; errorMsg?: string } | null>(null)
 
-  const teamRecords = useMemo(() =>
-    teams.map(t => ({
+  // CRITICAL: only pass teams matching the selected sport to the parser
+  // This prevents fuzzy matching from picking softball teams for baseball games etc.
+  const teamRecords = useMemo(() => {
+    const filtered = defaultSportId
+      ? teams.filter(t => t.sport_id === defaultSportId)
+      : teams
+    return filtered.map(t => ({
       id: t.id,
       team_name: t.team_name,
       school_name: t.school?.school_name || '',
       slug: t.school?.slug || '',
       aliases: t.school?.alias ? [t.school.alias] : [],
-    })),
-    [teams]
-  )
+    }))
+  }, [teams, defaultSportId])
 
   const handleParse = () => {
     if (!pasteText.trim()) return
@@ -198,7 +202,7 @@ export default function ImportCenter({ teams, sports, seasons }: Props) {
               <input className="input" type="date" value={defaultDate} onChange={e => setDefaultDate(e.target.value)} />
             </div>
             <div>
-              <label className="label">Sport <span className="text-amber-400 text-xs">(select for accuracy)</span></label>
+              <label className="label">Sport <span className="text-red-400 text-xs font-bold">* Required</span></label>
               <select className="input" value={defaultSportId} onChange={e => setDefaultSportId(e.target.value)}>
                 <option value="">Auto-detect</option>
                 {sports.map(s => <option key={s.id} value={s.id}>{s.sport_name} ({s.gender})</option>)}
@@ -233,13 +237,14 @@ PH at BM 3:30`}
                 <button 
                   className="btn-primary" 
                   onClick={handleParse} 
-                  disabled={!pasteText.trim()}
-                  title={!defaultSportId ? 'Select a sport above for best results' : ''}
+                  disabled={!pasteText.trim() || !defaultSportId}
                 >
                   Parse & Review →
                 </button>
                 {!defaultSportId && (
-                  <span className="text-xs text-amber-400">⚠ Select a sport for accurate imports</span>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
+                    ⚠️ You must select a sport before parsing — this prevents games from being saved to the wrong sport
+                  </div>
                 )}
                 <label className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--text-secondary)' }}>
                   <input type="checkbox" checked={skipNonFinal} onChange={e => setSkipNonFinal(e.target.checked)} />

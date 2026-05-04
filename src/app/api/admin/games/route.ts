@@ -47,6 +47,40 @@ export async function POST(req: NextRequest) {
     delete clean.external_home_name
     delete clean.external_away_name
 
+    // SPORT VALIDATION: ensure team IDs match the game's sport_id
+    // This is the final guard against cross-sport contamination
+    if (clean.sport_id && clean.home_team_id) {
+      const { data: homeTeam } = await supabase
+        .from('teams').select('sport_id, school_id').eq('id', clean.home_team_id).single()
+      if (homeTeam && homeTeam.sport_id !== clean.sport_id) {
+        // Find the correct team for this school + sport
+        const { data: correctTeam } = await supabase
+          .from('teams').select('id').eq('school_id', homeTeam.school_id).eq('sport_id', clean.sport_id).single()
+        if (correctTeam) {
+          console.log(`Auto-corrected home team sport mismatch: ${clean.home_team_id} → ${correctTeam.id}`)
+          clean.home_team_id = correctTeam.id
+        } else {
+          console.warn(`No correct home team found for school ${homeTeam.school_id} + sport ${clean.sport_id}`)
+          clean.home_team_id = null
+        }
+      }
+    }
+    if (clean.sport_id && clean.away_team_id) {
+      const { data: awayTeam } = await supabase
+        .from('teams').select('sport_id, school_id').eq('id', clean.away_team_id).single()
+      if (awayTeam && awayTeam.sport_id !== clean.sport_id) {
+        const { data: correctTeam } = await supabase
+          .from('teams').select('id').eq('school_id', awayTeam.school_id).eq('sport_id', clean.sport_id).single()
+        if (correctTeam) {
+          console.log(`Auto-corrected away team sport mismatch: ${clean.away_team_id} → ${correctTeam.id}`)
+          clean.away_team_id = correctTeam.id
+        } else {
+          console.warn(`No correct away team found for school ${awayTeam.school_id} + sport ${clean.sport_id}`)
+          clean.away_team_id = null
+        }
+      }
+    }
+
     // DOUBLEHEADER LOGIC:
     // A duplicate = same teams + same date + same sport + same game_number
     // If game_number is null/undefined, treat as game 1 for dedup purposes
