@@ -198,105 +198,33 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
                   <p className="text-xs text-slate-400 truncate">{game.sport?.sport_name}</p>
                 </div>
 
-                {/* Teams + Scores */}
+                {/* Teams + Scores - display mode */}
                 <div className="flex-1 min-w-0">
-                  {/* Away team row */}
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: atColor }} />
-                    {isEditing ? (
-                      <div className="flex-1 space-y-1">
-                        <select
-                          className="input py-0.5 text-xs w-full"
-                          value={editTeams.away_team_id}
-                          onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}
-                        >
-                          <option value="">— Away Team —</option>
-                          <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
-                          {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
-                            .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
-                            .map(t => (
-                            <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
-                          ))}
-                        </select>
-                        {editTeams.away_team_id === 'EXTERNAL' && (
-                          <input className="input py-0.5 text-xs w-full" placeholder="e.g. Peru Central"
-                            value={editTeams.external_away_name}
-                            onChange={e => setEditTeams(p => ({ ...p, external_away_name: e.target.value }))} />
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-sm text-slate-200 truncate">{at}</span>
-                    )}
-                    {isEditing ? (
-                      <input type="number" value={editScores.away} onChange={e => setEditScores(p => ({ ...p, away: e.target.value }))}
-                        className="input w-16 text-center py-0.5 text-sm" placeholder="—" />
-                    ) : (
-                      <span className="text-sm font-mono font-bold text-white ml-auto">{game.away_score ?? '—'}</span>
-                    )}
+                    <span className="text-sm text-slate-200 truncate">{at}</span>
+                    <span className="text-sm font-mono font-bold text-white ml-auto">{game.away_score ?? '—'}</span>
                   </div>
-                  {/* Home team row */}
                   <div className="flex items-center gap-2 mt-1">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: htColor }} />
-                    {isEditing ? (
-                      <select
-                        className="input py-0.5 text-xs flex-1"
-                        value={editTeams.home_team_id}
-                        onChange={e => setEditTeams(p => ({ ...p, home_team_id: e.target.value }))}
-                      >
-                        <option value="">— Home Team —</option>
-                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
-                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
-                          .map(t => (
-                          <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-sm text-slate-200 truncate">{ht}</span>
-                    )}
-                    {isEditing ? (
-                      <input type="number" value={editScores.home} onChange={e => setEditScores(p => ({ ...p, home: e.target.value }))}
-                        className="input w-16 text-center py-0.5 text-sm" placeholder="—" />
-                    ) : (
-                      <span className="text-sm font-mono font-bold text-white ml-auto">{game.home_score ?? '—'}</span>
-                    )}
+                    <span className="text-sm text-slate-200 truncate">{ht}</span>
+                    <span className="text-sm font-mono font-bold text-white ml-auto">{game.home_score ?? '—'}</span>
                   </div>
                 </div>
 
-                {/* Status + Date + Time */}
-                <div className="flex-shrink-0 flex flex-col gap-1.5">
-                  {isEditing ? (
-                    <>
-                      <select value={editScores.status} onChange={e => setEditScores(p => ({ ...p, status: e.target.value }))} className="input text-xs py-0.5 px-1">
-                        <option>Final</option><option>Scheduled</option><option>Postponed</option><option>Canceled</option>
-                      </select>
-                      <input
-                        type="date"
-                        value={editScores.date}
-                        onChange={e => setEditScores(p => ({ ...p, date: e.target.value }))}
-                        className="input text-xs py-0.5 px-1"
-                        style={{ colorScheme: 'dark' }}
-                      />
-                      <input
-                        type="time"
-                        value={editScores.time}
-                        onChange={e => setEditScores(p => ({ ...p, time: e.target.value }))}
-                        className="input text-xs py-0.5 px-1"
-                        style={{ colorScheme: 'dark' }}
-                      />
-                    </>
-                  ) : (
-                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColors[game.status] || 'bg-white/10 text-slate-400'}`}>
-                      {game.status}
-                    </span>
-                  )}
+                {/* Status badge */}
+                <div className="flex-shrink-0">
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColors[game.status] || 'bg-white/10 text-slate-400'}`}>
+                    {game.status}
+                  </span>
                 </div>
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {isEditing ? (
                     <>
-                      <button onClick={() => saveEdit(game.id)} className="p-1.5 text-green-400 hover:text-green-300"><Save size={14} /></button>
-                      <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:text-white"><X size={14} /></button>
+                      <button onClick={() => saveEdit(game.id)} className="p-1.5 text-green-400 hover:text-green-300" title="Save"><Save size={14} /></button>
+                      <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:text-white" title="Cancel"><X size={14} /></button>
                     </>
                   ) : (
                     <>
