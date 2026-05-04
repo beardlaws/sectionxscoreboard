@@ -13,7 +13,9 @@ async function findOrCreateExternalOpponent(supabase: any, name: string): Promis
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
   const { data: existing } = await supabase.from('external_opponents').select('id').ilike('name', name.trim()).limit(1)
   if (existing && existing.length > 0) return existing[0].id
-  const { data: created } = await supabase.from('external_opponents').insert({ name: name.trim(), slug, is_section_x: false }).select('id').single()
+  const { data: created } = await supabase.from('external_opponents')
+    .insert({ name: name.trim(), slug, is_section_x: false })
+    .select('id').single()
   return created?.id || null
 }
 
@@ -29,13 +31,14 @@ export async function POST(req: NextRequest) {
       if (v !== undefined) clean[k] = v
     }
 
-    // Handle external opponent names → create/find and store as opponent_id
+    // Resolve external opponent names to IDs
     if (clean.external_home_name) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_home_name)
       if (extId) {
         clean.external_home_opponent_id = extId
         clean.home_team_id = null
       }
+      delete clean.external_home_name
     }
     if (clean.external_away_name) {
       const extId = await findOrCreateExternalOpponent(supabase, clean.external_away_name)
@@ -43,9 +46,8 @@ export async function POST(req: NextRequest) {
         clean.external_away_opponent_id = extId
         clean.away_team_id = null
       }
+      delete clean.external_away_name
     }
-    delete clean.external_home_name
-    delete clean.external_away_name
 
     // Sport validation - auto-correct wrong team sport
     if (clean.sport_id && clean.home_team_id) {
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If this game has an id, it's an UPDATE not an insert
+    // If game has an id it's a direct UPDATE
     if (clean.id) {
       const gameId = clean.id
       delete clean.id
@@ -72,12 +74,39 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // Dedup check for new games
+    // DEDUP: only run when we have enough info to uniquely identify a game
+    // Key insight: external opponent IDs MUST be part of the dedup key
+    // otherwise SLC vs Unatego and SLC vs Avoca on same day would collide
     const gameNumber = clean.game_number ?? null
-    if (clean.game_date && clean.sport_id && (clean.home_team_id || clean.away_team_id)) {
-      let dupQ = supabase.from('games').select('id').eq('game_date', clean.game_date).eq('sport_id', clean.sport_id)
-      if (clean.home_team_id) dupQ = dupQ.eq('home_team_id', clean.home_team_id)
-      if (clean.away_team_id) dupQ = dupQ.eq('away_team_id', clean.away_team_id)
+    const hasHomeId = !!clean.home_team_id
+    const hasAwayId = !!clean.away_team_id
+    const hasExtHome = !!clean.external_home_opponent_id
+    const hasExtAway = !!clean.external_away_opponent_id
+
+    // Only dedup if we have a full matchup (can identify both sides)
+    const canDedup = clean.game_date && clean.sport_id && 
+      (hasHomeId || hasExtHome) && (hasAwayId || hasExtAway)
+
+    if (canDedup) {
+      let dupQ = supabase.from('games')
+        .select('id')
+        .eq('game_date', clean.game_date)
+        .eq('sport_id', clean.sport_id)
+
+      // Match on Section X team ID if present, otherwise null
+      if (hasHomeId) dupQ = dupQ.eq('home_team_id', clean.home_team_id)
+      else dupQ = dupQ.is('home_team_id', null)
+
+      if (hasAwayId) dupQ = dupQ.eq('away_team_id', clean.away_team_id)
+      else dupQ = dupQ.is('away_team_id', null)
+
+      // CRITICAL: also match on external opponent IDs to avoid false dedup
+      if (hasExtHome) dupQ = dupQ.eq('external_home_opponent_id', clean.external_home_opponent_id)
+      else dupQ = dupQ.is('external_home_opponent_id', null)
+
+      if (hasExtAway) dupQ = dupQ.eq('external_away_opponent_id', clean.external_away_opponent_id)
+      else dupQ = dupQ.is('external_away_opponent_id', null)
+
       if (gameNumber !== null) dupQ = dupQ.eq('game_number', gameNumber)
       else dupQ = dupQ.is('game_number', null)
 
@@ -89,14 +118,13 @@ export async function POST(req: NextRequest) {
           status: clean.status ?? 'Final',
           game_time: clean.game_time ?? null,
           notes: clean.notes ?? null,
-          external_home_opponent_id: clean.external_home_opponent_id ?? null,
-          external_away_opponent_id: clean.external_away_opponent_id ?? null,
         }).eq('id', existing[0].id)
         results.push({ action: 'updated', error: error?.message })
         continue
       }
     }
 
+    // Insert new game
     const { error } = await supabase.from('games').insert(clean)
     if (error) console.error('Insert error:', error.message, JSON.stringify(clean).slice(0, 300))
     results.push({ action: 'inserted', error: error?.message })

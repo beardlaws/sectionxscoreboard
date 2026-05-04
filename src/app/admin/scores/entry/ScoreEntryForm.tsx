@@ -93,8 +93,19 @@ export default function ScoreEntryForm({ sports, teams, seasons }: Props) {
       if (!res.ok || result.errors?.length) {
         setError(result.errors?.[0] || result.error || 'Failed to save game (status ' + res.status + ')')
       } else {
-        setSuccess('Game saved! ' + result.published + ' saved.')
-        setTimeout(() => { router.push('/admin') }, 1500)
+        setSuccess('✓ Game saved!')
+        // Reset form for next entry, keep sport/date/season
+        setForm(prev => ({
+          ...prev,
+          home_team_id: '',
+          away_team_id: '',
+          external_home_name: '',
+          external_away_name: '',
+          home_score: '',
+          away_score: '',
+          notes: '',
+        }))
+        setTimeout(() => setSuccess(''), 3000)
       }
     } catch (e: any) {
       setError('Network error: ' + e.message)
