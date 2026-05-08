@@ -91,6 +91,7 @@ export default async function TeamPage({ params }: Props) {
   // Standings position
   let standingsPosition: number | null = null
   let standingsTotal: number | null = null
+  let standingsLabel: string | null = null
   if (activeSeason && teamSportId) {
     const { data: allGames } = await supabase.from('games')
       .select(`*, sport:sports(sport_name), home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`)
@@ -98,10 +99,23 @@ export default async function TeamPage({ params }: Props) {
     const { data: tsData } = await supabase.from('team_seasons')
       .select('team_id, division, class').eq('season_id', activeSeason.id)
     const standings = calculateStandings(allGames || [], tsData || [], sport?.sport_name)
-    const myRow = standings.findIndex(r => r.team_id === team.id)
+
+    // Get this team's division/class so we rank within their group
+    const myTs = tsData?.find(ts => ts.team_id === team.id)
+    const myDivision = myTs?.division || null
+    const myClass = myTs?.class || null
+
+    // Filter to same division (and class if both exist) for accurate ranking
+    const sameGroup = standings.filter(r => {
+      if (myDivision && r.division !== myDivision) return false
+      return true
+    })
+
+    const myRow = sameGroup.findIndex(r => r.team_id === team.id)
     if (myRow >= 0) {
       standingsPosition = myRow + 1
-      standingsTotal = standings.length
+      standingsTotal = sameGroup.length
+      standingsLabel = myDivision ? `${myDivision} Div` : 'Overall'
     }
   }
 
@@ -197,7 +211,7 @@ export default async function TeamPage({ params }: Props) {
               {standingsPosition && (
                 <span className="px-2.5 py-1 rounded-full text-xs font-bold text-yellow-400"
                   style={{ background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.25)', fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
-                  #{standingsPosition} of {standingsTotal}
+                  #{standingsPosition} of {standingsTotal} · {standingsLabel}
                 </span>
               )}
               <Link href="/standings" className="px-2.5 py-1 rounded-full text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
