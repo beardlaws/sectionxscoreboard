@@ -19,6 +19,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
     { href: '/standings', label: 'Standings' },
     { href: '/schools', label: 'Schools' },
     { href: '/photos', label: 'Photos' },
+    { href: '/playoffs', label: 'Playoffs' },
   ]
 
   const isActive = (href: string) =>

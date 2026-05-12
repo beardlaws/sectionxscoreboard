@@ -19,6 +19,7 @@ const navSections = [
       { href: '/admin/scores/manage', label: 'Manage Games', icon: BarChart2 },
       { href: '/admin/games/recap', label: 'Game Recaps', icon: PlusCircle },
       { href: '/admin/postpone', label: 'Rainout Manager', icon: Trophy },
+      { href: '/admin/playoffs', label: 'Playoff Brackets', icon: Trophy },
       { href: '/admin/import', label: 'Import Center', icon: Upload },
       { href: '/admin/submissions', label: 'Submission Queue', icon: CheckSquare },
     ],
