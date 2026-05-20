@@ -51,7 +51,7 @@ export default async function StandingsPage({ searchParams }: Props) {
         .eq('sport_id', selectedSport.id)
         .eq('season_id', seasonId)
         .eq('status', 'Final'),
-      supabase.from('team_seasons').select('team_id, division, class').eq('season_id', seasonId),
+      supabase.from('team_seasons').select('team_id, division, class, btm_override').eq('season_id', seasonId),
     ])
     standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [], selectedSport?.sport_name)
   }
