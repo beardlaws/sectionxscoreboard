@@ -23,7 +23,7 @@ export default async function PlayoffsPage() {
 
   const bySport: Record<string, any[]> = {}
   for (const t of (tournaments || [])) {
-    const key = `${t.sport?.gender} ${t.sport?.sport_name}`
+    const key = ((t.sport?.sport_name || '').includes(t.sport?.gender || '@@') ? t.sport?.sport_name : `${t.sport?.gender} ${t.sport?.sport_name}`)
     if (!bySport[key]) bySport[key] = []
     const tGames = (games || []).filter(g => g.tournament_id === t.id)
     const finals = tGames.filter(g => g.status === 'final').length
