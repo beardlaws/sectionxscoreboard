@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { adminDb } from '@/lib/adminDb'
-import { Trash2, Edit2, Save, X, Search, ChevronDown } from 'lucide-react'
+import { Trash2, Edit2, Save, X, Search } from 'lucide-react'
 import { format } from 'date-fns'
 
 interface Props {
@@ -20,6 +20,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   const [seasonFilter, setSeasonFilter] = useState(activeSeason?.id || '')
   const [sportFilter, setSportFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [playoffFilter, setPlayoffFilter] = useState('') // '', 'playoff', 'regular'
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editScores, setEditScores] = useState({ home: '', away: '', status: '', date: '', time: '' })
@@ -36,7 +37,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       .from('games')
       .select(`id, game_date, game_time, home_score, away_score, status, source, parser_confidence, neutral_site, game_number,
         sport_id, home_team_id, away_team_id, external_home_opponent_id, external_away_opponent_id,
-        game_of_the_night,
+        game_of_the_night, is_playoff, playoff_round,
         sport:sports(id, sport_name),
         home_team:teams!games_home_team_id_fkey(id, team_name, school:schools(school_name, primary_color)),
         away_team:teams!games_away_team_id_fkey(id, team_name, school:schools(school_name, primary_color)),
@@ -50,11 +51,13 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
     if (seasonFilter) q = (q as any).eq('season_id', seasonFilter)
     if (sportFilter) q = (q as any).eq('sport_id', sportFilter)
     if (statusFilter) q = (q as any).eq('status', statusFilter)
+    if (playoffFilter === 'playoff') q = (q as any).eq('is_playoff', true)
+    if (playoffFilter === 'regular') q = (q as any).or('is_playoff.is.null,is_playoff.eq.false')
 
     const { data } = await q
     setGames((data || []))
     setLoading(false)
-  }, [seasonFilter, sportFilter, statusFilter])
+  }, [seasonFilter, sportFilter, statusFilter, playoffFilter])
 
   useEffect(() => { fetchGames() }, [fetchGames])
 
@@ -68,10 +71,10 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
 
   async function bulkDelete() {
     if (selected.size === 0) return
-    if (!confirm(`Delete ${selected.size} games?`)) return
+    if (!confirm(`Permanently delete ${selected.size} game${selected.size !== 1 ? 's' : ''}? This cannot be undone.`)) return
     setBulkDeleting(true)
     for (const id of selected) {
-      await adminDb.delete('games', { id })
+      await supabase.from('games').delete().eq('id', id)
     }
     setGames(prev => prev.filter(g => !selected.has(g.id)))
     setSelected(new Set())
@@ -85,8 +88,6 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       const hasExternalHome = editTeams.home_team_id === 'EXTERNAL'
       const game = games.find((g: any) => g.id === id)
 
-      // Build payload - send everything through the games API
-      // which handles external opponents, sport validation, and updates by id
       const payload: any = { id }
       if (editScores.home !== '') payload.home_score = parseInt(editScores.home)
       if (editScores.away !== '') payload.away_score = parseInt(editScores.away)
@@ -112,6 +113,22 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
         return
       }
 
+      // If this is a playoff game, also sync score back to playoff_games table
+      if (game?.is_playoff) {
+        const { data: pg } = await supabase
+          .from('playoff_games')
+          .select('id')
+          .eq('game_id', id)
+          .single()
+        if (pg) {
+          await supabase.from('playoff_games').update({
+            home_score: payload.home_score ?? game.home_score,
+            away_score: payload.away_score ?? game.away_score,
+            status: payload.status === 'Final' ? 'final' : payload.status === 'Scheduled' ? 'scheduled' : 'upcoming',
+          }).eq('id', pg.id)
+        }
+      }
+
       await fetchGames()
       setEditingId(null)
     } catch(e: any) {
@@ -128,13 +145,8 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
     })
   }
 
-  function selectAll() {
-    setSelected(new Set(filtered.map(g => g.id)))
-  }
-
-  function selectByStatus(status: string) {
-    setSelected(new Set(filtered.filter(g => g.status === status).map(g => g.id)))
-  }
+  function selectAll() { setSelected(new Set(filtered.map(g => g.id))) }
+  function selectByStatus(status: string) { setSelected(new Set(filtered.filter(g => g.status === status).map(g => g.id))) }
 
   const filtered = games.filter(g => {
     if (!search) return true
@@ -158,7 +170,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       <p className="text-slate-400 text-sm mb-5">Edit scores, delete games, or bulk-remove postponed/canceled entries.</p>
 
       {/* Filters */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <select value={seasonFilter} onChange={e => setSeasonFilter(e.target.value)} className="input">
           <option value="">All Seasons</option>
           {seasons.map(s => <option key={s.id} value={s.id}>{s.name}{s.is_active ? ' ✓' : ''}</option>)}
@@ -174,6 +186,11 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
           <option>Postponed</option>
           <option>Canceled</option>
         </select>
+        <select value={playoffFilter} onChange={e => setPlayoffFilter(e.target.value)} className="input">
+          <option value="">All Games</option>
+          <option value="playoff">🏆 Playoffs Only</option>
+          <option value="regular">Regular Season Only</option>
+        </select>
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search teams..." className="input w-full pl-8" />
@@ -183,18 +200,27 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       {/* Bulk actions */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <span className="text-xs text-slate-400">{filtered.length} games</span>
+        {selected.size > 0 && (
+          <span className="text-xs text-white font-semibold">{selected.size} selected</span>
+        )}
         <div className="flex-1" />
         {selected.size > 0 && (
           <>
-            <span className="text-xs text-white">{selected.size} selected</span>
             <button onClick={() => setSelected(new Set())} className="text-xs px-2 py-1 bg-white/10 rounded text-slate-300">Clear</button>
-            <button onClick={bulkDelete} disabled={bulkDeleting} className="text-xs px-3 py-1 bg-red-500/20 text-red-400 rounded font-medium hover:bg-red-500/30">
-              {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+            <button
+              onClick={bulkDelete}
+              disabled={bulkDeleting}
+              className="text-xs px-3 py-1.5 rounded font-bold flex items-center gap-1"
+              style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+            >
+              <Trash2 size={12} />
+              {bulkDeleting ? 'Deleting...' : `Delete ${selected.size} Game${selected.size !== 1 ? 's' : ''}`}
             </button>
           </>
         )}
         <button onClick={() => selectByStatus('Postponed')} className="text-xs px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded">Select PPD</button>
         <button onClick={() => selectByStatus('Canceled')} className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded">Select Canceled</button>
+        <button onClick={() => selectByStatus('Scheduled')} className="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded">Select Scheduled</button>
         <button onClick={selectAll} className="text-xs px-2 py-1 bg-white/10 text-slate-300 rounded">Select All</button>
       </div>
 
@@ -214,177 +240,183 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
 
             return (
               <div key={game.id} className={`card overflow-hidden transition-colors ${isSelected ? 'border-ice/40 bg-ice/5' : ''}`}>
-              <div className="p-3 flex items-center gap-3">
-                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(game.id)} className="flex-shrink-0" />
+                <div className="p-3 flex items-center gap-3">
+                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(game.id)} className="flex-shrink-0" />
 
-                {/* Date */}
-                <div className="w-20 flex-shrink-0 text-center">
-                  <p className="text-xs text-slate-400">{game.game_date ? format(new Date(game.game_date + 'T12:00:00'), 'MMM d') : '—'}</p>
-                  {game.game_time && <p className="text-xs text-slate-500">{game.game_time}</p>}
-                </div>
-
-                {/* Sport */}
-                <div className="w-20 flex-shrink-0 hidden md:block">
-                  <p className="text-xs text-slate-400 truncate">{game.sport?.sport_name}</p>
-                </div>
-
-                {/* Teams + Scores - display mode */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: atColor }} />
-                    <span className="text-sm text-slate-200 truncate">{at}</span>
-                    <span className="text-sm font-mono font-bold text-white ml-auto">{game.away_score ?? '—'}</span>
+                  {/* Date */}
+                  <div className="w-20 flex-shrink-0 text-center">
+                    <p className="text-xs text-slate-400">{game.game_date ? format(new Date(game.game_date + 'T12:00:00'), 'MMM d') : '—'}</p>
+                    {game.game_time && <p className="text-xs text-slate-500">{game.game_time}</p>}
                   </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: htColor }} />
-                    <span className="text-sm text-slate-200 truncate">{ht}</span>
-                    <span className="text-sm font-mono font-bold text-white ml-auto">{game.home_score ?? '—'}</span>
+
+                  {/* Sport */}
+                  <div className="w-24 flex-shrink-0 hidden md:block">
+                    <p className="text-xs text-slate-400 truncate">{game.sport?.sport_name}</p>
+                    {game.is_playoff && (
+                      <span className="text-xs font-black text-yellow-400"
+                        style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.06em' }}>
+                        🏆 {game.playoff_round || 'PLAYOFF'}
+                      </span>
+                    )}
                   </div>
-                </div>
 
-                {/* Status badge */}
-                <div className="flex-shrink-0">
-                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColors[game.status] || 'bg-white/10 text-slate-400'}`}>
-                    {game.status}
-                  </span>
-                </div>
+                  {/* Teams + Scores */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: atColor }} />
+                      <span className="text-sm text-slate-200 truncate">{at}</span>
+                      <span className="text-sm font-mono font-bold text-white ml-auto">{game.away_score ?? '—'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: htColor }} />
+                      <span className="text-sm text-slate-200 truncate">{ht}</span>
+                      <span className="text-sm font-mono font-bold text-white ml-auto">{game.home_score ?? '—'}</span>
+                    </div>
+                  </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {isEditing ? (
-                    <>
-                      <button onClick={() => saveEdit(game.id)} className="p-1.5 text-green-400 hover:text-green-300" title="Save"><Save size={14} /></button>
-                      <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:text-white" title="Cancel"><X size={14} /></button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={async () => {
-                          // If turning ON: clear all other GOTNs for this date first
-                          if (!game.game_of_the_night) {
-                            const sameDayGames = games.filter(g => g.game_date === game.game_date && g.game_of_the_night && g.id !== game.id)
-                            for (const g of sameDayGames) {
-                              await adminDb.update('games', { game_of_the_night: false }, { id: g.id })
+                  {/* Status badge */}
+                  <div className="flex-shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColors[game.status] || 'bg-white/10 text-slate-400'}`}>
+                      {game.status}
+                    </span>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {isEditing ? (
+                      <>
+                        <button onClick={() => saveEdit(game.id)} className="p-1.5 text-green-400 hover:text-green-300" title="Save"><Save size={14} /></button>
+                        <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:text-white" title="Cancel"><X size={14} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={async () => {
+                            if (!game.game_of_the_night) {
+                              const sameDayGames = games.filter(g => g.game_date === game.game_date && g.game_of_the_night && g.id !== game.id)
+                              for (const g of sameDayGames) {
+                                await adminDb.update('games', { game_of_the_night: false }, { id: g.id })
+                              }
                             }
-                          }
-                          await adminDb.update('games', { game_of_the_night: !game.game_of_the_night }, { id: game.id })
-                          fetchGames()
-                        }}
-                        className={`p-1.5 transition-colors text-lg leading-none ${game.game_of_the_night ? 'opacity-100' : 'opacity-20 hover:opacity-60'}`}
-                        title="Game of the Night"
-                      >
-                        ⭐
-                      </button>
-                      <button
-                        onClick={() => {
-                        setEditingId(game.id)
-                        setEditScores({
-                          home: game.home_score != null ? String(game.home_score) : '',
-                          away: game.away_score != null ? String(game.away_score) : '',
-                          status: game.status || 'Final',
-                          date: game.game_date || '',
-                          time: game.game_time ? game.game_time.slice(0,5) : ''
-                        })
-                        setEditTeams({
-                          home_team_id: game.home_team_id || (game.external_home_opponent_id ? 'EXTERNAL' : ''),
-                          away_team_id: game.away_team_id || (game.external_away_opponent_id ? 'EXTERNAL' : ''),
-                          external_home_name: (game as any).external_home?.name || '',
-                          external_away_name: (game as any).external_away?.name || ''
-                        })
-                        setEditSportId((game as any).sport?.id || game.sport_id || '')
-                      }}
-                        className="p-1.5 text-slate-400 hover:text-white"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button onClick={() => deleteGame(game.id)} disabled={deleting === game.id} className="p-1.5 text-slate-400 hover:text-red-400">
-                        <Trash2 size={14} />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Edit panel - expands below when pencil clicked */}
-              {isEditing && (
-                <div className="border-t border-white/8 p-4 space-y-3" style={{ background: 'rgba(10,15,28,0.8)' }}>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Date</label>
-                      <input type="date" value={editScores.date}
-                        onChange={e => setEditScores(p => ({ ...p, date: e.target.value }))}
-                        className="input w-full" style={{ colorScheme: 'dark' }} />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Time</label>
-                      <input type="time" value={editScores.time}
-                        onChange={e => setEditScores(p => ({ ...p, time: e.target.value }))}
-                        className="input w-full" style={{ colorScheme: 'dark' }} />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Status</label>
-                      <select value={editScores.status}
-                        onChange={e => setEditScores(p => ({ ...p, status: e.target.value }))}
-                        className="input w-full">
-                        <option>Final</option>
-                        <option>Scheduled</option>
-                        <option>Postponed</option>
-                        <option>Canceled</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Away Team</label>
-                      <select className="input w-full mb-1" value={editTeams.away_team_id}
-                        onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}>
-                        <option value="">— Select —</option>
-                        <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
-                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
-                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
-                          .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
-                      </select>
-                      {editTeams.away_team_id === 'EXTERNAL' && (
-                        <input className="input w-full mt-1" placeholder="Team name e.g. Peru Central"
-                          value={editTeams.external_away_name}
-                          onChange={e => setEditTeams(p => ({ ...p, external_away_name: e.target.value }))} />
-                      )}
-                      <label className="block text-xs text-slate-400 mb-1 mt-2 font-semibold">Away Score</label>
-                      <input type="number" min="0" value={editScores.away} placeholder="0"
-                        onChange={e => setEditScores(p => ({ ...p, away: e.target.value }))}
-                        className="input w-full text-center text-xl font-bold font-mono" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-semibold">Home Team</label>
-                      <select className="input w-full mb-1" value={editTeams.home_team_id}
-                        onChange={e => setEditTeams(p => ({ ...p, home_team_id: e.target.value }))}>
-                        <option value="">— Select —</option>
-                        <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
-                        {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
-                          .sort((a,b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
-                          .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
-                      </select>
-                      {editTeams.home_team_id === 'EXTERNAL' && (
-                        <input className="input w-full mt-1" placeholder="Team name e.g. Peru Central"
-                          value={editTeams.external_home_name}
-                          onChange={e => setEditTeams(p => ({ ...p, external_home_name: e.target.value }))} />
-                      )}
-                      <label className="block text-xs text-slate-400 mb-1 mt-2 font-semibold">Home Score</label>
-                      <input type="number" min="0" value={editScores.home} placeholder="0"
-                        onChange={e => setEditScores(p => ({ ...p, home: e.target.value }))}
-                        className="input w-full text-center text-xl font-bold font-mono" />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 justify-end pt-1">
-                    <button onClick={() => setEditingId(null)} className="btn-ghost">Cancel</button>
-                    <button onClick={() => saveEdit(game.id)} disabled={saving} className="btn-primary flex items-center gap-2">
-                      <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
-                    </button>
+                            await adminDb.update('games', { game_of_the_night: !game.game_of_the_night }, { id: game.id })
+                            fetchGames()
+                          }}
+                          className={`p-1.5 transition-colors text-lg leading-none ${game.game_of_the_night ? 'opacity-100' : 'opacity-20 hover:opacity-60'}`}
+                          title="Game of the Night"
+                        >⭐</button>
+                        <button
+                          onClick={() => {
+                            setEditingId(game.id)
+                            setEditScores({
+                              home: game.home_score != null ? String(game.home_score) : '',
+                              away: game.away_score != null ? String(game.away_score) : '',
+                              status: game.status || 'Final',
+                              date: game.game_date || '',
+                              time: game.game_time ? game.game_time.slice(0, 5) : ''
+                            })
+                            setEditTeams({
+                              home_team_id: game.home_team_id || (game.external_home_opponent_id ? 'EXTERNAL' : ''),
+                              away_team_id: game.away_team_id || (game.external_away_opponent_id ? 'EXTERNAL' : ''),
+                              external_home_name: (game as any).external_home?.name || '',
+                              external_away_name: (game as any).external_away?.name || ''
+                            })
+                            setEditSportId((game as any).sport?.id || game.sport_id || '')
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-white"
+                        ><Edit2 size={14} /></button>
+                        <button onClick={() => deleteGame(game.id)} disabled={deleting === game.id} className="p-1.5 text-slate-400 hover:text-red-400">
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
+
+                {/* Edit panel */}
+                {isEditing && (
+                  <div className="border-t border-white/8 p-4 space-y-3" style={{ background: 'rgba(10,15,28,0.8)' }}>
+                    {game.is_playoff && (
+                      <div className="flex items-center gap-2 text-xs text-yellow-400 bg-yellow-400/10 rounded-lg px-3 py-2 border border-yellow-400/20">
+                        🏆 Playoff game · {game.playoff_round} · Score will sync to bracket automatically
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1 font-semibold">Date</label>
+                        <input type="date" value={editScores.date}
+                          onChange={e => setEditScores(p => ({ ...p, date: e.target.value }))}
+                          className="input w-full" style={{ colorScheme: 'dark' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1 font-semibold">Time</label>
+                        <input type="time" value={editScores.time}
+                          onChange={e => setEditScores(p => ({ ...p, time: e.target.value }))}
+                          className="input w-full" style={{ colorScheme: 'dark' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1 font-semibold">Status</label>
+                        <select value={editScores.status}
+                          onChange={e => setEditScores(p => ({ ...p, status: e.target.value }))}
+                          className="input w-full">
+                          <option>Final</option>
+                          <option>Scheduled</option>
+                          <option>Postponed</option>
+                          <option>Canceled</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1 font-semibold">Away Team</label>
+                        <select className="input w-full mb-1" value={editTeams.away_team_id}
+                          onChange={e => setEditTeams(p => ({ ...p, away_team_id: e.target.value }))}>
+                          <option value="">— Select —</option>
+                          <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
+                          {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                            .sort((a, b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                            .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
+                        </select>
+                        {editTeams.away_team_id === 'EXTERNAL' && (
+                          <input className="input w-full mt-1" placeholder="Team name e.g. Peru Central"
+                            value={editTeams.external_away_name}
+                            onChange={e => setEditTeams(p => ({ ...p, external_away_name: e.target.value }))} />
+                        )}
+                        <label className="block text-xs text-slate-400 mb-1 mt-2 font-semibold">Away Score</label>
+                        <input type="number" min="0" value={editScores.away} placeholder="0"
+                          onChange={e => setEditScores(p => ({ ...p, away: e.target.value }))}
+                          className="input w-full text-center text-xl font-bold font-mono" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1 font-semibold">Home Team</label>
+                        <select className="input w-full mb-1" value={editTeams.home_team_id}
+                          onChange={e => setEditTeams(p => ({ ...p, home_team_id: e.target.value }))}>
+                          <option value="">— Select —</option>
+                          <option value="EXTERNAL">⬇ Non-Section X (type below)</option>
+                          {(editSportId ? teams.filter(t => t.sport_id === editSportId) : teams)
+                            .sort((a, b) => (a.school?.school_name || a.team_name).localeCompare(b.school?.school_name || b.team_name))
+                            .map(t => <option key={t.id} value={t.id}>{t.school?.school_name || t.team_name}</option>)}
+                        </select>
+                        {editTeams.home_team_id === 'EXTERNAL' && (
+                          <input className="input w-full mt-1" placeholder="Team name e.g. Peru Central"
+                            value={editTeams.external_home_name}
+                            onChange={e => setEditTeams(p => ({ ...p, external_home_name: e.target.value }))} />
+                        )}
+                        <label className="block text-xs text-slate-400 mb-1 mt-2 font-semibold">Home Score</label>
+                        <input type="number" min="0" value={editScores.home} placeholder="0"
+                          onChange={e => setEditScores(p => ({ ...p, home: e.target.value }))}
+                          className="input w-full text-center text-xl font-bold font-mono" />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button onClick={() => setEditingId(null)} className="btn-ghost">Cancel</button>
+                      <button onClick={() => saveEdit(game.id)} disabled={saving} className="btn-primary flex items-center gap-2">
+                        <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
