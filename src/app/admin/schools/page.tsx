@@ -75,7 +75,6 @@ export default function AdminSchoolsPage() {
         secondary_color: editForm.secondary_color,
         alias: editForm.alias,
         city: editForm.city,
-        state: editForm.state,
       })
       .eq('id', editingId)
     if (error) alert(error.message)
@@ -187,8 +186,7 @@ export default function AdminSchoolsPage() {
                             secondary_color: school.secondary_color || '',
                             alias: school.alias || '',
                             city: school.city || '',
-                            state: school.state || 'NY',
-                          })
+                                          })
                         }}
                         className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all ${isEditing ? 'bg-white/10 text-slate-300' : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'}`}
                         style={{ fontFamily: 'var(--font-display)' }}
