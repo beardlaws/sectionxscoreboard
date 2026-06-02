@@ -250,17 +250,6 @@ export default async function SchoolPage({ params }: PageProps) {
                         const awayWins = isGolf ? (game.away_score ?? 999) < (game.home_score ?? 999) : (game.away_score ?? 0) > (game.home_score ?? 0)
                         const schoolWon = isSchoolHome ? homeWins : awayWins
 
-                        function TeamDot({ color, logo, name }: { color: string, logo?: string, name: string }) {
-                          return logo ? (
-                            <div className="w-5 h-5 rounded flex-shrink-0 overflow-hidden border border-white/10"
-                              style={{ background: color }}>
-                              <img src={logo} alt={name} className="w-full h-full object-contain p-0.5" />
-                            </div>
-                          ) : (
-                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: color }} />
-                          )
-                        }
-
                         return (
                           <Link key={game.id} href={`/games/${game.id}`}
                             className="flex items-center px-4 py-2.5 hover:bg-white/[0.03] transition-colors border-b border-white/[0.04] last:border-b-0">
@@ -269,12 +258,12 @@ export default async function SchoolPage({ params }: PageProps) {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 mb-0.5">
                                 <span className="text-xs text-slate-600 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
-                                <TeamDot color={awayColor} logo={awayLogo} name={awayName} />
+                                {awayLogo ? <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden" style={{ background: awayColor }}><img src={awayLogo} alt={awayName} className="w-full h-full object-contain" /></div> : <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: awayColor }} />}
                                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: '13px', color: awayWins ? '#e2e8f5' : '#6b7a8d' }}>{awayName}</span>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs text-slate-600 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>HME</span>
-                                <TeamDot color={homeColor} logo={homeLogo} name={homeName} />
+                                {homeLogo ? <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden" style={{ background: homeColor }}><img src={homeLogo} alt={homeName} className="w-full h-full object-contain" /></div> : <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: homeColor }} />}
                                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: '13px', color: homeWins ? '#e2e8f5' : '#6b7a8d' }}>{homeName}</span>
                               </div>
                             </div>
