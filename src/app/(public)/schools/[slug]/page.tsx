@@ -39,7 +39,6 @@ export default async function SchoolPage({ params }: PageProps) {
 
   const { data: activeSeason } = await supabase.from('seasons').select('id, name').eq('is_active', true).single()
 
-  // Teams with sport info
   const { data: teams } = await supabase
     .from('teams')
     .select('*, sport:sports(*)')
@@ -50,7 +49,6 @@ export default async function SchoolPage({ params }: PageProps) {
   const teamIds = (teams || []).map(t => t.id)
   const sportIds = [...new Set((teams || []).map(t => (t.sport as any)?.id).filter(Boolean))]
 
-  // Recent finals
   const { data: recentGames } = teamIds.length > 0
     ? await supabase
         .from('games')
@@ -66,8 +64,7 @@ export default async function SchoolPage({ params }: PageProps) {
         .limit(15)
     : { data: [] }
 
-  // Calculate record per team
-  async function getTeamRecord(teamId: string, sportId: string, isGolf: boolean): Promise<{ w: number; l: number; t: number }> {
+  async function getTeamRecord(teamId: string, sportId: string, isGolf: boolean) {
     if (!activeSeason?.id) return { w: 0, l: 0, t: 0 }
     const { data: tgames } = await supabase
       .from('games')
@@ -89,7 +86,6 @@ export default async function SchoolPage({ params }: PageProps) {
     return { w, l, t }
   }
 
-  // Get records for all active spring teams (current season)
   const teamRecords: Record<string, { w: number; l: number; t: number }> = {}
   for (const team of (teams || [])) {
     const sportId = (team.sport as any)?.id
@@ -98,7 +94,6 @@ export default async function SchoolPage({ params }: PageProps) {
     teamRecords[team.id] = await getTeamRecord(team.id, sportId, isGolf)
   }
 
-  // Group by season
   const sportsBySeason: Record<string, typeof teams> = {}
   const SEASON_ORDER = ['Spring', 'Fall', 'Winter', 'Other']
   for (const team of teams || []) {
@@ -107,7 +102,6 @@ export default async function SchoolPage({ params }: PageProps) {
     sportsBySeason[s]!.push(team)
   }
 
-  // Group recent results by sport
   const resultsBySport: Record<string, any[]> = {}
   for (const game of (recentGames || [])) {
     const key = game.sport?.sport_name || 'Other'
@@ -122,13 +116,17 @@ export default async function SchoolPage({ params }: PageProps) {
   const { data: sponsor } = await supabase
     .from('sponsors').select('*').eq('placement', 'school_page').eq('active', true).single()
 
+  const logoInitials = school.alias ||
+    school.school_name?.split(' ')
+      .filter((w: string) => !['Central', 'School', 'Free', 'Academy', 'High', 'of'].includes(w))
+      .map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()
+
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 py-6">
-        {/* Hero header */}
+        {/* Hero */}
         <div className="rounded-2xl overflow-hidden mb-6 relative"
           style={{ background: `linear-gradient(135deg, ${school.primary_color || '#1e2d47'} 0%, ${school.secondary_color || '#0f172a'}cc 100%)` }}>
-          {/* Noise texture overlay */}
           <div className="absolute inset-0 opacity-10"
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\' opacity=\'1\'/%3E%3C/svg%3E")', backgroundSize: '200px' }} />
           <div className="relative px-6 py-8">
@@ -150,9 +148,19 @@ export default async function SchoolPage({ params }: PageProps) {
                   {school.mascot}
                 </p>
               </div>
-              <div className="flex-shrink-0 w-20 h-20 rounded-2xl flex items-center justify-center font-black text-3xl text-white"
-                style={{ background: 'rgba(0,0,0,0.3)', fontFamily: 'var(--font-display)', letterSpacing: '0.02em', backdropFilter: 'blur(8px)' }}>
-                {school.alias || school.school_name.slice(0, 3).toUpperCase()}
+              {/* Logo or initials */}
+              <div className="flex-shrink-0 w-24 h-24 rounded-2xl flex items-center justify-center overflow-hidden border-2 border-white/20"
+                style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(8px)' }}>
+                {school.logo_url ? (
+                  <img src={school.logo_url} alt={school.school_name}
+                    className="w-full h-full object-contain p-2"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                ) : (
+                  <span className="font-black text-white text-2xl"
+                    style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.02em' }}>
+                    {logoInitials}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -213,7 +221,6 @@ export default async function SchoolPage({ params }: PageProps) {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Recent results by sport */}
           <div className="md:col-span-2 space-y-5">
             {Object.keys(resultsBySport).length > 0 ? (
               Object.entries(resultsBySport).map(([sportName, sportGames]) => {
@@ -235,15 +242,25 @@ export default async function SchoolPage({ params }: PageProps) {
                         const awayName = at?.school?.school_name || game.external_away?.name || 'TBD'
                         const homeColor = ht?.school?.primary_color || '#334155'
                         const awayColor = at?.school?.primary_color || '#334155'
+                        const homeLogo = ht?.school?.logo_url
+                        const awayLogo = at?.school?.logo_url
                         const isSchoolHome = teamIds.includes(ht?.id)
                         const isGolf = game.sport?.sport_name?.toLowerCase().includes('golf')
-                        const homeWins = isGolf
-                          ? (game.home_score ?? 999) < (game.away_score ?? 999)
-                          : (game.home_score ?? 0) > (game.away_score ?? 0)
-                        const awayWins = isGolf
-                          ? (game.away_score ?? 999) < (game.home_score ?? 999)
-                          : (game.away_score ?? 0) > (game.home_score ?? 0)
+                        const homeWins = isGolf ? (game.home_score ?? 999) < (game.away_score ?? 999) : (game.home_score ?? 0) > (game.away_score ?? 0)
+                        const awayWins = isGolf ? (game.away_score ?? 999) < (game.home_score ?? 999) : (game.away_score ?? 0) > (game.home_score ?? 0)
                         const schoolWon = isSchoolHome ? homeWins : awayWins
+
+                        function TeamDot({ color, logo, name }: { color: string, logo?: string, name: string }) {
+                          return logo ? (
+                            <div className="w-5 h-5 rounded flex-shrink-0 overflow-hidden border border-white/10"
+                              style={{ background: color }}>
+                              <img src={logo} alt={name} className="w-full h-full object-contain p-0.5" />
+                            </div>
+                          ) : (
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: color }} />
+                          )
+                        }
+
                         return (
                           <Link key={game.id} href={`/games/${game.id}`}
                             className="flex items-center px-4 py-2.5 hover:bg-white/[0.03] transition-colors border-b border-white/[0.04] last:border-b-0">
@@ -251,33 +268,23 @@ export default async function SchoolPage({ params }: PageProps) {
                               style={{ background: homeWins ? homeColor : awayColor }} />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 mb-0.5">
-                                <span className="text-xs text-slate-600 w-6 flex-shrink-0"
-                                  style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
-                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: '13px', color: awayWins ? '#e2e8f5' : '#6b7a8d' }}>
-                                  {awayName}
-                                </span>
+                                <span className="text-xs text-slate-600 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
+                                <TeamDot color={awayColor} logo={awayLogo} name={awayName} />
+                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: '13px', color: awayWins ? '#e2e8f5' : '#6b7a8d' }}>{awayName}</span>
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-slate-600 w-6 flex-shrink-0"
-                                  style={{ fontFamily: 'var(--font-display)' }}>HME</span>
-                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: '13px', color: homeWins ? '#e2e8f5' : '#6b7a8d' }}>
-                                  {homeName}
-                                </span>
+                                <span className="text-xs text-slate-600 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>HME</span>
+                                <TeamDot color={homeColor} logo={homeLogo} name={homeName} />
+                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: '13px', color: homeWins ? '#e2e8f5' : '#6b7a8d' }}>{homeName}</span>
                               </div>
                             </div>
                             <div className="flex flex-col items-end ml-3 flex-shrink-0">
-                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '16px' : '13px', color: awayWins ? '#fff' : '#374151', lineHeight: 1 }}>
-                                {game.away_score}
-                              </span>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '16px' : '13px', color: homeWins ? '#fff' : '#374151', lineHeight: 1, marginTop: '2px' }}>
-                                {game.home_score}
-                              </span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '16px' : '13px', color: awayWins ? '#fff' : '#374151', lineHeight: 1 }}>{game.away_score}</span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '16px' : '13px', color: homeWins ? '#fff' : '#374151', lineHeight: 1, marginTop: '2px' }}>{game.home_score}</span>
                             </div>
                             <div className="ml-2 flex flex-col items-center flex-shrink-0">
-                              <span className="text-xs font-black text-emerald-500"
-                                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', fontSize: '10px' }}>F</span>
-                              <span className={`text-xs font-black mt-0.5 ${schoolWon ? 'text-green-400' : 'text-red-400'}`}
-                                style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.06em' }}>
+                              <span className="text-xs font-black text-emerald-500" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', fontSize: '10px' }}>F</span>
+                              <span className={`text-xs font-black mt-0.5 ${schoolWon ? 'text-green-400' : 'text-red-400'}`} style={{ fontFamily: 'var(--font-display)', fontSize: '10px' }}>
                                 {schoolWon ? 'W' : 'L'}
                               </span>
                             </div>
@@ -294,17 +301,15 @@ export default async function SchoolPage({ params }: PageProps) {
               </div>
             )}
 
-            {/* Photos */}
             {photos && photos.length > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm">📷</span>
-                  <span className="font-black text-slate-400 uppercase tracking-widest text-xs"
-                    style={{ fontFamily: 'var(--font-display)' }}>Photos</span>
+                  <span className="font-black text-slate-400 uppercase tracking-widest text-xs" style={{ fontFamily: 'var(--font-display)' }}>Photos</span>
                   <div className="flex-1 h-px bg-white/5" />
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {photos.slice(0, 6).map(p => (
+                  {photos.slice(0, 6).map((p: any) => (
                     <div key={p.id} className="rounded-xl overflow-hidden aspect-video">
                       <img src={p.photo_url} alt={p.caption || 'Photo'} className="w-full h-full object-cover" loading="lazy" />
                     </div>
@@ -314,23 +319,20 @@ export default async function SchoolPage({ params }: PageProps) {
             )}
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-4">
             <Link href="/submit-score"
               className="block rounded-xl p-4 text-center text-white font-black uppercase tracking-widest text-sm"
               style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', boxShadow: '0 4px 20px rgba(37,99,235,0.3)' }}>
               ✏️ Submit a Score
             </Link>
-
             {sponsor ? (
-              <a href={sponsor.website_url || '#'} target="_blank" rel="noopener noreferrer"
+              <a href={(sponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
                 className="block rounded-xl overflow-hidden transition-all hover:-translate-y-0.5"
                 style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))', border: '1px solid rgba(37,99,235,0.2)' }}>
                 <div className="px-4 py-3">
-                  <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1"
-                    style={{ fontFamily: 'var(--font-display)' }}>School Sponsor</p>
-                  <p className="font-black text-white text-base" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>
-                  {sponsor.tagline && <p className="text-xs text-slate-500 mt-1">{sponsor.tagline}</p>}
+                  <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>School Sponsor</p>
+                  <p className="font-black text-white text-base" style={{ fontFamily: 'var(--font-display)' }}>{(sponsor as any).business_name}</p>
+                  {(sponsor as any).tagline && <p className="text-xs text-slate-500 mt-1">{(sponsor as any).tagline}</p>}
                   <p className="text-xs font-bold text-blue-400 mt-2" style={{ fontFamily: 'var(--font-display)' }}>Visit →</p>
                 </div>
               </a>
