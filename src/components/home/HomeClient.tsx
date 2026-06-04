@@ -28,6 +28,7 @@ interface HomeClientProps {
   schools: School[]
   today: string
   latestShoutout?: any | null
+featuredSpotlight?: any | null
 }
 
 const SPORT_ICONS: Record<string, string> = {
@@ -489,10 +490,30 @@ export default function HomeClient({
             </Link>
           )}
 
-          <div className="rounded-2xl p-4 border border-white/4" style={{ background: 'rgba(10,15,28,0.4)' }}>
-            <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
-            <p className="text-xs text-slate-600">Coming soon: interviews, athlete stories, and weekly Section X sports recaps.</p>
-          </div>
+         {featuredSpotlight ? (
+            <div className="rounded-2xl p-4 border border-white/8"
+              style={{ background: 'rgba(10,15,28,0.7)' }}>
+              <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-2"
+                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>
+                📰 Section X Spotlight
+              </p>
+              <p className="text-white font-black text-sm leading-tight mb-2"
+                style={{ fontFamily: 'var(--font-display)' }}>
+                {featuredSpotlight.title}
+              </p>
+              <p className="text-slate-400 text-xs leading-relaxed line-clamp-4">
+                {featuredSpotlight.body}
+              </p>
+              <p className="text-xs text-slate-600 mt-2">by {featuredSpotlight.author}</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl p-4 border border-white/4"
+              style={{ background: 'rgba(10,15,28,0.4)' }}>
+              <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2"
+                style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
+              <p className="text-xs text-slate-600">Coming soon: interviews, athlete stories, and weekly Section X sports recaps.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

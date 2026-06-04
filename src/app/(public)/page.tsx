@@ -38,25 +38,19 @@ async function getHomepageData() {
     { data: homepageSponsor },
     { data: schools },
     { data: latestShoutout },
+    { data: featuredSpotlight },
   ] = await Promise.all([
     supabase.from('games').select(GAME_SELECT)
-      .eq('game_date', today)
-      .order('game_time', { ascending: true }),
+      .eq('game_date', today).order('game_time', { ascending: true }),
 
     supabase.from('games').select(GAME_SELECT)
-      .eq('status', 'Final')
-      .gte('game_date', sevenDaysAgo)
+      .eq('status', 'Final').gte('game_date', sevenDaysAgo)
       .order('game_date', { ascending: false })
-      .order('game_time', { ascending: true })
-      .limit(100),
+      .order('game_time', { ascending: true }).limit(100),
 
-    // Featured game - NOW includes external opponents
     supabase.from('games').select(GAME_SELECT)
-      .eq('game_of_the_night', true)
-      .eq('game_date', today)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .eq('game_of_the_night', true).eq('game_date', today)
+      .order('updated_at', { ascending: false }).limit(1).maybeSingle(),
 
     supabase.from('photos').select('*, school:schools(*)')
       .eq('approved', true).eq('featured', true)
@@ -77,6 +71,11 @@ async function getHomepageData() {
 
     supabase.from('shoutouts').select('*').eq('approved', true)
       .order('created_at', { ascending: false }).limit(1).single(),
+
+    // Featured spotlight story
+    supabase.from('spotlights').select('*')
+      .eq('published', true).eq('featured', true)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
   return {
@@ -90,6 +89,7 @@ async function getHomepageData() {
     latestShoutout: latestShoutout || null,
     schools: schools || [],
     today,
+    featuredSpotlight: featuredSpotlight || null,
   }
 }
 
