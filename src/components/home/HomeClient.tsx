@@ -68,7 +68,7 @@ function TeamDot({ color, logo }: { color: string; logo?: string | null }) {
 
 export default function HomeClient({
   activeSeason, todayGames, recentGames, featuredGame,
-  featuredPhoto, homepageSponsor, latestShoutout, schools, today,
+  featuredPhoto, homepageSponsor, latestShoutout, schools, today, featuredSpotlight,
 }: HomeClientProps) {
   const [schoolSearch, setSchoolSearch] = useState('')
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
