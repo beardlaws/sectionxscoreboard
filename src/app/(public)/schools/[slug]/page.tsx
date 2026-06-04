@@ -13,11 +13,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { data: school } = await supabase.from('schools').select('*').eq('slug', params.slug).single()
   if (!school) return { title: 'School Not Found' }
   return {
-    title: `${school.school_name} ${school.mascot} | Section X Scoreboard`,
-    description: `${school.school_name} sports scores, standings, and schedules.`,
+    title: `${school.school_name} ${school.mascot} Scores & Standings 2026 | Section X Scoreboard`,
+    description: `${school.school_name} ${school.mascot} sports scores, standings, schedule and results. ${school.city}, ${school.county} County. Section X / Section 10 Northern New York high school sports.`,
+    keywords: `${school.school_name}, ${school.mascot}, Section X, Section 10, ${school.city}, ${school.county} County, high school sports, scores, standings, Northern New York`,
   }
 }
-
 const SPORT_ICONS: Record<string, string> = {
   Baseball: '⚾', Softball: '🥎', Football: '🏈',
   'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
