@@ -3,7 +3,10 @@ import { Metadata } from 'next'
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
 
-export const metadata: Metadata = { title: 'Playoffs | Section X Scoreboard' }
+export const metadata: Metadata = {
+  title: 'Section X Playoffs 2026 | Brackets & Results',
+  description: 'Section X high school sports playoff brackets for baseball, softball, lacrosse and more. Class A, B, C, D single elimination brackets with live scores and results. Northern New York.',
+}
 export const dynamic = 'force-dynamic'
 
 const ICONS: Record<string, string> = {
@@ -11,6 +14,13 @@ const ICONS: Record<string, string> = {
   'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
   'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
   'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
+}
+
+function cleanSportName(sportName: string, gender: string): string {
+  // Prevent "Boys Boys Lacrosse" or "Girls Girls Lacrosse"
+  if (!sportName || !gender) return sportName || ''
+  if (sportName.startsWith(gender)) return sportName
+  return `${gender} ${sportName}`
 }
 
 export default async function PlayoffsPage() {
@@ -23,7 +33,7 @@ export default async function PlayoffsPage() {
 
   const bySport: Record<string, any[]> = {}
   for (const t of (tournaments || [])) {
-    const key = ((t.sport?.sport_name || '').includes(t.sport?.gender || '@@') ? t.sport?.sport_name : `${t.sport?.gender} ${t.sport?.sport_name}`)
+    const key = cleanSportName(t.sport?.sport_name || '', t.sport?.gender || '')
     if (!bySport[key]) bySport[key] = []
     const tGames = (games || []).filter(g => g.tournament_id === t.id)
     const finals = tGames.filter(g => g.status === 'final').length
@@ -60,19 +70,37 @@ export default async function PlayoffsPage() {
               {ts.sort((a, b) => a.class.localeCompare(b.class)).map(t => (
                 <Link key={t.id} href={`/playoffs/${t.id}`}
                   className="rounded-xl p-4 border transition-all hover:-translate-y-0.5 hover:shadow-xl group"
-                  style={{ background: 'rgba(8,12,20,0.8)', border: t.status === 'active' ? '1px solid rgba(239,68,68,0.3)' : t.status === 'complete' ? '1px solid rgba(34,197,94,0.2)' : '1px solid rgba(255,255,255,0.08)' }}>
+                  style={{
+                    background: 'rgba(8,12,20,0.8)',
+                    border: t.status === 'active'
+                      ? '1px solid rgba(239,68,68,0.3)'
+                      : t.status === 'complete'
+                      ? '1px solid rgba(34,197,94,0.2)'
+                      : '1px solid rgba(255,255,255,0.08)',
+                  }}>
                   <div className="flex items-start justify-between mb-2">
-                    <span className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Class {t.class}</span>
+                    <span className="text-xs font-black text-blue-400 uppercase tracking-widest"
+                      style={{ fontFamily: 'var(--font-display)' }}>Class {t.class}</span>
                     <span className="text-xs font-black px-1.5 py-0.5 rounded uppercase"
                       style={{
                         fontFamily: 'var(--font-display)',
-                        background: t.status === 'complete' ? 'rgba(34,197,94,0.15)' : t.status === 'active' ? 'rgba(239,68,68,0.12)' : 'rgba(37,99,235,0.1)',
-                        color: t.status === 'complete' ? '#4ade80' : t.status === 'active' ? '#f87171' : '#60a5fa',
+                        background: t.status === 'complete'
+                          ? 'rgba(34,197,94,0.15)'
+                          : t.status === 'active'
+                          ? 'rgba(239,68,68,0.12)'
+                          : 'rgba(37,99,235,0.1)',
+                        color: t.status === 'complete'
+                          ? '#4ade80'
+                          : t.status === 'active'
+                          ? '#f87171'
+                          : '#60a5fa',
                       }}>{t.status}</span>
                   </div>
-                  <p className="text-white font-bold text-sm mb-2 group-hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>{t.name}</p>
+                  <p className="text-white font-bold text-sm mb-2 group-hover:text-blue-300 transition-colors"
+                    style={{ fontFamily: 'var(--font-display)' }}>{t.name}</p>
                   <p className="text-xs text-slate-600">{t.finalCount} of {t.gameCount} games complete</p>
-                  <p className="text-xs font-bold text-blue-400 mt-2 group-hover:text-blue-300" style={{ fontFamily: 'var(--font-display)' }}>View Bracket →</p>
+                  <p className="text-xs font-bold text-blue-400 mt-2 group-hover:text-blue-300"
+                    style={{ fontFamily: 'var(--font-display)' }}>View Bracket →</p>
                 </Link>
               ))}
             </div>
