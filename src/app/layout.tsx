@@ -1,12 +1,11 @@
 import type { Metadata } from 'next'
 import './globals.css'
 
-export const metadata = {
+export const metadata: Metadata = {
   title: {
     template: '%s | Section X Scoreboard',
     default: 'Section X Scoreboard | North Country High School Sports',
-  }
-},
+  },
   description: 'Live scores, schedules, standings, and results for Section X high school sports in Northern New York.',
   openGraph: {
     type: 'website',
