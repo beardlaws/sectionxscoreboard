@@ -28,6 +28,7 @@ interface HomeClientProps {
   schools: School[]
   today: string
   latestShoutout?: any | null
+  featuredSpotlight?: any | null
 }
 
 const SPORT_ICONS: Record<string, string> = {
@@ -52,7 +53,6 @@ function getSportKey(game: GameWithTeams): string {
   return (g === 'Boys' || g === 'Girls') ? `${g} ${n}` : n
 }
 
-// Mini team logo/color dot for game rows
 function TeamDot({ color, logo }: { color: string; logo?: string | null }) {
   if (logo) {
     return (
@@ -67,7 +67,7 @@ function TeamDot({ color, logo }: { color: string; logo?: string | null }) {
 
 export default function HomeClient({
   activeSeason, todayGames, recentGames, featuredGame,
-  featuredPhoto, homepageSponsor, latestShoutout, schools, today,
+  featuredPhoto, homepageSponsor, latestShoutout, schools, today, featuredSpotlight,
 }: HomeClientProps) {
   const [schoolSearch, setSchoolSearch] = useState('')
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
@@ -205,8 +205,7 @@ export default function HomeClient({
                       return n
                     })
                   }}
-                  className="w-full flex items-center gap-3 mb-3 group"
-                >
+                  className="w-full flex items-center gap-3 mb-3 group">
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {isTodayDate && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
                     <span style={{
@@ -259,7 +258,6 @@ export default function HomeClient({
                           {finals.map(game => {
                             const ht = game.home_team
                             const at = game.away_team
-                            // Fix: always fall back to external opponent name
                             const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
                             const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
                             const homeColor = ht?.school?.primary_color || '#334155'
@@ -303,7 +301,6 @@ export default function HomeClient({
                               )
                             }
 
-                            // Standard view
                             return (
                               <Link key={game.id} href={`/games/${game.id}`}
                                 className="flex items-center px-4 py-2.5 hover:bg-white/[0.025] transition-colors group border-l-2 border-transparent"
@@ -312,31 +309,21 @@ export default function HomeClient({
                                 <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mr-3 mt-0.5"
                                   style={{ background: winnerColor, boxShadow: `0 0 6px ${winnerColor}80` }} />
                                 <div className="flex-1 min-w-0">
-                                  {/* Away */}
                                   <div className="flex items-center gap-1.5 mb-0.5">
                                     <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
                                     <TeamDot color={awayColor} logo={awayLogo} />
-                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '15px' : '14px', color: awayWins ? '#e8edf5' : '#8a9ab0' }}>
-                                      {awayName}
-                                    </span>
+                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '15px' : '14px', color: awayWins ? '#e8edf5' : '#8a9ab0' }}>{awayName}</span>
                                   </div>
-                                  {/* Home */}
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>HME</span>
                                     <TeamDot color={homeColor} logo={homeLogo} />
-                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '15px' : '14px', color: homeWins ? '#e8edf5' : '#8a9ab0' }}>
-                                      {homeName}
-                                    </span>
+                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '15px' : '14px', color: homeWins ? '#e8edf5' : '#8a9ab0' }}>{homeName}</span>
                                   </div>
                                 </div>
-
-                                {/* Scores */}
                                 <div className="flex flex-col items-end ml-4 flex-shrink-0 gap-0.5">
                                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '20px' : '15px', color: awayWins ? '#ffffff' : '#52647a', lineHeight: 1 }}>{game.away_score}</span>
                                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '20px' : '15px', color: homeWins ? '#ffffff' : '#52647a', lineHeight: 1 }}>{game.home_score}</span>
                                 </div>
-
-                                {/* Badges */}
                                 <div className="flex flex-col items-center ml-2 flex-shrink-0 gap-1">
                                   <span className="text-xs font-bold text-emerald-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px' }}>F</span>
                                   {hasRecap && <span title="Recap available" className="text-xs leading-none">📝</span>}
@@ -428,6 +415,7 @@ export default function HomeClient({
                 { href: '/scores', label: 'All Scores', icon: '📅' },
                 { href: '/standings', label: 'Standings', icon: '📊' },
                 { href: '/playoffs', label: 'Playoffs', icon: '🏆' },
+                { href: '/spotlight', label: 'Spotlight', icon: '📰' },
                 { href: '/schools', label: 'All Schools', icon: '🏫' },
                 { href: '/photos', label: 'Photo Gallery', icon: '📷' },
               ].map(link => (
@@ -489,10 +477,36 @@ export default function HomeClient({
             </Link>
           )}
 
-          <div className="rounded-2xl p-4 border border-white/4" style={{ background: 'rgba(10,15,28,0.4)' }}>
-            <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
-            <p className="text-xs text-slate-600">Coming soon: interviews, athlete stories, and weekly Section X sports recaps.</p>
-          </div>
+          {/* Spotlight */}
+          {featuredSpotlight ? (
+            <Link href={`/spotlight/${featuredSpotlight.id}`}
+              className="block rounded-2xl p-4 border border-white/8 transition-all hover:-translate-y-0.5 group"
+              style={{ background: 'rgba(10,15,28,0.7)' }}>
+              <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-2"
+                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>
+                📰 Section X Spotlight
+              </p>
+              <p className="text-white font-black text-sm leading-tight mb-2 group-hover:text-blue-300 transition-colors"
+                style={{ fontFamily: 'var(--font-display)' }}>
+                {featuredSpotlight.title}
+              </p>
+              <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">
+                {featuredSpotlight.body}
+              </p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-xs text-slate-600">by {featuredSpotlight.author}</p>
+                <p className="text-xs font-bold text-blue-400 group-hover:text-blue-300"
+                  style={{ fontFamily: 'var(--font-display)' }}>Read →</p>
+              </div>
+            </Link>
+          ) : (
+            <div className="rounded-2xl p-4 border border-white/4" style={{ background: 'rgba(10,15,28,0.4)' }}>
+              <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2"
+                style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
+              <p className="text-xs text-slate-600">Coming soon: interviews, athlete stories, and weekly Section X sports recaps.</p>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
