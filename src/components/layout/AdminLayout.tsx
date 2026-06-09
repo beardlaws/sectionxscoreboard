@@ -7,7 +7,7 @@ import { useState } from 'react'
 import {
   LayoutDashboard, PlusCircle, Upload, CheckSquare, Image,
   School, Users, Trophy, Settings, Menu, X, Calendar,
-  BarChart2, Star, Bell, Home, Newspaper
+  BarChart2, Star, Bell, Home, Newspaper, Medal
 } from 'lucide-react'
 
 const navSections = [
@@ -28,6 +28,7 @@ const navSections = [
     label: 'Content',
     items: [
       { href: '/admin/spotlight', label: 'Spotlight', icon: Newspaper },
+      { href: '/admin/athlete-of-week', label: 'Athlete of Week', icon: Medal },
       { href: '/admin/photos', label: 'Photo Queue', icon: Image },
       { href: '/admin/shoutouts', label: 'Shoutouts', icon: Star },
       { href: '/admin/corrections', label: 'Corrections', icon: Bell },
@@ -41,6 +42,7 @@ const navSections = [
       { href: '/admin/teams', label: 'Teams', icon: Users },
       { href: '/admin/sports', label: 'Sports', icon: Trophy },
       { href: '/admin/sponsors', label: 'Sponsors', icon: BarChart2 },
+      { href: '/admin/alerts', label: 'Score Alerts', icon: Bell },
     ],
   },
   {
