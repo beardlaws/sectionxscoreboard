@@ -9,17 +9,27 @@ export const metadata: Metadata = {
   title: 'Scores',
   description: 'Section X high school sports scores and results by date.',
 }
-
 export const revalidate = 60
 
 export default async function ScoresPage({
   searchParams,
 }: {
-  searchParams: { date?: string; sport?: string }
+  searchParams: { date?: string; sport?: string; season?: string }
 }) {
   const supabase = createClient()
   const today = format(new Date(), 'yyyy-MM-dd')
   const selectedDate = searchParams.date || today
+
+  // Get all seasons for switcher
+  const { data: allSeasons } = await supabase
+    .from('seasons')
+    .select('id, name, is_active, season_type, year')
+    .order('year', { ascending: false })
+
+  const activeSeason = (allSeasons || []).find(s => s.is_active)
+
+  // Use season from URL param, fall back to active season
+  const selectedSeasonId = searchParams.season || activeSeason?.id
 
   const { data: games } = await supabase
     .from('games')
@@ -37,20 +47,58 @@ export default async function ScoresPage({
   const { data: sports } = await supabase
     .from('sports')
     .select('*')
-    .eq('active_public', true)
     .order('sport_name')
 
-  // Get date range with games
-  const { data: gameDates } = await supabase
+  // Get date range with games for the selected season
+  let dateQuery = supabase
     .from('games')
     .select('game_date')
     .gte('game_date', format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd'))
     .lte('game_date', format(new Date(Date.now() + 14 * 86400000), 'yyyy-MM-dd'))
 
-  const datesWithGames = [...new Set((gameDates || []).map(g => g.game_date))].sort()
+  if (selectedSeasonId) {
+    dateQuery = (dateQuery as any).eq('season_id', selectedSeasonId)
+  }
+
+  const { data: gameDates } = await dateQuery
+  const datesWithGames = [...new Set((gameDates || []).map((g: any) => g.game_date))].sort()
 
   return (
     <PublicLayout>
+      <div className="max-w-5xl mx-auto px-4 pt-4">
+        {/* Season Switcher */}
+        {(allSeasons || []).length > 1 && (
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <span className="text-xs text-slate-500 flex-shrink-0"
+              style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.08em' }}>
+              SEASON:
+            </span>
+            {(allSeasons || []).map((s: any) => {
+              const isSelected = s.id === selectedSeasonId
+              const colors: Record<string, { bg: string; text: string; border: string }> = {
+                Spring: { bg: 'rgba(34,197,94,0.12)', text: '#4ade80', border: 'rgba(34,197,94,0.25)' },
+                Fall:   { bg: 'rgba(245,158,11,0.12)', text: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+                Winter: { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
+              }
+              const c = colors[s.season_type || 'Spring'] || colors.Spring
+              return (
+                <a key={s.id}
+                  href={s.is_active ? '/scores' : `/scores?season=${s.id}`}
+                  className="text-xs font-black px-3 py-1 rounded-full transition-all"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    letterSpacing: '0.06em',
+                    background: isSelected ? c.bg : 'rgba(255,255,255,0.04)',
+                    color: isSelected ? c.text : '#4a5f7a',
+                    border: `1px solid ${isSelected ? c.border : 'rgba(255,255,255,0.06)'}`,
+                  }}>
+                  {s.name}{s.is_active ? ' ✓' : ''}
+                </a>
+              )
+            })}
+          </div>
+        )}
+      </div>
       <ScoresClient
         games={games || []}
         sports={sports || []}
