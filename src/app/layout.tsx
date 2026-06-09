@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'Section X Scoreboard',
-    title: 'Section X Scoreboard | North Country High School Sports',
+    title: 'Section X Scoreboard',
     description: 'Live scores, schedules, standings, and results for Section X high school sports in Northern New York.',
     url: 'https://sectionxscoreboard.com',
   },
