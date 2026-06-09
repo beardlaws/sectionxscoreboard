@@ -39,6 +39,7 @@ async function getHomepageData() {
     { data: schools },
     { data: latestShoutout },
     { data: featuredSpotlight },
+    { data: featuredAthlete },
   ] = await Promise.all([
     supabase.from('games').select(GAME_SELECT)
       .eq('game_date', today).order('game_time', { ascending: true }),
@@ -57,11 +58,8 @@ async function getHomepageData() {
       .order('created_at', { ascending: false }).limit(1).single(),
 
     activeSeason
-      ? supabase.from('games').select(`
-          *,
-          home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
-          away_team:teams!games_away_team_id_fkey(*, school:schools(*))
-        `).eq('season_id', activeSeason.id).eq('status', 'Final')
+      ? supabase.from('games').select(`*, home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`)
+          .eq('season_id', activeSeason.id).eq('status', 'Final')
       : Promise.resolve({ data: [] }),
 
     supabase.from('sponsors').select('*')
@@ -72,10 +70,15 @@ async function getHomepageData() {
     supabase.from('shoutouts').select('*').eq('approved', true)
       .order('created_at', { ascending: false }).limit(1).single(),
 
-    // Featured spotlight story
     supabase.from('spotlights').select('*')
       .eq('published', true).eq('featured', true)
       .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+
+    supabase.from('athlete_of_week')
+      .select('*, school:schools(school_name, primary_color, logo_url)')
+      .eq('published', true)
+      .order('week_of', { ascending: false })
+      .limit(1).maybeSingle(),
   ])
 
   return {
@@ -90,6 +93,7 @@ async function getHomepageData() {
     schools: schools || [],
     today,
     featuredSpotlight: featuredSpotlight || null,
+    featuredAthlete: featuredAthlete || null,
   }
 }
 
