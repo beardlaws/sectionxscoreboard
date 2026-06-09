@@ -7,6 +7,7 @@ import ScoreCard from '@/components/scores/ScoreCard'
 import type { Season, School, GameWithTeams } from '@/types'
 import { isCloseGame } from '@/lib/constants'
 import { ChevronRight } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 function formatTime(t: string) {
   try {
@@ -29,6 +30,7 @@ interface HomeClientProps {
   today: string
   latestShoutout?: any | null
   featuredSpotlight?: any | null
+  featuredAthlete?: any | null
 }
 
 const SPORT_ICONS: Record<string, string> = {
@@ -65,9 +67,51 @@ function TeamDot({ color, logo }: { color: string; logo?: string | null }) {
   return <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
 }
 
+// Inline score alert form — no external component needed
+function ScoreAlertForm({ schoolId, schoolName }: { schoolId?: string; schoolName?: string }) {
+  const [email, setEmail] = useState('')
+  const [done, setDone] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const supabase = createClient()
+
+  async function subscribe() {
+    if (!email.includes('@')) return
+    setLoading(true)
+    await supabase.from('score_alert_subscriptions').insert({
+      email: email.toLowerCase().trim(),
+      school_id: schoolId || null,
+      all_section_x: !schoolId,
+      confirmed: true,
+    })
+    setDone(true)
+    setLoading(false)
+  }
+
+  if (done) return (
+    <p className="text-xs text-green-400 font-bold" style={{ fontFamily: 'var(--font-display)' }}>
+      ✓ You're signed up!
+    </p>
+  )
+
+  return (
+    <div className="flex gap-1.5 mt-2">
+      <input type="email" value={email} placeholder="your@email.com"
+        onChange={e => setEmail(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && subscribe()}
+        className="input flex-1 text-xs py-1.5" />
+      <button onClick={subscribe} disabled={loading}
+        className="text-xs px-3 py-1.5 rounded-lg font-black flex-shrink-0"
+        style={{ background: 'rgba(37,99,235,0.3)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.4)', fontFamily: 'var(--font-display)' }}>
+        {loading ? '...' : 'GO'}
+      </button>
+    </div>
+  )
+}
+
 export default function HomeClient({
   activeSeason, todayGames, recentGames, featuredGame,
-  featuredPhoto, homepageSponsor, latestShoutout, schools, today, featuredSpotlight,
+  featuredPhoto, homepageSponsor, latestShoutout, schools, today,
+  featuredSpotlight, featuredAthlete,
 }: HomeClientProps) {
   const [schoolSearch, setSchoolSearch] = useState('')
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
@@ -125,8 +169,6 @@ export default function HomeClient({
 
         {/* ── MAIN COLUMN ── */}
         <div className="lg:col-span-2 space-y-6">
-
-          {/* Hero header */}
           <div>
             {activeSeason && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold mb-2 uppercase tracking-widest"
@@ -162,7 +204,6 @@ export default function HomeClient({
             </div>
           </div>
 
-          {/* Game of the Night */}
           {featuredGame && (
             <div>
               <div className="flex items-center gap-2 mb-3">
@@ -185,7 +226,6 @@ export default function HomeClient({
             </div>
           )}
 
-          {/* Scores feed */}
           {dates.map((date, dateIdx) => {
             const dateGames = byDate.get(date)!
             const sportGroups = groupBySport(dateGames)
@@ -208,53 +248,33 @@ export default function HomeClient({
                   className="w-full flex items-center gap-3 mb-3 group">
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {isTodayDate && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
-                    <span style={{
-                      fontFamily: 'var(--font-display)', fontWeight: 900,
-                      fontSize: isTodayDate ? '22px' : '15px',
-                      color: isTodayDate ? '#f0f4ff' : '#4a5f7a',
-                      letterSpacing: '0.06em', textTransform: 'uppercase',
-                    }}>{label}</span>
-                    <span className="text-xs text-slate-600">
-                      {dateGames.filter(g => g.status === 'Final').length} finals
-                    </span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: isTodayDate ? '22px' : '15px', color: isTodayDate ? '#f0f4ff' : '#4a5f7a', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</span>
+                    <span className="text-xs text-slate-600">{dateGames.filter(g => g.status === 'Final').length} finals</span>
                   </div>
                   <div className="flex-1 h-px bg-white/5" />
                   {isTodayDate && (
                     <button onClick={e => { e.stopPropagation(); setCompact(c => !c) }}
                       className="text-xs px-2 py-0.5 rounded flex-shrink-0 transition-colors"
-                      style={{
-                        fontFamily: 'var(--font-display)', letterSpacing: '0.06em',
-                        background: compact ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.05)',
-                        color: compact ? '#60a5fa' : '#4a5f7a',
-                        border: `1px solid ${compact ? 'rgba(37,99,235,0.3)' : 'rgba(255,255,255,0.06)'}`,
-                      }}>
+                      style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', background: compact ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.05)', color: compact ? '#60a5fa' : '#4a5f7a', border: `1px solid ${compact ? 'rgba(37,99,235,0.3)' : 'rgba(255,255,255,0.06)'}` }}>
                       {compact ? 'STANDARD' : 'COMPACT'}
                     </button>
                   )}
-                  {!isTodayDate && (
-                    <span className="text-slate-600 text-xs flex-shrink-0">{isExpanded ? '▲' : '▼'}</span>
-                  )}
+                  {!isTodayDate && <span className="text-slate-600 text-xs flex-shrink-0">{isExpanded ? '▲' : '▼'}</span>}
                 </button>
 
                 {isExpanded && (
-                  <div className="rounded-2xl overflow-hidden border border-white/6 mb-6"
-                    style={{ background: 'rgba(8,12,20,0.7)' }}>
+                  <div className="rounded-2xl overflow-hidden border border-white/6 mb-6" style={{ background: 'rgba(8,12,20,0.7)' }}>
                     {sportKeys.map((sportKey, sportIdx) => {
                       const games = sportGroups.get(sportKey)!
                       const icon = SPORT_ICONS[sportKey] || '🏆'
                       const finals = games.filter(g => g.status === 'Final')
-
                       return (
                         <div key={sportKey}>
                           {sportIdx > 0 && <div className="mx-4 h-px bg-white/[0.04]" />}
                           <div className="px-4 pt-3 pb-1 flex items-center gap-2">
                             <span className="text-sm leading-none">{icon}</span>
-                            <span className="font-black text-xs uppercase tracking-widest"
-                              style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a', letterSpacing: '0.14em' }}>
-                              {sportKey}
-                            </span>
+                            <span className="font-black text-xs uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a', letterSpacing: '0.14em' }}>{sportKey}</span>
                           </div>
-
                           {finals.map(game => {
                             const ht = game.home_team
                             const at = game.away_team
@@ -266,12 +286,8 @@ export default function HomeClient({
                             const awayLogo = (at?.school as any)?.logo_url || null
                             const hasRecap = !!(game as any).recap
                             const isGolfGame = game.sport?.sport_name?.toLowerCase().includes('golf')
-                            const homeWins = isGolfGame
-                              ? (game.home_score ?? 999) < (game.away_score ?? 999)
-                              : (game.home_score ?? 0) > (game.away_score ?? 0)
-                            const awayWins = isGolfGame
-                              ? (game.away_score ?? 999) < (game.home_score ?? 999)
-                              : (game.away_score ?? 0) > (game.home_score ?? 0)
+                            const homeWins = isGolfGame ? (game.home_score ?? 999) < (game.away_score ?? 999) : (game.home_score ?? 0) > (game.away_score ?? 0)
+                            const awayWins = isGolfGame ? (game.away_score ?? 999) < (game.home_score ?? 999) : (game.away_score ?? 0) > (game.home_score ?? 0)
                             const diff = Math.abs((game.home_score ?? 0) - (game.away_score ?? 0))
                             const isClose = diff <= 2
                             const isBlowout = diff >= 15
@@ -279,8 +295,7 @@ export default function HomeClient({
 
                             if (compact) {
                               return (
-                                <Link key={game.id} href={`/games/${game.id}`}
-                                  className="flex items-center px-4 py-1.5 hover:bg-white/[0.03] transition-colors">
+                                <Link key={game.id} href={`/games/${game.id}`} className="flex items-center px-4 py-1.5 hover:bg-white/[0.03] transition-colors">
                                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 mr-3" style={{ background: winnerColor }} />
                                   <div className="flex-1 min-w-0 flex items-center gap-1.5">
                                     <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 700 : 400, fontSize: '13px', color: awayWins ? '#d1d9e8' : '#4a5568' }}>{awayName}</span>
@@ -288,12 +303,10 @@ export default function HomeClient({
                                     <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 700 : 400, fontSize: '13px', color: homeWins ? '#d1d9e8' : '#4a5568' }}>{homeName}</span>
                                   </div>
                                   <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                                    {hasRecap && <span className="text-xs text-blue-400" title="Recap available">📝</span>}
+                                    {hasRecap && <span className="text-xs text-blue-400">📝</span>}
                                     {isClose && <span className="text-xs text-amber-400">🔥</span>}
                                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '13px', color: '#ffffff' }}>
-                                      {awayWins ? game.away_score : game.home_score}
-                                      <span style={{ color: '#374151', fontWeight: 400 }}>–</span>
-                                      {awayWins ? game.home_score : game.away_score}
+                                      {awayWins ? game.away_score : game.home_score}<span style={{ color: '#374151', fontWeight: 400 }}>–</span>{awayWins ? game.home_score : game.away_score}
                                     </span>
                                     <span className="text-xs font-bold text-emerald-500" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>F</span>
                                   </div>
@@ -306,8 +319,7 @@ export default function HomeClient({
                                 className="flex items-center px-4 py-2.5 hover:bg-white/[0.025] transition-colors group border-l-2 border-transparent"
                                 onMouseEnter={e => (e.currentTarget.style.borderLeftColor = winnerColor + '60')}
                                 onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'transparent')}>
-                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mr-3 mt-0.5"
-                                  style={{ background: winnerColor, boxShadow: `0 0 6px ${winnerColor}80` }} />
+                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mr-3 mt-0.5" style={{ background: winnerColor, boxShadow: `0 0 6px ${winnerColor}80` }} />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 mb-0.5">
                                     <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
@@ -326,9 +338,9 @@ export default function HomeClient({
                                 </div>
                                 <div className="flex flex-col items-center ml-2 flex-shrink-0 gap-1">
                                   <span className="text-xs font-bold text-emerald-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px' }}>F</span>
-                                  {hasRecap && <span title="Recap available" className="text-xs leading-none">📝</span>}
-                                  {isClose && <span title="Close game" className="text-xs leading-none">🔥</span>}
-                                  {isBlowout && <span title="Blowout" className="text-xs leading-none opacity-40">💨</span>}
+                                  {hasRecap && <span className="text-xs leading-none">📝</span>}
+                                  {isClose && <span className="text-xs leading-none">🔥</span>}
+                                  {isBlowout && <span className="text-xs leading-none opacity-40">💨</span>}
                                 </div>
                               </Link>
                             )
@@ -358,8 +370,7 @@ export default function HomeClient({
                   <Link key={school.id} href={`/schools/${school.slug}`}
                     className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors group"
                     onClick={() => setSchoolSearch('')}>
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center overflow-hidden flex-shrink-0"
-                      style={{ background: school.primary_color || '#1e3a5f' }}>
+                    <div className="w-6 h-6 rounded-md flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: school.primary_color || '#1e3a5f' }}>
                       {(school as any).logo_url
                         ? <img src={(school as any).logo_url} alt="" className="w-full h-full object-contain" />
                         : <span className="text-white text-xs font-black" style={{ fontFamily: 'var(--font-display)' }}>{school.school_name[0]}</span>
@@ -383,6 +394,7 @@ export default function HomeClient({
                 { href: '/submit-score', label: 'Submit a Score', icon: '✏️', accent: true },
                 { href: '/submit-photo', label: 'Submit a Photo', icon: '📷', accent: false },
                 { href: '/shoutout', label: 'Send a Shoutout', icon: '🌟', accent: false },
+                { href: '/nominate', label: 'Nominate an Athlete', icon: '🏅', accent: false },
               ].map(link => (
                 <Link key={link.href} href={link.href}
                   className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${link.accent ? 'text-white hover:brightness-110' : 'text-slate-300 hover:text-white hover:bg-white/5'}`}
@@ -392,6 +404,54 @@ export default function HomeClient({
               ))}
             </div>
           </div>
+
+          {/* Score Alerts */}
+          <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>🔔 Score Alerts</p>
+            <p className="text-xs text-slate-500 mb-1">Get notified when Section X scores are posted.</p>
+            <ScoreAlertForm />
+          </div>
+
+          {/* Athlete of the Week */}
+          {featuredAthlete && (
+            <div className="rounded-2xl overflow-hidden border border-yellow-400/20" style={{ background: 'rgba(251,191,36,0.04)' }}>
+              <div className="px-4 py-3 border-b border-yellow-400/10 flex items-center gap-2">
+                <span className="text-base">🏅</span>
+                <p className="text-xs font-black text-yellow-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>Athlete of the Week</p>
+              </div>
+              <div className="p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  {featuredAthlete.photo_url ? (
+                    <img src={featuredAthlete.photo_url} alt={featuredAthlete.athlete_name}
+                      className="w-14 h-14 rounded-xl object-cover flex-shrink-0 border border-white/10" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10"
+                      style={{ background: featuredAthlete.school?.primary_color || '#1e3a5f' }}>
+                      {featuredAthlete.school?.logo_url
+                        ? <img src={featuredAthlete.school.logo_url} alt="" className="w-full h-full object-contain p-1.5" />
+                        : <span className="text-white font-black text-lg" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.athlete_name[0]}</span>
+                      }
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-black text-white text-base leading-tight" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.athlete_name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {[featuredAthlete.grade, featuredAthlete.sport_name, featuredAthlete.school?.school_name].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                </div>
+                {featuredAthlete.stats && (
+                  <div className="rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.15)' }}>
+                    <p className="text-xs font-black text-yellow-400" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.stats}</p>
+                  </div>
+                )}
+                <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">{featuredAthlete.body}</p>
+                <Link href="/nominate" className="block text-center mt-3 text-xs font-bold text-yellow-400 hover:text-yellow-300 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
+                  NOMINATE AN ATHLETE →
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Latest Shoutout */}
           {latestShoutout && (
@@ -407,7 +467,7 @@ export default function HomeClient({
             </div>
           )}
 
-          {/* Explore links */}
+          {/* Explore */}
           <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3" style={{ fontFamily: 'var(--font-display)' }}>Explore</p>
             <div className="space-y-0.5">
@@ -431,8 +491,7 @@ export default function HomeClient({
           {featuredPhoto && (
             <div className="rounded-2xl overflow-hidden border border-white/6">
               <div className="relative">
-                <img src={featuredPhoto.photo_url} alt={featuredPhoto.caption || 'Section X sports'}
-                  className="w-full aspect-video object-cover" loading="lazy" />
+                <img src={featuredPhoto.photo_url} alt={featuredPhoto.caption || 'Section X sports'} className="w-full aspect-video object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-3">
                   <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>Photo of the Week</p>
@@ -482,27 +541,17 @@ export default function HomeClient({
             <Link href={`/spotlight/${featuredSpotlight.id}`}
               className="block rounded-2xl p-4 border border-white/8 transition-all hover:-translate-y-0.5 group"
               style={{ background: 'rgba(10,15,28,0.7)' }}>
-              <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-2"
-                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>
-                📰 Section X Spotlight
-              </p>
-              <p className="text-white font-black text-sm leading-tight mb-2 group-hover:text-blue-300 transition-colors"
-                style={{ fontFamily: 'var(--font-display)' }}>
-                {featuredSpotlight.title}
-              </p>
-              <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">
-                {featuredSpotlight.body}
-              </p>
+              <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>📰 Section X Spotlight</p>
+              <p className="text-white font-black text-sm leading-tight mb-2 group-hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>{featuredSpotlight.title}</p>
+              <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">{featuredSpotlight.body}</p>
               <div className="flex items-center justify-between mt-2">
                 <p className="text-xs text-slate-600">by {featuredSpotlight.author}</p>
-                <p className="text-xs font-bold text-blue-400 group-hover:text-blue-300"
-                  style={{ fontFamily: 'var(--font-display)' }}>Read →</p>
+                <p className="text-xs font-bold text-blue-400 group-hover:text-blue-300" style={{ fontFamily: 'var(--font-display)' }}>Read →</p>
               </div>
             </Link>
           ) : (
             <div className="rounded-2xl p-4 border border-white/4" style={{ background: 'rgba(10,15,28,0.4)' }}>
-              <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2"
-                style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
+              <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
               <p className="text-xs text-slate-600">Coming soon: interviews, athlete stories, and weekly Section X sports recaps.</p>
             </div>
           )}
