@@ -50,11 +50,11 @@ export default function AlertsAdmin() {
     !filter || s.email.includes(filter) || s.school?.school_name?.toLowerCase().includes(filter.toLowerCase())
   )
 
-  const bySchool = subs.reduce((acc, s) => {
+  const bySchool: Record<string, number> = subs.reduce((acc: Record<string, number>, s) => {
     const key = s.school?.school_name || 'All Section X'
     acc[key] = (acc[key] || 0) + 1
     return acc
-  }, {} as Record<string, number>)
+  }, {})
 
   return (
     <AdminLayout>
