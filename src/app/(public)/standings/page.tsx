@@ -1,3 +1,4 @@
+// src/app/(public)/standings/page.tsx
 import { createClient } from '@/lib/supabase/server'
 import { Metadata } from 'next'
 import Link from 'next/link'
@@ -13,21 +14,36 @@ export const metadata: Metadata = {
 }
 export const dynamic = 'force-dynamic'
 
-interface Props { searchParams: { sport?: string } }
+interface Props { searchParams: { sport?: string; season?: string } }
 
 const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South']
+
+const SEASON_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  Spring: { bg: 'rgba(34,197,94,0.12)', text: '#4ade80', border: 'rgba(34,197,94,0.25)' },
+  Fall:   { bg: 'rgba(245,158,11,0.12)', text: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+  Winter: { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
+}
 
 export default async function StandingsPage({ searchParams }: Props) {
   const supabase = createClient()
 
-  const { data: activeSeason } = await supabase.from('seasons').select('*').eq('is_active', true).single()
-  const seasonId = activeSeason?.id
+  // Fetch all seasons for the switcher
+  const { data: allSeasons } = await supabase
+    .from('seasons')
+    .select('id, name, is_active, season_type, year')
+    .order('year', { ascending: false })
 
-  // Sports that have final games this season
-  const { data: gamesForSports } = seasonId ? await supabase
+  const activeSeason = (allSeasons || []).find((s: any) => s.is_active)
+
+  // Use season from URL param, fall back to active season
+  const selectedSeasonId = searchParams.season || activeSeason?.id
+  const selectedSeason = (allSeasons || []).find((s: any) => s.id === selectedSeasonId) || activeSeason
+
+  // Sports that have final games in the selected season
+  const { data: gamesForSports } = selectedSeasonId ? await supabase
     .from('games')
     .select('sport_id, sport:sports(id, sport_name, slug, gender)')
-    .eq('season_id', seasonId)
+    .eq('season_id', selectedSeasonId)
     .eq('status', 'Final') : { data: [] }
 
   const uniqueSports: any[] = Object.values(
@@ -43,20 +59,19 @@ export default async function StandingsPage({ searchParams }: Props) {
 
   let standings: any[] = []
 
-  if (selectedSport && seasonId) {
+  if (selectedSport && selectedSeasonId) {
     const [{ data: gamesData }, { data: tsData }] = await Promise.all([
       supabase
         .from('games')
         .select(`*, sport:sports(sport_name, gender), home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`)
         .eq('sport_id', selectedSport.id)
-        .eq('season_id', seasonId)
+        .eq('season_id', selectedSeasonId)
         .eq('status', 'Final'),
-      supabase.from('team_seasons').select('team_id, division, class, btm_override').eq('season_id', seasonId),
+      supabase.from('team_seasons').select('team_id, division, class, btm_override').eq('season_id', selectedSeasonId),
     ])
     standings = calculateStandings((gamesData as GameWithTeams[]) || [], tsData || [], selectedSport?.sport_name)
   }
 
-  // Group by DIVISION
   interface Group { label: string; subLabel?: string; rows: any[] }
   const divisionGroups: Group[] = []
   const classGroups: Group[] = []
@@ -80,7 +95,6 @@ export default async function StandingsPage({ searchParams }: Props) {
     divisionGroups.push({ label: '', rows: standings })
   }
 
-  // Group by CLASS (for playoff seeding view)
   const CLASS_ORDER_SORT = ['A', 'B', 'C', 'D']
   if (hasClass) {
     const classes = [...new Set(standings.map(r => r.class || ''))].filter(Boolean)
@@ -95,49 +109,80 @@ export default async function StandingsPage({ searchParams }: Props) {
     classGroups.push({ label: '', rows: standings })
   }
 
+  const icons: Record<string, string> = {
+    'Baseball': '⚾', 'Softball': '🥎',
+    'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
+    'Football': '🏈',
+    'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
+    'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
+    'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
+    'Volleyball': '🏐', 'Boys Golf': '⛳',
+    'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
+    'Boys Track': '🏃', 'Girls Track': '🏃',
+    'Swimming': '🏊', 'Girls Swimming': '🏊',
+  }
+
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-3 mb-4">
           <Trophy size={28} className="text-yellow-400 flex-shrink-0" />
           <div>
             <h1 className="text-3xl font-bold font-display text-white">Standings</h1>
-            {activeSeason && <p className="text-slate-400 text-sm mt-0.5">{activeSeason.name} · BTM = Binomial Tournament Method</p>}
+            {selectedSeason && (
+              <p className="text-slate-400 text-sm mt-0.5">
+                {selectedSeason.name} · BTM = Binomial Tournament Method
+              </p>
+            )}
           </div>
         </div>
 
+        {/* Season Switcher */}
+        {(allSeasons || []).length > 1 && (
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <span className="text-xs text-slate-500 flex-shrink-0"
+              style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.08em' }}>
+              SEASON:
+            </span>
+            {(allSeasons || []).map((s: any) => {
+              const isSelected = s.id === selectedSeasonId
+              const c = SEASON_COLORS[s.season_type || 'Spring'] || SEASON_COLORS.Spring
+              return (
+                <a key={s.id}
+                  href={s.is_active ? '/standings' : `/standings?season=${s.id}`}
+                  className="text-xs font-black px-3 py-1 rounded-full transition-all"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    letterSpacing: '0.06em',
+                    background: isSelected ? c.bg : 'rgba(255,255,255,0.04)',
+                    color: isSelected ? c.text : '#4a5f7a',
+                    border: `1px solid ${isSelected ? c.border : 'rgba(255,255,255,0.06)'}`,
+                  }}>
+                  {s.name}{s.is_active ? ' ✓' : ''}
+                </a>
+              )
+            })}
+          </div>
+        )}
+
         {/* Sport tabs */}
         {uniqueSports.length > 0 && (
-          <div className="flex flex-wrap gap-2 my-5">
-            {uniqueSports.map((s: any) => (
-              <Link
-                key={s.slug}
-                href={`/standings?sport=${s.slug}`}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  s.slug === selectedSlug ? 'bg-ice text-navy' : 'bg-white/10 text-slate-300 hover:bg-white/20'
-                }`}
-              >
-  {(() => {
-                const icons: Record<string, string> = {
-                  'Baseball': '⚾', 'Softball': '🥎',
-                  'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
-                  'Football': '🏈',
-                  'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
-                  'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
-                  'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
-                  'Volleyball': '🏐', 'Boys Golf': '⛳',
-                  'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
-                  'Boys Track': '🏃', 'Girls Track': '🏃',
-                  'Swimming': '🏊', 'Girls Swimming': '🏊',
-                  'Cross Country': '🏃',
-                }
-                const fullName = (s.gender === 'Boys' || s.gender === 'Girls') ? s.gender + ' ' + s.sport_name : s.sport_name
-                const icon = icons[fullName] || icons[s.sport_name] || '🏆'
-                return icon + ' ' + s.sport_name
-              })()}
-              </Link>
-            ))}
+          <div className="flex flex-wrap gap-2 mb-5">
+            {uniqueSports.map((s: any) => {
+              const fullName = (s.gender === 'Boys' || s.gender === 'Girls') ? `${s.gender} ${s.sport_name}` : s.sport_name
+              const icon = icons[fullName] || icons[s.sport_name] || '🏆'
+              const seasonParam = searchParams.season ? `&season=${searchParams.season}` : ''
+              return (
+                <Link key={s.slug}
+                  href={`/standings?sport=${s.slug}${seasonParam}`}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    s.slug === selectedSlug ? 'bg-ice text-navy' : 'bg-white/10 text-slate-300 hover:bg-white/20'
+                  }`}>
+                  {icon} {s.sport_name}
+                </Link>
+              )
+            })}
           </div>
         )}
 
@@ -157,11 +202,10 @@ export default async function StandingsPage({ searchParams }: Props) {
           />
         )}
 
-        {/* Explainer */}
         {standings.length > 0 && (
           <p className="text-xs text-slate-500 mt-4">
             {selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
-              ? 'Golf standings: lower scores are better. Points = match play points vs opponents.'
+              ? 'Golf standings: lower scores are better.'
               : 'BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better.'
             }
           </p>
