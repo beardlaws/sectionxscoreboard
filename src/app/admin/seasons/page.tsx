@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AdminLayout from '@/components/layout/AdminLayout'
-import { Check, Archive } from 'lucide-react'
+import { Check } from 'lucide-react'
 
 const supabase = createClient()
 
@@ -12,6 +12,7 @@ export default function AdminSeasonsPage() {
   const [msg, setMsg] = useState('')
   const [newSeason, setNewSeason] = useState({ name: '', year: new Date().getFullYear(), season_type: 'Fall', start_date: '', end_date: '' })
   const [creating, setCreating] = useState(false)
+  const [switching, setSwitching] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -23,12 +24,31 @@ export default function AdminSeasonsPage() {
   }
 
   async function setActive(id: string) {
-    // Deactivate all first
-    await supabase.from('seasons').update({ is_active: false }).neq('id', 'placeholder')
-    // Activate selected
-    await supabase.from('seasons').update({ is_active: true }).eq('id', id)
-    notify('Active season updated!')
-    load()
+    setSwitching(true)
+    try {
+      // Deactivate each season individually to avoid RLS issues with bulk updates
+      const current = seasons.filter(s => s.is_active && s.id !== id)
+      for (const s of current) {
+        const { error } = await supabase.from('seasons').update({ is_active: false }).eq('id', s.id)
+        if (error) {
+          alert('Error deactivating season: ' + error.message)
+          setSwitching(false)
+          return
+        }
+      }
+      // Activate the selected season
+      const { error } = await supabase.from('seasons').update({ is_active: true }).eq('id', id)
+      if (error) {
+        alert('Error activating season: ' + error.message)
+        setSwitching(false)
+        return
+      }
+      notify('Active season updated! Reload the site to see changes.')
+      load()
+    } catch (e: any) {
+      alert('Unexpected error: ' + e.message)
+    }
+    setSwitching(false)
   }
 
   async function createSeason() {
@@ -43,11 +63,15 @@ export default function AdminSeasonsPage() {
       end_date: newSeason.end_date || null,
     })
     if (error) alert(error.message)
-    else { notify('Season created!'); load(); setNewSeason({ name: '', year: new Date().getFullYear(), season_type: 'Fall', start_date: '', end_date: '' }) }
+    else {
+      notify('Season created!')
+      load()
+      setNewSeason({ name: '', year: new Date().getFullYear(), season_type: 'Fall', start_date: '', end_date: '' })
+    }
     setCreating(false)
   }
 
-  function notify(m: string) { setMsg(m); setTimeout(() => setMsg(''), 3000) }
+  function notify(m: string) { setMsg(m); setTimeout(() => setMsg(''), 5000) }
 
   const SEASON_COLORS: Record<string, string> = {
     Spring: 'rgba(34,197,94,0.15)',
@@ -67,7 +91,6 @@ export default function AdminSeasonsPage() {
         </div>
         <p className="text-slate-400 text-sm mb-5">
           Manage seasons. Set one season as active — it's what the site shows by default.
-          When a season ends, create the next one and switch the active flag.
         </p>
 
         {/* Create new season */}
@@ -110,7 +133,8 @@ export default function AdminSeasonsPage() {
         {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
           <div className="space-y-2">
             {seasons.map(s => (
-              <div key={s.id} className={`card p-4 flex items-center gap-4 ${s.is_active ? 'border-emerald-500/30' : ''}`}
+              <div key={s.id}
+                className={`card p-4 flex items-center gap-4 ${s.is_active ? 'border-emerald-500/30' : ''}`}
                 style={{ background: s.is_active ? 'rgba(34,197,94,0.04)' : undefined }}>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-0.5">
@@ -137,10 +161,10 @@ export default function AdminSeasonsPage() {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!s.is_active && (
-                    <button onClick={() => setActive(s.id)}
-                      className="text-xs px-3 py-1.5 rounded-lg font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all"
+                    <button onClick={() => setActive(s.id)} disabled={switching}
+                      className="text-xs px-3 py-1.5 rounded-lg font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-50"
                       style={{ fontFamily: 'var(--font-display)' }}>
-                      Set Active
+                      {switching ? 'Switching...' : 'Set Active'}
                     </button>
                   )}
                   {s.is_active && (
@@ -154,18 +178,29 @@ export default function AdminSeasonsPage() {
           </div>
         )}
 
-        {/* Instructions */}
+        {/* Also provide direct SQL option */}
         <div className="mt-6 rounded-xl p-4 border border-white/6" style={{ background: 'rgba(8,12,20,0.6)' }}>
+          <p className="text-xs font-black text-slate-400 mb-2 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>
+            If Set Active isn't working
+          </p>
+          <p className="text-xs text-slate-500 mb-2">Run this in Supabase SQL Editor to manually switch seasons:</p>
+          <div className="rounded-lg p-3 font-mono text-xs text-slate-300" style={{ background: 'rgba(0,0,0,0.4)' }}>
+            <p>UPDATE seasons SET is_active = false;</p>
+            <p>UPDATE seasons SET is_active = true</p>
+            <p>WHERE name = 'Fall 2026';</p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl p-4 border border-white/6" style={{ background: 'rgba(8,12,20,0.6)' }}>
           <p className="text-xs font-black text-slate-400 mb-2 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>
             Season Workflow
           </p>
           <div className="space-y-1 text-xs text-slate-500">
-            <p>1. At end of Spring 2026 — create "Fall 2026" season</p>
-            <p>2. Click "Set Active" on Fall 2026 — site switches automatically</p>
-            <p>3. Add teams to Fall 2026 via Teams admin (Football, Soccer, Volleyball)</p>
-            <p>4. Import games as normal — they go into the active season</p>
-            <p>5. Spring 2026 data stays in the database, just not shown by default</p>
-            <p>6. Repeat for Winter 2026-27 (Basketball, Hockey, Wrestling)</p>
+            <p>1. Click "Set Active" on Fall 2026 — site switches automatically</p>
+            <p>2. Add teams to Fall 2026 via Teams admin (Football, Soccer, Volleyball)</p>
+            <p>3. Import games as normal — they go into the active season</p>
+            <p>4. Spring 2026 data stays in the database, accessible via season switcher</p>
+            <p>5. Repeat for Winter 2026-27 (Basketball, Hockey, Wrestling)</p>
           </div>
         </div>
       </div>
