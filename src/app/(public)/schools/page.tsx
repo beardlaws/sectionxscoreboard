@@ -5,8 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 import PublicLayout from '@/components/layout/PublicLayout'
 
 export const metadata: Metadata = {
-  title: 'Schools',
-  description: 'All Section X high school programs and teams.',
+  title: 'Section X Schools | All 24 Member Schools',
+  description: 'All 24 Section X high school athletic programs in St. Lawrence and Franklin County, Northern New York. Canton, Massena, Gouverneur, Ogdensburg, Heuvelton, and more.',
 }
 
 export const revalidate = 3600
@@ -39,31 +39,59 @@ export default async function SchoolsPage() {
           <section key={county} className="mb-8">
             <h2 className="section-label mb-3">{county} County</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {countySchools?.map(school => (
-                <Link
-                  key={school.id}
-                  href={`/schools/${school.slug}`}
-                  className="card-hover p-4 flex items-center gap-3"
-                >
-                  <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-white text-sm flex-shrink-0"
-                    style={{
-                      background: school.primary_color || '#1e2d47',
-                      fontFamily: 'var(--font-display)',
-                    }}
-                  >
-                    {school.alias?.slice(0, 2) || school.school_name.slice(0, 2)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold truncate" style={{ fontFamily: 'var(--font-display)', fontSize: '14px' }}>
-                      {school.school_name}
+              {countySchools?.map(school => {
+                const logoUrl = (school as any).logo_url as string | null
+                const initials = school.alias?.slice(0, 3) ||
+                  school.school_name
+                    .split(' ')
+                    .filter((w: string) => !['Central', 'School', 'Free', 'Academy', 'High', 'of'].includes(w))
+                    .map((w: string) => w[0])
+                    .join('')
+                    .slice(0, 3)
+                    .toUpperCase()
+
+                return (
+                  <Link key={school.id} href={`/schools/${school.slug}`}
+                    className="card-hover p-4 flex items-center gap-3">
+                    {/* Logo or colored initials */}
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden border border-white/10"
+                      style={{ background: school.primary_color || '#1e2d47' }}>
+                      {logoUrl ? (
+                        <img src={logoUrl} alt={school.school_name}
+                          className="w-full h-full object-contain p-1" />
+                      ) : (
+                        <span className="font-black text-white text-xs"
+                          style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
+                          {initials}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {school.mascot} · {school.city}
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate"
+                        style={{ fontFamily: 'var(--font-display)', fontSize: '14px', color: 'var(--text-primary)' }}>
+                        {school.school_name}
+                      </div>
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {school.mascot} · {school.city}
+                      </div>
+                      {/* Color dots */}
+                      <div className="flex items-center gap-1 mt-1">
+                        {school.primary_color && (
+                          <div className="w-2 h-2 rounded-full border border-white/10"
+                            style={{ background: school.primary_color }} />
+                        )}
+                        {school.secondary_color && (
+                          <div className="w-2 h-2 rounded-full border border-white/10"
+                            style={{ background: school.secondary_color }} />
+                        )}
+                        {logoUrl && (
+                          <span className="text-xs text-emerald-400 ml-1" style={{ fontSize: '10px' }}>✓</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                )
+              })}
             </div>
           </section>
         ))}
