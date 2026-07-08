@@ -5,7 +5,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: {
     template: '%s | Section X Scoreboard',
-    default: 'Section X Scoreboard | North Country High School Sports',
+    default: 'Section X Scoreboard',
   },
   description: 'Live scores, schedules, standings, and results for Section X high school sports in Northern New York.',
   openGraph: {
