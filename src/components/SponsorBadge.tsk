@@ -1,0 +1,74 @@
+// src/components/SponsorBadge.tsx
+// Universal sponsor display component
+// Used on school pages, sport pages, scores page
+
+import Link from 'next/link'
+
+interface Sponsor {
+  id: string
+  business_name: string
+  website_url?: string | null
+  tagline?: string | null
+  logo_url?: string | null
+  placement_type?: string
+}
+
+interface Props {
+  sponsor: Sponsor
+  context?: 'school' | 'sport' | 'scores' | 'homepage' | 'compact'
+}
+
+export default function SponsorBadge({ sponsor, context = 'school' }: Props) {
+  const content = (
+    <div className={`rounded-xl border transition-all ${context === 'compact' ? 'p-3' : 'p-4'}`}
+      style={{
+        background: 'linear-gradient(135deg, rgba(37,99,235,0.08), rgba(8,12,20,0.9))',
+        border: '1px solid rgba(37,99,235,0.2)',
+      }}>
+      <div className="flex items-center gap-3">
+        {sponsor.logo_url ? (
+          <img src={sponsor.logo_url} alt={sponsor.business_name}
+            className={`object-contain rounded-lg flex-shrink-0 border border-white/10 ${context === 'compact' ? 'w-8 h-8' : 'w-12 h-12'}`}
+            style={{ background: 'rgba(255,255,255,0.05)' }} />
+        ) : (
+          <div className={`rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white ${context === 'compact' ? 'w-8 h-8 text-xs' : 'w-12 h-12 text-sm'}`}
+            style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>
+            {sponsor.business_name.slice(0, 2).toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-widest mb-0.5"
+            style={{ color: '#60a5fa', fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>
+            {context === 'school' ? 'School Sponsor' :
+             context === 'sport' ? 'Coverage Sponsor' :
+             context === 'scores' ? 'Scores Sponsor' : 'Sponsor'}
+          </p>
+          <p className={`font-black text-white leading-tight ${context === 'compact' ? 'text-xs' : 'text-sm'}`}
+            style={{ fontFamily: 'var(--font-display)' }}>
+            {sponsor.business_name}
+          </p>
+          {sponsor.tagline && context !== 'compact' && (
+            <p className="text-xs text-slate-400 mt-0.5 truncate">{sponsor.tagline}</p>
+          )}
+        </div>
+        {sponsor.website_url && (
+          <span className="text-xs font-bold text-blue-400 flex-shrink-0 ml-auto"
+            style={{ fontFamily: 'var(--font-display)' }}>
+            Visit →
+          </span>
+        )}
+      </div>
+    </div>
+  )
+
+  if (sponsor.website_url) {
+    return (
+      <a href={sponsor.website_url} target="_blank" rel="noopener noreferrer"
+        className="block hover:-translate-y-0.5 transition-all">
+        {content}
+      </a>
+    )
+  }
+
+  return content
+}
