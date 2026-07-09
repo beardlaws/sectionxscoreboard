@@ -20,37 +20,34 @@ export default async function ScoresPage({
   const today = format(new Date(), 'yyyy-MM-dd')
   const selectedDate = searchParams.date || today
 
+  // Fetch ALL seasons for the switcher
   const { data: allSeasons } = await supabase
     .from('seasons').select('id, name, is_active, season_type, year')
     .order('year', { ascending: false })
 
   const activeSeason = (allSeasons || []).find((s: any) => s.is_active)
+
+  // If season param passed use it, otherwise use active season
   const selectedSeasonId = searchParams.season || activeSeason?.id
 
   // Fetch scores page sponsor
   const { data: scoresSponsor } = await supabase
-    .from('sponsors')
-    .select('*')
-    .eq('placement_type', 'scores')
-    .eq('active', true)
-    .limit(1)
-    .maybeSingle()
+    .from('sponsors').select('*')
+    .eq('placement_type', 'scores').eq('active', true)
+    .limit(1).maybeSingle()
 
   const { data: games } = await supabase
     .from('games')
-    .select(`
-      *,
+    .select(`*,
       sport:sports(*),
       home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
       away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
       external_home:external_opponents!games_external_home_opponent_id_fkey(*),
-      external_away:external_opponents!games_external_away_opponent_id_fkey(*)
-    `)
+      external_away:external_opponents!games_external_away_opponent_id_fkey(*)`)
     .eq('game_date', selectedDate)
     .order('game_time', { ascending: true })
 
-  const { data: sports } = await supabase
-    .from('sports').select('*').order('sport_name')
+  const { data: sports } = await supabase.from('sports').select('*').order('sport_name')
 
   let dateQuery = supabase.from('games').select('game_date')
     .gte('game_date', format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd'))
@@ -63,10 +60,16 @@ export default async function ScoresPage({
   const { data: gameDates } = await dateQuery
   const datesWithGames = [...new Set((gameDates || []).map((g: any) => g.game_date))].sort()
 
+  const SEASON_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+    Spring: { bg: 'rgba(34,197,94,0.12)', text: '#4ade80', border: 'rgba(34,197,94,0.25)' },
+    Fall:   { bg: 'rgba(245,158,11,0.12)', text: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+    Winter: { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
+  }
+
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 pt-4">
-        {/* Season Switcher */}
+        {/* Season Switcher - correct active detection */}
         {(allSeasons || []).length > 1 && (
           <div className="flex items-center gap-2 flex-wrap mb-4">
             <span className="text-xs text-slate-500 flex-shrink-0"
@@ -74,13 +77,11 @@ export default async function ScoresPage({
               SEASON:
             </span>
             {(allSeasons || []).map((s: any) => {
-              const isSelected = s.id === selectedSeasonId
-              const colors: Record<string, { bg: string; text: string; border: string }> = {
-                Spring: { bg: 'rgba(34,197,94,0.12)', text: '#4ade80', border: 'rgba(34,197,94,0.25)' },
-                Fall:   { bg: 'rgba(245,158,11,0.12)', text: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
-                Winter: { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
-              }
-              const c = colors[s.season_type || 'Spring'] || colors.Spring
+              // Selected = URL param match OR (no URL param AND this is active season)
+              const isSelected = searchParams.season
+                ? s.id === searchParams.season
+                : s.is_active
+              const c = SEASON_COLORS[s.season_type || 'Spring'] || SEASON_COLORS.Spring
               return (
                 <a key={s.id}
                   href={s.is_active ? '/scores' : `/scores?season=${s.id}`}
@@ -112,19 +113,11 @@ export default async function ScoresPage({
                 style={{ background: 'rgba(255,255,255,0.05)' }} />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>
-                SCORES PRESENTED BY
-              </p>
-              <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-                {(scoresSponsor as any).business_name}
-              </p>
-              {(scoresSponsor as any).tagline && (
-                <p className="text-xs text-slate-400 truncate">{(scoresSponsor as any).tagline}</p>
-              )}
+              <p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>SCORES PRESENTED BY</p>
+              <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(scoresSponsor as any).business_name}</p>
+              {(scoresSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(scoresSponsor as any).tagline}</p>}
             </div>
-            <span className="text-xs font-bold text-blue-400 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>
-              Visit →
-            </span>
+            <span className="text-xs font-bold text-blue-400 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span>
           </a>
         )}
       </div>
