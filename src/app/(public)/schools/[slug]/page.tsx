@@ -1,3 +1,4 @@
+// src/app/(public)/schools/[slug]/page.tsx
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
@@ -13,20 +14,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { data: school } = await supabase.from('schools').select('*').eq('slug', params.slug).single()
   if (!school) return { title: 'School Not Found' }
   return {
-    title: `${school.school_name} ${school.mascot} Scores & Standings 2026 | Section X Scoreboard`,
+    title: `${school.school_name} ${school.mascot} Scores & Standings | Section X Scoreboard`,
     description: `${school.school_name} ${school.mascot} sports scores, standings, schedule and results. ${school.city}, ${school.county} County. Section X / Section 10 Northern New York high school sports.`,
-    keywords: `${school.school_name}, ${school.mascot}, Section X, Section 10, ${school.city}, ${school.county} County, high school sports, scores, standings, Northern New York`,
   }
 }
+
 const SPORT_ICONS: Record<string, string> = {
   Baseball: '⚾', Softball: '🥎', Football: '🏈',
   'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
   'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
   'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
   'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
-  Volleyball: '🏐', 'Boys Golf': '⛳', 'Girls Swimming': '🏊',
-  'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
-  'Boys Track': '🏃', 'Girls Track': '🏃',
+  Volleyball: '🏐', 'Boys Golf': '⛳',
 }
 
 export default async function SchoolPage({ params }: PageProps) {
@@ -35,7 +34,6 @@ export default async function SchoolPage({ params }: PageProps) {
   if (!school || error) notFound()
 
   const logoUrl = (school as any).logo_url as string | null | undefined
-
   const { data: activeSeason } = await supabase.from('seasons').select('id, name').eq('is_active', true).single()
 
   const { data: teams } = await supabase
@@ -44,6 +42,16 @@ export default async function SchoolPage({ params }: PageProps) {
 
   const teamIds = (teams || []).map(t => t.id)
   const sportIds = [...new Set((teams || []).map(t => (t.sport as any)?.id).filter(Boolean))]
+
+  // Fetch school sponsor
+  const { data: schoolSponsor } = await supabase
+    .from('sponsors')
+    .select('*')
+    .eq('placement_type', 'school')
+    .eq('school_id', school.id)
+    .eq('active', true)
+    .limit(1)
+    .maybeSingle()
 
   const { data: recentGames } = teamIds.length > 0
     ? await supabase.from('games')
@@ -99,13 +107,6 @@ export default async function SchoolPage({ params }: PageProps) {
     if (resultsBySport[key].length < 5) resultsBySport[key].push(game)
   }
 
-  const { data: photos } = await supabase.from('photos').select('*')
-    .eq('school_id', school.id).eq('approved', true)
-    .order('created_at', { ascending: false }).limit(6)
-
-  const { data: sponsor } = await supabase.from('sponsors').select('*')
-    .eq('placement', 'school_page').eq('active', true).single()
-
   const logoInitials = school.alias ||
     school.school_name?.split(' ')
       .filter((w: string) => !['Central', 'School', 'Free', 'Academy', 'High', 'of'].includes(w))
@@ -117,8 +118,6 @@ export default async function SchoolPage({ params }: PageProps) {
         {/* Hero */}
         <div className="rounded-2xl overflow-hidden mb-6 relative"
           style={{ background: `linear-gradient(135deg, ${school.primary_color || '#1e2d47'} 0%, ${school.secondary_color || '#0f172a'}cc 100%)` }}>
-          <div className="absolute inset-0 opacity-10"
-            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")', backgroundSize: '200px' }} />
           <div className="relative px-6 py-8">
             <nav className="text-xs mb-4 opacity-60 text-white">
               <Link href="/schools" className="hover:opacity-100">Schools</Link>
@@ -138,7 +137,6 @@ export default async function SchoolPage({ params }: PageProps) {
                   {school.mascot}
                 </p>
               </div>
-              {/* Logo badge */}
               <div className="flex-shrink-0 w-24 h-24 rounded-2xl flex items-center justify-center overflow-hidden border-2 border-white/20"
                 style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(8px)' }}>
                 {logoUrl
@@ -256,45 +254,51 @@ export default async function SchoolPage({ params }: PageProps) {
                 <p className="text-slate-500 text-sm">No results yet this season.</p>
               </div>
             )}
-
-            {photos && photos.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm">📷</span>
-                  <span className="font-black text-slate-400 uppercase tracking-widest text-xs" style={{ fontFamily: 'var(--font-display)' }}>Photos</span>
-                  <div className="flex-1 h-px bg-white/5" />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(photos as any[]).slice(0, 6).map((p: any) => (
-                    <div key={p.id} className="rounded-xl overflow-hidden aspect-video">
-                      <img src={p.photo_url} alt={p.caption || ''} className="w-full h-full object-cover" loading="lazy" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
+          {/* Sidebar */}
           <div className="space-y-4">
             <Link href="/submit-score"
               className="block rounded-xl p-4 text-center text-white font-black uppercase tracking-widest text-sm"
               style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', boxShadow: '0 4px 20px rgba(37,99,235,0.3)' }}>
               ✏️ Submit a Score
             </Link>
-            {sponsor ? (
-              <a href={(sponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
-                className="block rounded-xl overflow-hidden" style={{ border: '1px solid rgba(37,99,235,0.2)' }}>
-                <div className="px-4 py-3">
-                  <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>School Sponsor</p>
-                  <p className="font-black text-white text-base" style={{ fontFamily: 'var(--font-display)' }}>{(sponsor as any).business_name}</p>
+
+            {/* School Sponsor — shows if one is assigned */}
+            {schoolSponsor ? (
+              <a href={(schoolSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
+                className="block rounded-xl overflow-hidden transition-all hover:-translate-y-0.5"
+                style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))', border: '1px solid rgba(37,99,235,0.25)' }}>
+                <div className="px-4 py-2 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
+                  <p className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>
+                    School Sponsor
+                  </p>
+                </div>
+                <div className="px-4 py-3 flex items-center gap-3">
+                  {(schoolSponsor as any).logo_url && (
+                    <img src={(schoolSponsor as any).logo_url} alt={(schoolSponsor as any).business_name}
+                      className="w-10 h-10 object-contain rounded-lg flex-shrink-0"
+                      style={{ background: 'rgba(255,255,255,0.05)' }} />
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(schoolSponsor as any).business_name}</p>
+                    {(schoolSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(schoolSponsor as any).tagline}</p>}
+                  </div>
+                  <span className="text-xs text-blue-400 ml-auto flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span>
                 </div>
               </a>
             ) : (
-              <Link href="/advertise" className="block rounded-xl p-4 text-center border border-dashed border-white/8">
-                <p className="text-xs text-slate-600">Sponsor this school page</p>
+              <Link href="/advertise"
+                className="block rounded-xl p-4 text-center border border-dashed border-white/8 transition-all hover:border-white/16">
+                <p className="text-xs text-slate-600">Sponsor {school.school_name} coverage</p>
                 <p className="text-xs text-blue-400 mt-1 font-semibold">Learn more →</p>
               </Link>
             )}
+
+            <Link href="/standings" className="block rounded-xl p-3 text-center border border-white/8 text-sm text-slate-300 hover:text-white transition-colors"
+              style={{ background: 'rgba(255,255,255,0.03)' }}>
+              📊 View Standings
+            </Link>
           </div>
         </div>
       </div>
