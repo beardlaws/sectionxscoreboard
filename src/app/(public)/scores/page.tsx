@@ -20,16 +20,21 @@ export default async function ScoresPage({
   const today = format(new Date(), 'yyyy-MM-dd')
   const selectedDate = searchParams.date || today
 
-  // Get all seasons for switcher
   const { data: allSeasons } = await supabase
-    .from('seasons')
-    .select('id, name, is_active, season_type, year')
+    .from('seasons').select('id, name, is_active, season_type, year')
     .order('year', { ascending: false })
 
-  const activeSeason = (allSeasons || []).find(s => s.is_active)
-
-  // Use season from URL param, fall back to active season
+  const activeSeason = (allSeasons || []).find((s: any) => s.is_active)
   const selectedSeasonId = searchParams.season || activeSeason?.id
+
+  // Fetch scores page sponsor
+  const { data: scoresSponsor } = await supabase
+    .from('sponsors')
+    .select('*')
+    .eq('placement_type', 'scores')
+    .eq('active', true)
+    .limit(1)
+    .maybeSingle()
 
   const { data: games } = await supabase
     .from('games')
@@ -45,14 +50,9 @@ export default async function ScoresPage({
     .order('game_time', { ascending: true })
 
   const { data: sports } = await supabase
-    .from('sports')
-    .select('*')
-    .order('sport_name')
+    .from('sports').select('*').order('sport_name')
 
-  // Get date range with games for the selected season
-  let dateQuery = supabase
-    .from('games')
-    .select('game_date')
+  let dateQuery = supabase.from('games').select('game_date')
     .gte('game_date', format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd'))
     .lte('game_date', format(new Date(Date.now() + 14 * 86400000), 'yyyy-MM-dd'))
 
@@ -86,8 +86,7 @@ export default async function ScoresPage({
                   href={s.is_active ? '/scores' : `/scores?season=${s.id}`}
                   className="text-xs font-black px-3 py-1 rounded-full transition-all"
                   style={{
-                    fontFamily: 'var(--font-display)',
-                    letterSpacing: '0.06em',
+                    fontFamily: 'var(--font-display)', letterSpacing: '0.06em',
                     background: isSelected ? c.bg : 'rgba(255,255,255,0.04)',
                     color: isSelected ? c.text : '#4a5f7a',
                     border: `1px solid ${isSelected ? c.border : 'rgba(255,255,255,0.06)'}`,
@@ -98,7 +97,38 @@ export default async function ScoresPage({
             })}
           </div>
         )}
+
+        {/* Scores Sponsor Banner */}
+        {scoresSponsor && (
+          <a href={(scoresSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl px-4 py-3 mb-4 transition-all hover:-translate-y-0.5"
+            style={{
+              background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(8,12,20,0.8))',
+              border: '1px solid rgba(37,99,235,0.2)',
+            }}>
+            {(scoresSponsor as any).logo_url && (
+              <img src={(scoresSponsor as any).logo_url} alt={(scoresSponsor as any).business_name}
+                className="w-8 h-8 object-contain rounded flex-shrink-0"
+                style={{ background: 'rgba(255,255,255,0.05)' }} />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>
+                SCORES PRESENTED BY
+              </p>
+              <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>
+                {(scoresSponsor as any).business_name}
+              </p>
+              {(scoresSponsor as any).tagline && (
+                <p className="text-xs text-slate-400 truncate">{(scoresSponsor as any).tagline}</p>
+              )}
+            </div>
+            <span className="text-xs font-bold text-blue-400 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>
+              Visit →
+            </span>
+          </a>
+        )}
       </div>
+
       <ScoresClient
         games={games || []}
         sports={sports || []}
