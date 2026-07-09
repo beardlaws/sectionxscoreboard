@@ -6,8 +6,8 @@ import HomeClient from '@/components/home/HomeClient'
 import { format } from 'date-fns'
 
 export const metadata: Metadata = {
-  title: 'Section X Scoreboard | North Country High School Sports Scores',
-  description: "Tonight's Section X scores, schedules, and standings for North Country high school sports. Baseball, softball, lacrosse, football, basketball, hockey, and more.",
+  title: 'Section X Scoreboard',
+  description: "Section X scores, schedules, standings, and results for North Country high school sports. Baseball, softball, lacrosse, football, basketball, hockey, and more.",
 }
 
 export const revalidate = 60
@@ -25,6 +25,7 @@ async function getHomepageData() {
   const supabase = createClient()
   const today = format(new Date(), 'yyyy-MM-dd')
   const sevenDaysAgo = format(new Date(Date.now() - 7 * 86400000), 'yyyy-MM-dd')
+  const thirtyDaysAgo = format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd')
 
   const { data: activeSeason } = await supabase
     .from('seasons').select('*').eq('is_active', true).single()
@@ -40,12 +41,15 @@ async function getHomepageData() {
     { data: latestShoutout },
     { data: featuredSpotlight },
     { data: featuredAthlete },
+    { data: springGames },
+    { data: allSpotlights },
   ] = await Promise.all([
     supabase.from('games').select(GAME_SELECT)
       .eq('game_date', today).order('game_time', { ascending: true }),
 
     supabase.from('games').select(GAME_SELECT)
-      .eq('status', 'Final').gte('game_date', sevenDaysAgo)
+      .eq('status', 'Final')
+      .gte('game_date', sevenDaysAgo)
       .order('game_date', { ascending: false })
       .order('game_time', { ascending: true }).limit(100),
 
@@ -79,6 +83,19 @@ async function getHomepageData() {
       .eq('published', true)
       .order('week_of', { ascending: false })
       .limit(1).maybeSingle(),
+
+    // For off-season: get recent spring games to show something
+    supabase.from('games').select(GAME_SELECT)
+      .eq('status', 'Final')
+      .gte('game_date', thirtyDaysAgo)
+      .order('game_date', { ascending: false })
+      .limit(20),
+
+    // All published spotlights for off-season display
+    supabase.from('spotlights').select('id, title, body, author, created_at, sport_name')
+      .eq('published', true)
+      .order('created_at', { ascending: false })
+      .limit(5),
   ])
 
   return {
@@ -94,6 +111,8 @@ async function getHomepageData() {
     today,
     featuredSpotlight: featuredSpotlight || null,
     featuredAthlete: featuredAthlete || null,
+    springGames: springGames || [],
+    allSpotlights: allSpotlights || [],
   }
 }
 
