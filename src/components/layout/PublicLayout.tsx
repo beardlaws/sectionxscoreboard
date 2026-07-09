@@ -25,10 +25,25 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href)
 
-  // Footer sports - only show sports with active seasons
-  const SPRING_SPORTS = ['Baseball', 'Softball', 'Boys Lacrosse', 'Girls Lacrosse', 'Boys Golf']
-  const FALL_SPORTS = ['Football', 'Boys Soccer', 'Girls Soccer', 'Volleyball']
-  const WINTER_SPORTS = ['Boys Basketball', 'Girls Basketball', 'Boys Hockey', 'Girls Hockey']
+  const SPRING_SPORTS = [
+    { name: 'Baseball', slug: 'baseball' },
+    { name: 'Softball', slug: 'softball' },
+    { name: 'Boys Lacrosse', slug: 'boys-lacrosse' },
+    { name: 'Girls Lacrosse', slug: 'girls-lacrosse' },
+    { name: 'Boys Golf', slug: 'boys-golf' },
+  ]
+  const FALL_SPORTS = [
+    { name: 'Football', slug: 'football' },
+    { name: 'Boys Soccer', slug: 'boys-soccer' },
+    { name: 'Girls Soccer', slug: 'girls-soccer' },
+    { name: 'Volleyball', slug: 'volleyball' },
+  ]
+  const WINTER_SPORTS = [
+    { name: 'Boys Basketball', slug: 'boys-basketball' },
+    { name: 'Girls Basketball', slug: 'girls-basketball' },
+    { name: 'Boys Hockey', slug: 'boys-hockey' },
+    { name: 'Girls Hockey', slug: 'girls-hockey' },
+  ]
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -36,7 +51,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <header style={{ background: 'rgba(5,8,15,0.92)', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)' }} className="sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
-            {/* Logo */}
             <Link href="/" className="flex items-center gap-2">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg font-bold text-white text-sm"
                 style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', fontSize: '14px', fontWeight: 900, letterSpacing: '0.02em', boxShadow: '0 0 12px rgba(37,99,235,0.4)' }}>
@@ -52,7 +66,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               </span>
             </Link>
 
-            {/* Desktop Nav */}
             <nav className="hidden md:flex items-center gap-1">
               {navLinks.map(link => (
                 <Link key={link.href} href={link.href}
@@ -60,7 +73,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                   {link.label}
                 </Link>
               ))}
-              {/* Sports dropdown */}
               <div className="relative">
                 <button
                   className={`nav-link flex items-center gap-1 ${pathname.startsWith('/sports') ? 'active' : ''}`}
@@ -94,7 +106,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               </div>
             </nav>
 
-            {/* Right actions */}
             <div className="flex items-center gap-2">
               <Link href="/submit-score" className="hidden md:flex btn-primary text-xs px-3 py-1.5">
                 + Submit Score
@@ -107,7 +118,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
           </div>
         </div>
 
-        {/* Mobile menu */}
         {mobileMenuOpen && (
           <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border)' }}>
             <div className="px-4 py-3 flex flex-col gap-1">
@@ -121,8 +131,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               <div className="section-label mt-3 mb-1">Sports</div>
               {ALL_SPORTS.map(sport => (
                 <Link key={sport.slug} href={`/sports/${sport.slug}`}
-                  className="nav-link py-1"
-                  onClick={() => setMobileMenuOpen(false)}>
+                  className="nav-link py-1" onClick={() => setMobileMenuOpen(false)}>
                   {sport.name}
                 </Link>
               ))}
@@ -138,7 +147,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       </header>
       <ScoreTicker />
 
-      {/* Main */}
       <main className="flex-1">{children}</main>
 
       {/* Footer */}
@@ -154,29 +162,38 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             <div>
               <div className="section-label mb-3">Sports</div>
               <div className="flex flex-col gap-1">
-                {/* Spring sports - active now */}
+                {/* Spring — always clickable */}
                 {SPRING_SPORTS.map(s => (
-                  <Link key={s} href={`/sports/${s.toLowerCase().replace(/\s+/g, '-')}`}
+                  <Link key={s.slug} href={`/sports/${s.slug}`}
                     className="text-xs hover:text-white transition-colors"
                     style={{ color: 'var(--text-muted)' }}>
-                    {s}
+                    {s.name}
                   </Link>
                 ))}
-                {/* Fall/Winter - coming soon */}
+                {/* Fall — now clickable links */}
                 <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>
+                  <p className="text-xs mb-1" style={{ color: '#fbbf2460', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>
                     FALL 2026
                   </p>
                   {FALL_SPORTS.map(s => (
-                    <p key={s} className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>{s}</p>
+                    <Link key={s.slug} href={`/sports/${s.slug}`}
+                      className="block text-xs hover:text-white transition-colors"
+                      style={{ color: 'var(--text-muted)' }}>
+                      {s.name}
+                    </Link>
                   ))}
                 </div>
+                {/* Winter — now clickable links */}
                 <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>
+                  <p className="text-xs mb-1" style={{ color: '#60a5fa60', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>
                     WINTER 2026-27
                   </p>
                   {WINTER_SPORTS.map(s => (
-                    <p key={s} className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>{s}</p>
+                    <Link key={s.slug} href={`/sports/${s.slug}`}
+                      className="block text-xs hover:text-white transition-colors"
+                      style={{ color: 'var(--text-muted)' }}>
+                      {s.name}
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -187,6 +204,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                 <Link href="/submit-score" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Submit a Score</Link>
                 <Link href="/submit-photo" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Submit a Photo</Link>
                 <Link href="/shoutout" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Send a Shoutout</Link>
+                <Link href="/nominate" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Nominate an Athlete</Link>
               </div>
             </div>
             <div>
@@ -194,6 +212,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               <div className="flex flex-col gap-1">
                 <Link href="/advertise" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Advertise / Sponsor</Link>
                 <Link href="/schools" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>All Schools</Link>
+                <Link href="/spotlight" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Spotlight</Link>
                 <Link href="/admin" className="text-xs hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>Admin</Link>
               </div>
             </div>
