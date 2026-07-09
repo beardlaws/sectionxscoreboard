@@ -1,3 +1,4 @@
+// src/app/(public)/sports/[slug]/page.tsx
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Metadata } from 'next'
@@ -15,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const sport = ALL_SPORTS.find(s => s.slug === params.slug)
   if (!sport) return {}
   return {
-    title: `${sport.name} Scores & Standings | Section X Scoreboard`,
+    title: `${sport.name} Scores & Standings`,
     description: `Section X ${sport.name} scores, schedules, and standings. Northern NY high school sports.`,
   }
 }
@@ -26,8 +27,7 @@ const SEASON_START: Record<string, string> = {
 }
 
 const SEASON_ICONS: Record<string, string> = {
-  'Fall': '🍂',
-  'Winter': '❄️',
+  'Fall': '🍂', 'Winter': '❄️',
 }
 
 export default async function SportPage({ params }: Props) {
@@ -41,9 +41,13 @@ export default async function SportPage({ params }: Props) {
     supabase.from('sports').select('*').eq('slug', params.slug).single(),
   ])
 
-  // Sport exists in ALL_SPORTS but not in DB yet (fall/winter not seeded)
-  // OR sport is in DB but no games this season
-  const comingSoonSeason = !sportRecord ? sport.season : null
+  // Fetch sport sponsor
+  const { data: sportSponsor } = sportRecord ? await supabase
+    .from('sponsors').select('*')
+    .eq('placement_type', 'sport')
+    .eq('sport_id', sportRecord.id)
+    .eq('active', true)
+    .limit(1).maybeSingle() : { data: null }
 
   if (!sportRecord) {
     const startDate = SEASON_START[sport.season] || 'this fall'
@@ -52,14 +56,11 @@ export default async function SportPage({ params }: Props) {
       <PublicLayout>
         <div className="max-w-3xl mx-auto px-4 py-16 text-center">
           <p className="text-6xl mb-6">{icon}</p>
-          <h1 className="text-3xl font-black text-white mb-3"
-            style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
+          <h1 className="text-3xl font-black text-white mb-3" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
             {sport.name}
           </h1>
-          <div className="rounded-2xl p-8 border border-white/8 inline-block"
-            style={{ background: 'rgba(8,12,20,0.7)' }}>
-            <p className="text-xl font-black text-blue-400 mb-2"
-              style={{ fontFamily: 'var(--font-display)' }}>
+          <div className="rounded-2xl p-8 border border-white/8 inline-block" style={{ background: 'rgba(8,12,20,0.7)' }}>
+            <p className="text-xl font-black text-blue-400 mb-2" style={{ fontFamily: 'var(--font-display)' }}>
               Season Starts {startDate}
             </p>
             <p className="text-slate-400 text-sm">
@@ -78,26 +79,21 @@ export default async function SportPage({ params }: Props) {
     )
   }
 
-  const today = new Date().toISOString().split('T')[0]
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0]
   const twoWeeksAhead = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
 
   const { data: gamesData } = await supabase
     .from('games')
-    .select(`
-      *,
+    .select(`*, sport:sports(*),
       home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
       away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
       external_home:external_opponents!games_external_home_opponent_id_fkey(*),
-      external_away:external_opponents!games_external_away_opponent_id_fkey(*)
-    `)
+      external_away:external_opponents!games_external_away_opponent_id_fkey(*)`)
     .eq('sport_id', sportRecord.id)
     .gte('game_date', twoWeeksAgo)
     .lte('game_date', twoWeeksAhead)
     .eq(activeSeason ? 'season_id' : 'id', activeSeason ? activeSeason.id : 'none')
     .order('game_date', { ascending: false })
-
-  const games = (gamesData as GameWithTeams[]) || []
 
   const { data: allGames } = await supabase
     .from('games')
@@ -110,51 +106,30 @@ export default async function SportPage({ params }: Props) {
     ? await supabase.from('team_seasons').select('team_id, division, class, btm_override').eq('season_id', activeSeason.id)
     : { data: [] }
 
-  const standings = calculateStandings(
-    (allGames as GameWithTeams[]) || [],
-    tsData || [],
-    sportRecord.sport_name
-  )
-
+  const standings = calculateStandings((allGames as GameWithTeams[]) || [], tsData || [], sportRecord.sport_name)
+  const games = (gamesData as GameWithTeams[]) || []
   const recentGames = games.filter(g => g.status === 'Final')
   const upcomingGames = games.filter(g => g.status === 'Scheduled' || g.status === 'Postponed').reverse()
 
-  // No games at all this season
   if (games.length === 0 && standings.length === 0) {
     return (
       <PublicLayout>
         <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-          <p className="text-6xl mb-6">
-            {sport.season === 'Fall' ? '🍂' : sport.season === 'Winter' ? '❄️' : '🏆'}
-          </p>
-          <h1 className="text-3xl font-black text-white mb-3"
-            style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
-            {sport.name}
-          </h1>
-          <div className="rounded-2xl p-8 border border-white/8 inline-block"
-            style={{ background: 'rgba(8,12,20,0.7)' }}>
+          <p className="text-6xl mb-6">{sport.season === 'Fall' ? '🍂' : sport.season === 'Winter' ? '❄️' : '🏆'}</p>
+          <h1 className="text-3xl font-black text-white mb-3" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>{sport.name}</h1>
+          <div className="rounded-2xl p-8 border border-white/8 inline-block" style={{ background: 'rgba(8,12,20,0.7)' }}>
             {sport.season !== 'Spring' ? (
               <>
-                <p className="text-xl font-black text-blue-400 mb-2" style={{ fontFamily: 'var(--font-display)' }}>
-                  Season Starts {SEASON_START[sport.season] || 'Coming Soon'}
-                </p>
-                <p className="text-slate-400 text-sm">
-                  {sport.name} scores and standings will appear here once the season begins.
-                </p>
+                <p className="text-xl font-black text-blue-400 mb-2" style={{ fontFamily: 'var(--font-display)' }}>Season Starts {SEASON_START[sport.season] || 'Coming Soon'}</p>
+                <p className="text-slate-400 text-sm">{sport.name} scores and standings will appear here once the season begins.</p>
               </>
             ) : (
               <>
-                <p className="text-xl font-black text-slate-400 mb-2" style={{ fontFamily: 'var(--font-display)' }}>
-                  No Games Yet
-                </p>
-                <p className="text-slate-500 text-sm">
-                  Scores will appear here once games are reported.
-                </p>
+                <p className="text-xl font-black text-slate-400 mb-2" style={{ fontFamily: 'var(--font-display)' }}>No Games Yet</p>
+                <p className="text-slate-500 text-sm">Scores will appear here once games are reported.</p>
               </>
             )}
-            <p className="text-slate-600 text-xs mt-3">
-              Coaches — submit scores at sectionxscoreboard.com/submit-score
-            </p>
+            <p className="text-slate-600 text-xs mt-3">Coaches — submit scores at sectionxscoreboard.com/submit-score</p>
           </div>
           <div className="mt-8 flex items-center justify-center gap-4">
             <Link href="/schools" className="btn-secondary text-sm">Browse Schools</Link>
@@ -168,7 +143,7 @@ export default async function SportPage({ params }: Props) {
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="mb-6">
+        <div className="mb-4">
           <div className="flex items-center gap-2 mb-1">
             <Link href="/" className="text-slate-400 hover:text-white text-sm">Home</Link>
             <span className="text-slate-600">/</span>
@@ -177,6 +152,26 @@ export default async function SportPage({ params }: Props) {
           <h1 className="text-3xl font-bold font-display text-white">{sport.name}</h1>
           {activeSeason && <p className="text-slate-400 text-sm mt-1">{activeSeason.name}</p>}
         </div>
+
+        {/* Sport Sponsor Banner */}
+        {sportSponsor && (
+          <a href={(sportSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl px-4 py-3 mb-5 transition-all hover:-translate-y-0.5"
+            style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(8,12,20,0.8))', border: '1px solid rgba(37,99,235,0.2)' }}>
+            {(sportSponsor as any).logo_url && (
+              <img src={(sportSponsor as any).logo_url} alt={(sportSponsor as any).business_name}
+                className="w-8 h-8 object-contain rounded flex-shrink-0" style={{ background: 'rgba(255,255,255,0.05)' }} />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>
+                {sport.name.toUpperCase()} COVERAGE BY
+              </p>
+              <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(sportSponsor as any).business_name}</p>
+              {(sportSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(sportSponsor as any).tagline}</p>}
+            </div>
+            <span className="text-xs font-bold text-blue-400 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span>
+          </a>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -235,9 +230,7 @@ export default async function SportPage({ params }: Props) {
                     </tbody>
                   </table>
                 </div>
-                <Link href="/standings" className="block text-center text-xs text-blue-400 hover:underline mt-3">
-                  Full Standings →
-                </Link>
+                <Link href="/standings" className="block text-center text-xs text-blue-400 hover:underline mt-3">Full Standings →</Link>
               </div>
             )}
           </div>
