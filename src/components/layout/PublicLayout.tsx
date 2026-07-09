@@ -162,7 +162,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             <div>
               <div className="section-label mb-3">Sports</div>
               <div className="flex flex-col gap-1">
-                {/* Spring — always clickable */}
                 {SPRING_SPORTS.map(s => (
                   <Link key={s.slug} href={`/sports/${s.slug}`}
                     className="text-xs hover:text-white transition-colors"
@@ -170,11 +169,8 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                     {s.name}
                   </Link>
                 ))}
-                {/* Fall — now clickable links */}
                 <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-xs mb-1" style={{ color: '#fbbf2460', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>
-                    FALL 2026
-                  </p>
+                  <p className="text-xs mb-1" style={{ color: '#fbbf2460', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>FALL 2026</p>
                   {FALL_SPORTS.map(s => (
                     <Link key={s.slug} href={`/sports/${s.slug}`}
                       className="block text-xs hover:text-white transition-colors"
@@ -183,11 +179,8 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                     </Link>
                   ))}
                 </div>
-                {/* Winter — now clickable links */}
                 <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-xs mb-1" style={{ color: '#60a5fa60', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>
-                    WINTER 2026-27
-                  </p>
+                  <p className="text-xs mb-1" style={{ color: '#60a5fa60', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', fontSize: '10px' }}>WINTER 2026-27</p>
                   {WINTER_SPORTS.map(s => (
                     <Link key={s.slug} href={`/sports/${s.slug}`}
                       className="block text-xs hover:text-white transition-colors"
