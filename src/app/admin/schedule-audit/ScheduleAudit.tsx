@@ -22,25 +22,28 @@ interface TeamRecord {
   } | null
 }
 
+interface TeamSeasonRecord {
+  id: string
+  team_id: string
+  season_id: string
+  active_for_season: boolean | null
+  class: string | null
+  division: string | null
+}
+
 interface GameRecord {
   id: string
   season_id: string
   sport_id: string
   home_team_id: string | null
   away_team_id: string | null
-  external_home_opponent_id:
-    | string
-    | null
-  external_away_opponent_id:
-    | string
-    | null
+  external_home_opponent_id: string | null
+  external_away_opponent_id: string | null
   game_date: string
   game_time: string | null
   location: string | null
   status: string
-  parser_confidence:
-    | string
-    | null
+  parser_confidence: string | null
   game_number: number | null
 }
 
@@ -59,8 +62,8 @@ interface Props {
   sports: Sport[]
   seasons: Season[]
   games: GameRecord[]
-  importSources:
-    ImportSourceRecord[]
+  importSources: ImportSourceRecord[]
+  teamSeasons: TeamSeasonRecord[]
 }
 
 interface TeamAudit {
@@ -71,6 +74,8 @@ interface TeamAudit {
   singleSourceCount: number
   issueCount: number
   lastImportedAt: string | null
+  className: string
+  division: string
 }
 
 function isVarsityTeam(
@@ -91,6 +96,7 @@ export default function ScheduleAudit({
   seasons,
   games,
   importSources,
+  teamSeasons,
 }: Props) {
   const defaultSeason =
     seasons.find(
@@ -106,17 +112,76 @@ export default function ScheduleAudit({
   const [sportId, setSportId] =
     useState('')
 
+  /*
+    Build a lookup for the selected season.
+
+    If a team has a team_seasons record, that record
+    is authoritative for participation.
+
+    If no team_seasons row exists, we fall back to
+    the master team.active value so older/incomplete
+    data does not suddenly disappear.
+  */
+  const seasonParticipation =
+    useMemo(() => {
+      const map = new Map<
+        string,
+        TeamSeasonRecord
+      >()
+
+      for (const record of teamSeasons) {
+        if (
+          record.season_id === seasonId
+        ) {
+          map.set(
+            record.team_id,
+            record
+          )
+        }
+      }
+
+      return map
+    }, [
+      teamSeasons,
+      seasonId,
+    ])
+
   const sportTeams = useMemo(
     () =>
       teams
-        .filter(
-          team =>
-            (!sportId ||
-              team.sport_id ===
-                sportId) &&
-            team.active !== false &&
-            isVarsityTeam(team)
-        )
+        .filter(team => {
+          if (
+            sportId &&
+            team.sport_id !== sportId
+          ) {
+            return false
+          }
+
+          if (!isVarsityTeam(team)) {
+            return false
+          }
+
+          const participation =
+            seasonParticipation.get(
+              team.id
+            )
+
+          /*
+            A season-specific record wins.
+
+            This removes Salmon River Football from
+            Fall 2026 because active_for_season=false
+            while preserving the historical team.
+          */
+          if (participation) {
+            return (
+              participation.active_for_season !==
+              false
+            )
+          }
+
+          return team.active !== false
+        })
         .sort((a, b) =>
           (
             a.school?.school_name ||
@@ -126,24 +191,70 @@ export default function ScheduleAudit({
               b.team_name
           )
         ),
-    [teams, sportId]
+    [
+      teams,
+      sportId,
+      seasonParticipation,
+    ]
   )
 
+  /*
+    Set of teams that actually participate in the
+    selected season/sport.
+  */
+  const activeTeamIds =
+    useMemo(
+      () =>
+        new Set(
+          sportTeams.map(
+            team => team.id
+          )
+        ),
+      [sportTeams]
+    )
+
+  /*
+    Only count games connected to at least one team
+    that participates in the selected season.
+
+    This keeps audit totals aligned with the team list
+    if historical/inactive team records exist.
+  */
   const filteredGames =
     useMemo(
       () =>
-        games.filter(
-          game =>
-            game.season_id ===
-              seasonId &&
-            (!sportId ||
-              game.sport_id ===
-                sportId)
-        ),
+        games.filter(game => {
+          if (
+            game.season_id !==
+            seasonId
+          ) {
+            return false
+          }
+
+          if (
+            sportId &&
+            game.sport_id !==
+              sportId
+          ) {
+            return false
+          }
+
+          return (
+            (!!game.home_team_id &&
+              activeTeamIds.has(
+                game.home_team_id
+              )) ||
+            (!!game.away_team_id &&
+              activeTeamIds.has(
+                game.away_team_id
+              ))
+          )
+        }),
       [
         games,
         seasonId,
         sportId,
+        activeTeamIds,
       ]
     )
 
@@ -156,12 +267,16 @@ export default function ScheduleAudit({
               seasonId &&
             (!sportId ||
               source.sport_id ===
-                sportId)
+                sportId) &&
+            activeTeamIds.has(
+              source.team_id
+            )
         ),
       [
         importSources,
         seasonId,
         sportId,
+        activeTeamIds,
       ]
     )
 
@@ -172,7 +287,9 @@ export default function ScheduleAudit({
         Set<string>
       >()
 
-      for (const source of filteredImports) {
+      for (
+        const source of filteredImports
+      ) {
         if (
           !map.has(
             source.game_id
@@ -219,18 +336,32 @@ export default function ScheduleAudit({
           let singleSourceCount = 0
           let issueCount = 0
 
-          for (const game of teamGames) {
+          for (
+            const game of teamGames
+          ) {
             const sourceTeams =
               sourcesByGame.get(
                 game.id
-              ) || new Set<string>()
+              ) ||
+              new Set<string>()
 
             const bothInternal =
               !!game.home_team_id &&
               !!game.away_team_id
 
+            const bothTeamsActive =
+              !!game.home_team_id &&
+              !!game.away_team_id &&
+              activeTeamIds.has(
+                game.home_team_id
+              ) &&
+              activeTeamIds.has(
+                game.away_team_id
+              )
+
             const confirmed =
               bothInternal &&
+              bothTeamsActive &&
               sourceTeams.has(
                 game.home_team_id!
               ) &&
@@ -268,16 +399,35 @@ export default function ScheduleAudit({
                   .reverse()[0]
               : null
 
+          const participation =
+            seasonParticipation.get(
+              team.id
+            )
+
           return {
             team,
+
             gameCount:
               teamGames.length,
+
             scheduleImported:
               imported,
+
             confirmedCount,
+
             singleSourceCount,
+
             issueCount,
+
             lastImportedAt,
+
+            className:
+              participation?.class ||
+              '',
+
+            division:
+              participation?.division ||
+              '',
           }
         }
       )
@@ -286,6 +436,8 @@ export default function ScheduleAudit({
       filteredGames,
       filteredImports,
       sourcesByGame,
+      activeTeamIds,
+      seasonParticipation,
     ])
 
   const importedTeams =
@@ -307,6 +459,17 @@ export default function ScheduleAudit({
         if (
           !game.home_team_id ||
           !game.away_team_id
+        ) {
+          return false
+        }
+
+        if (
+          !activeTeamIds.has(
+            game.home_team_id
+          ) ||
+          !activeTeamIds.has(
+            game.away_team_id
+          )
         ) {
           return false
         }
@@ -464,9 +627,7 @@ export default function ScheduleAudit({
                   key={sport.id}
                   value={sport.id}
                 >
-                  {
-                    sport.sport_name
-                  }{' '}
+                  {sport.sport_name}{' '}
                   ({sport.gender})
                 </option>
               )
@@ -521,76 +682,56 @@ export default function ScheduleAudit({
                   'var(--text-primary)',
               }}
             >
-              {
-                selectedSport?.sport_name
-              }
+              {selectedSport?.sport_name}
             </span>
 
             {' · '}
 
-            {
-              selectedSeason?.name
-            }
+            {selectedSeason?.name}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
             <StatCard
               label="Teams"
-              value={
-                auditRows.length
-              }
+              value={auditRows.length}
             />
 
             <StatCard
               label="Imported"
-              value={
-                importedTeams
-              }
+              value={importedTeams}
               good
             />
 
             <StatCard
               label="Not Imported"
-              value={
-                notImportedTeams
-              }
+              value={notImportedTeams}
               warning={
-                notImportedTeams >
-                0
+                notImportedTeams > 0
               }
             />
 
             <StatCard
               label="Unique Games"
-              value={
-                totalGames
-              }
+              value={totalGames}
             />
 
             <StatCard
               label="Confirmed Both"
-              value={
-                confirmedGames
-              }
+              value={confirmedGames}
               good
             />
 
             <StatCard
               label="Single Source"
-              value={
-                singleSourceGames
-              }
+              value={singleSourceGames}
               warning={
-                singleSourceGames >
-                0
+                singleSourceGames > 0
               }
             />
 
             <StatCard
               label="Data Issues"
-              value={
-                dataIssues
-              }
+              value={dataIssues}
               danger={
                 dataIssues > 0
               }
@@ -652,9 +793,7 @@ export default function ScheduleAudit({
 
                 return (
                   <div
-                    key={
-                      row.team.id
-                    }
+                    key={row.team.id}
                     className="grid grid-cols-12 gap-2 px-4 py-3 items-center text-sm"
                     style={{
                       borderBottom:
@@ -675,6 +814,27 @@ export default function ScheduleAudit({
                           row.team
                             .team_name}
                       </div>
+
+                      {(row.division ||
+                        row.className) && (
+                        <div
+                          className="text-xs mt-0.5"
+                          style={{
+                            color:
+                              'var(--text-secondary)',
+                          }}
+                        >
+                          {row.division &&
+                            `${row.division} Division`}
+
+                          {row.division &&
+                            row.className &&
+                            ' · '}
+
+                          {row.className &&
+                            `Class ${row.className}`}
+                        </div>
+                      )}
 
                       <div
                         className="text-xs"
@@ -730,16 +890,12 @@ export default function ScheduleAudit({
                           'var(--text-primary)',
                       }}
                     >
-                      {
-                        row.gameCount
-                      }
+                      {row.gameCount}
                     </div>
 
                     <div className="col-span-2 text-center">
                       <span className="confidence-high">
-                        {
-                          row.confirmedCount
-                        }
+                        {row.confirmedCount}
                       </span>
                     </div>
 
@@ -759,9 +915,7 @@ export default function ScheduleAudit({
                               : undefined,
                         }}
                       >
-                        {
-                          row.singleSourceCount
-                        }
+                        {row.singleSourceCount}
                       </span>
                     </div>
 
@@ -774,9 +928,7 @@ export default function ScheduleAudit({
                             : 'confidence-high'
                         }
                       >
-                        {
-                          row.issueCount
-                        }
+                        {row.issueCount}
                       </span>
                     </div>
                   </div>
@@ -793,9 +945,9 @@ export default function ScheduleAudit({
                     'var(--text-muted)',
                 }}
               >
-                No varsity teams
-                found for this
-                sport.
+                No active varsity
+                teams found for this
+                sport and season.
               </div>
             )}
           </div>
@@ -819,15 +971,17 @@ export default function ScheduleAudit({
             >
               How to read this:
             </strong>{' '}
-            “Imported” means that
-            team's own Arbiter
-            schedule has been
-            published through the
-            Import Center. A team
-            can already have games
-            in the database before
-            its own schedule is
-            imported because its
+            Only teams active for
+            the selected season are
+            included. “Imported”
+            means that team's own
+            Arbiter schedule has
+            been published through
+            the Import Center. A
+            team can already have
+            games in the database
+            before its own schedule
+            is imported because its
             opponents may have
             created those games
             first. “Both Confirmed”
