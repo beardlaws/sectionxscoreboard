@@ -24,6 +24,7 @@ export default async function ScheduleAuditPage() {
     { data: seasons },
     { data: games },
     { data: importSources },
+    { data: teamSeasons },
   ] = await Promise.all([
     supabase
       .from('teams')
@@ -73,11 +74,8 @@ export default async function ScheduleAuditPage() {
       `),
 
     /*
-      game_import_sources is admin-only infrastructure
-      protected by RLS.
-
-      Read it with the server-side secret-key client so
-      the Schedule Audit can see import tracking records.
+      Import tracking is admin-only infrastructure,
+      so read it with the server-side secret client.
     */
     adminSupabase
       .from('game_import_sources')
@@ -90,14 +88,30 @@ export default async function ScheduleAuditPage() {
         source,
         imported_at
       `),
+
+    /*
+      Team Seasons tells us whether a team actually
+      participates in a specific season.
+
+      Example:
+      Salmon River Football still exists historically,
+      but active_for_season = false for Fall 2026.
+    */
+    supabase
+      .from('team_seasons')
+      .select(`
+        id,
+        team_id,
+        season_id,
+        active_for_season,
+        class,
+        division
+      `),
   ])
 
   /*
-    Supabase may type the joined school relation as an array
-    even though each team belongs to one school.
-
-    Normalize it here so the client component always receives
-    a single school object or null.
+    Supabase may type the joined school relation as
+    an array. Normalize it to one school or null.
   */
   const teams =
     (rawTeams || []).map((team: any) => {
@@ -123,6 +137,7 @@ export default async function ScheduleAuditPage() {
         seasons={seasons || []}
         games={games || []}
         importSources={importSources || []}
+        teamSeasons={teamSeasons || []}
       />
     </AdminLayout>
   )
