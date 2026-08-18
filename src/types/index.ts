@@ -5,10 +5,18 @@ export type GameStatus = 'Scheduled' | 'Live' | 'Final' | 'Postponed' | 'Cancele
 export type VerificationStatus = 'Reported' | 'Verified' | 'Official'
 export type ImportSource = 'manual' | 'bulk_paste' | 'csv' | 'arbiter' | 'public_submission'
 export type ImportConfidence = 'High' | 'Medium' | 'Low'
-export type SponsorPlacement = 
-  | 'homepage' | 'tonight_scores' | 'spring_scoreboard' | 'baseball' 
-  | 'softball' | 'boys_lacrosse' | 'girls_lacrosse' | 'school_page' 
-  | 'game_of_night' | 'photo_of_week' | 'weekly_recap'
+export type SponsorPlacement =
+  | 'homepage'
+  | 'tonight_scores'
+  | 'spring_scoreboard'
+  | 'baseball'
+  | 'softball'
+  | 'boys_lacrosse'
+  | 'girls_lacrosse'
+  | 'school_page'
+  | 'game_of_night'
+  | 'photo_of_week'
+  | 'weekly_recap'
 
 export interface School {
   id: string
@@ -109,10 +117,9 @@ export interface Game {
   neutral_site: boolean
   import_id: string | null
   parser_confidence: ImportConfidence | null
-  recap: string | null
-  recap_author: string | null
   created_at: string
   updated_at: string
+
   // Joined
   home_team?: Team & { school?: School }
   away_team?: Team & { school?: School }
@@ -228,31 +235,47 @@ export interface SiteSettings {
 
 // Import parsing types
 export interface ParsedGameRow {
-  id: string // temp client id
+  id: string
   raw: string
+
   game_date: string | null
+  game_time: string | null
+
   home_team_name: string | null
   away_team_name: string | null
-  home_score: number | null
-  away_score: number | null
-  status: GameStatus
-  game_time: string | null
-  rescheduled_date: string | null
-  game_number: number | null
-  neutral_site: boolean
-  event_name: string | null
-  confidence: ImportConfidence
-  confidence_notes: string[]
+
   home_team_id: string | null
   away_team_id: string | null
+
   home_team_match: string | null
   away_team_match: string | null
-  duplicate_warning: boolean
-  approved: boolean
-  error: string | null
-  sport_id?: string | null
+
   external_home_name?: string | null
   external_away_name?: string | null
+
+  home_score: number | null
+  away_score: number | null
+
+  status: GameStatus
+
+  location?: string | null
+  notes?: string | null
+
+  rescheduled_date: string | null
+  game_number: number | null
+
+  neutral_site: boolean
+  event_name: string | null
+
+  confidence: ImportConfidence
+  confidence_notes: string[]
+
+  duplicate_warning: boolean
+  approved: boolean
+
+  error: string | null
+
+  sport_id?: string | null
 }
 
 // Standings
@@ -262,48 +285,14 @@ export interface StandingsRow {
   school_name: string
   school_slug: string
   team_slug: string
-  slug?: string
   wins: number
   losses: number
   ties: number
-  league_wins: number
-  league_losses: number
-  league_ties: number
   points_for: number
   points_against: number
   win_pct: number
-  league_win_pct: number
-  btm: number
   class: string
   division: string
   primary_color?: string
-}
-export interface ParsedGameRow {
-  id: string // temp client id
-  raw: string
-  game_date: string | null
-  home_team_name: string | null
-  away_team_name: string | null
-  home_score: number | null
-  away_score: number | null
-  status: GameStatus
-  game_time: string | null
-  location?: string | null
-  notes?: string | null
-  rescheduled_date: string | null
-  game_number: number | null
-  neutral_site: boolean
-  event_name: string | null
-  confidence: ImportConfidence
-  confidence_notes: string[]
-  home_team_id: string | null
-  away_team_id: string | null
-  home_team_match: string | null
-  away_team_match: string | null
-  external_home_name?: string | null
-  external_away_name?: string | null
-  duplicate_warning: boolean
-  approved: boolean
-  error: string | null
-  sport_id?: string | null
+  slug?: string
 }
