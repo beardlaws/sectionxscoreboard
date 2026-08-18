@@ -278,3 +278,32 @@ export interface StandingsRow {
   division: string
   primary_color?: string
 }
+export interface ParsedGameRow {
+  id: string // temp client id
+  raw: string
+  game_date: string | null
+  home_team_name: string | null
+  away_team_name: string | null
+  home_score: number | null
+  away_score: number | null
+  status: GameStatus
+  game_time: string | null
+  location?: string | null
+  notes?: string | null
+  rescheduled_date: string | null
+  game_number: number | null
+  neutral_site: boolean
+  event_name: string | null
+  confidence: ImportConfidence
+  confidence_notes: string[]
+  home_team_id: string | null
+  away_team_id: string | null
+  home_team_match: string | null
+  away_team_match: string | null
+  external_home_name?: string | null
+  external_away_name?: string | null
+  duplicate_warning: boolean
+  approved: boolean
+  error: string | null
+  sport_id?: string | null
+}
