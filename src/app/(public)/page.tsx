@@ -6,7 +6,6 @@ import HomeClient from '@/components/home/HomeClient'
 import { format } from 'date-fns'
 
 export const metadata: Metadata = {
-  title: 'Section X Scoreboard',
   description: 'Section X scores, schedules, standings, and results for North Country high school sports.',
 }
 
