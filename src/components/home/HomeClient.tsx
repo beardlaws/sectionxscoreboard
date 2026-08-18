@@ -6,7 +6,7 @@ import { format, isToday, isYesterday } from 'date-fns'
 import ScoreCard from '@/components/scores/ScoreCard'
 import type { Season, School, GameWithTeams } from '@/types'
 import { isCloseGame } from '@/lib/constants'
-import { ChevronRight } from 'lucide-react'
+import HomeSponsorWrapper from '@/components/HomeSponsorWrapper'
 import { createClient } from '@/lib/supabase/client'
 
 function formatTime(t: string) {
@@ -60,8 +60,7 @@ function getSportKey(game: GameWithTeams): string {
 function TeamDot({ color, logo }: { color: string; logo?: string | null }) {
   if (logo) {
     return (
-      <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden border border-white/10"
-        style={{ background: color }}>
+      <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden border border-white/10" style={{ background: color }}>
         <img src={logo} alt="" className="w-full h-full object-contain" />
       </div>
     )
@@ -107,7 +106,6 @@ function ScoreAlertForm() {
   )
 }
 
-// Off-season state — shows when no recent scores exist
 function OffSeasonState({ activeSeason, allSpotlights, springGames }: {
   activeSeason: Season | null
   allSpotlights: any[]
@@ -118,7 +116,6 @@ function OffSeasonState({ activeSeason, allSpotlights, springGames }: {
 
   return (
     <div className="space-y-6">
-      {/* Season preview banner */}
       <div className="rounded-2xl p-6 border border-white/8 relative overflow-hidden"
         style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.15) 0%, rgba(8,12,20,0.95) 60%)' }}>
         <div className="relative">
@@ -136,60 +133,33 @@ function OffSeasonState({ activeSeason, allSpotlights, springGames }: {
             {isFallSeason
               ? 'Football, Soccer, and Volleyball kick off in August. Follow your favorite Section X teams all season long.'
               : isWinterSeason
-              ? 'Basketball, Hockey, and Wrestling tip off in December. The North Country\'s biggest sports season is almost here.'
-              : 'The season is coming. Follow your favorite Section X teams right here.'
-            }
+              ? 'Basketball, Hockey, and Wrestling tip off in December.'
+              : 'The season is coming. Follow your favorite Section X teams right here.'}
           </p>
           <div className="flex flex-wrap gap-2">
             {isFallSeason && (
               <>
-                <Link href="/sports/football" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5"
-                  style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', fontFamily: 'var(--font-display)' }}>
-                  🏈 Football
-                </Link>
-                <Link href="/sports/boys-soccer" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5"
-                  style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontFamily: 'var(--font-display)' }}>
-                  ⚽ Boys Soccer
-                </Link>
-                <Link href="/sports/girls-soccer" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5"
-                  style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontFamily: 'var(--font-display)' }}>
-                  ⚽ Girls Soccer
-                </Link>
-                <Link href="/sports/volleyball" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5"
-                  style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)', fontFamily: 'var(--font-display)' }}>
-                  🏐 Volleyball
-                </Link>
+                <Link href="/sports/football" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', fontFamily: 'var(--font-display)' }}>🏈 Football</Link>
+                <Link href="/sports/boys-soccer" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontFamily: 'var(--font-display)' }}>⚽ Boys Soccer</Link>
+                <Link href="/sports/girls-soccer" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontFamily: 'var(--font-display)' }}>⚽ Girls Soccer</Link>
+                <Link href="/sports/volleyball" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)', fontFamily: 'var(--font-display)' }}>🏐 Volleyball</Link>
               </>
             )}
             {isWinterSeason && (
               <>
-                <Link href="/sports/boys-basketball" className="text-xs font-black px-3 py-1.5 rounded-lg"
-                  style={{ background: 'rgba(234,88,12,0.15)', color: '#fb923c', border: '1px solid rgba(234,88,12,0.25)', fontFamily: 'var(--font-display)' }}>
-                  🏀 Boys Basketball
-                </Link>
-                <Link href="/sports/girls-basketball" className="text-xs font-black px-3 py-1.5 rounded-lg"
-                  style={{ background: 'rgba(219,39,119,0.15)', color: '#f472b6', border: '1px solid rgba(219,39,119,0.25)', fontFamily: 'var(--font-display)' }}>
-                  🏀 Girls Basketball
-                </Link>
+                <Link href="/sports/boys-basketball" className="text-xs font-black px-3 py-1.5 rounded-lg" style={{ background: 'rgba(234,88,12,0.15)', color: '#fb923c', border: '1px solid rgba(234,88,12,0.25)', fontFamily: 'var(--font-display)' }}>🏀 Boys Basketball</Link>
+                <Link href="/sports/girls-basketball" className="text-xs font-black px-3 py-1.5 rounded-lg" style={{ background: 'rgba(219,39,119,0.15)', color: '#f472b6', border: '1px solid rgba(219,39,119,0.25)', fontFamily: 'var(--font-display)' }}>🏀 Girls Basketball</Link>
               </>
             )}
           </div>
         </div>
       </div>
 
-      {/* Spring scores link */}
       {springGames && springGames.length > 0 && (
-        <div className="rounded-2xl p-4 border border-white/6"
-          style={{ background: 'rgba(8,12,20,0.7)' }}>
+        <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(8,12,20,0.7)' }}>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>
-              📋 Spring 2026 Results
-            </p>
-            <Link href="/scores?season=a1000000-0000-0000-0000-000000000001"
-              className="text-xs text-blue-400 font-bold hover:text-blue-300 transition-colors"
-              style={{ fontFamily: 'var(--font-display)' }}>
-              View All →
-            </Link>
+            <p className="text-sm font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>📋 Spring 2026 Results</p>
+            <Link href="/scores?season=a1000000-0000-0000-0000-000000000001" className="text-xs text-blue-400 font-bold hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>View All →</Link>
           </div>
           <div className="space-y-1">
             {springGames.slice(0, 5).map((game: any) => {
@@ -198,19 +168,14 @@ function OffSeasonState({ activeSeason, allSpotlights, springGames }: {
               const homeWins = (game.home_score ?? 0) > (game.away_score ?? 0)
               const awayWins = (game.away_score ?? 0) > (game.home_score ?? 0)
               return (
-                <Link key={game.id} href={`/games/${game.id}`}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
-                  <span className="text-xs" style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a' }}>
-                    {game.sport?.sport_name}
-                  </span>
+                <Link key={game.id} href={`/games/${game.id}`} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
+                  <span className="text-xs" style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a' }}>{game.sport?.sport_name}</span>
                   <span className="flex-1 text-xs text-slate-300 truncate">
                     <span style={{ fontWeight: awayWins ? 700 : 400 }}>{awayName}</span>
                     <span className="text-slate-600 mx-1">at</span>
                     <span style={{ fontWeight: homeWins ? 700 : 400 }}>{homeName}</span>
                   </span>
-                  <span className="text-xs font-mono text-white flex-shrink-0">
-                    {game.away_score}–{game.home_score}
-                  </span>
+                  <span className="text-xs font-mono text-white flex-shrink-0">{game.away_score}–{game.home_score}</span>
                 </Link>
               )
             })}
@@ -218,44 +183,29 @@ function OffSeasonState({ activeSeason, allSpotlights, springGames }: {
         </div>
       )}
 
-      {/* Spotlight stories */}
       {allSpotlights && allSpotlights.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>
-              📰 Latest Stories
-            </p>
-            <Link href="/spotlight" className="text-xs text-blue-400 font-bold hover:text-blue-300 transition-colors"
-              style={{ fontFamily: 'var(--font-display)' }}>
-              All Stories →
-            </Link>
+            <p className="text-sm font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>📰 Latest Stories</p>
+            <Link href="/spotlight" className="text-xs text-blue-400 font-bold hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>All Stories →</Link>
           </div>
           <div className="space-y-2">
             {allSpotlights.map((story: any) => (
               <Link key={story.id} href={`/spotlight/${story.id}`}
                 className="block rounded-xl p-4 border border-white/6 hover:border-white/12 transition-all hover:-translate-y-0.5"
                 style={{ background: 'rgba(8,12,20,0.7)' }}>
-                <p className="font-black text-white text-sm mb-1 group-hover:text-blue-300"
-                  style={{ fontFamily: 'var(--font-display)' }}>
-                  {story.title}
-                </p>
+                <p className="font-black text-white text-sm mb-1" style={{ fontFamily: 'var(--font-display)' }}>{story.title}</p>
                 <p className="text-xs text-slate-500 line-clamp-2">{story.body}</p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {format(new Date(story.created_at), 'MMMM d, yyyy')}
-                </p>
+                <p className="text-xs text-slate-600 mt-1">{format(new Date(story.created_at), 'MMMM d, yyyy')}</p>
               </Link>
             ))}
           </div>
         </div>
       )}
 
-      {/* Schools CTA */}
-      <div className="rounded-2xl p-5 border border-white/6 text-center"
-        style={{ background: 'rgba(8,12,20,0.5)' }}>
+      <div className="rounded-2xl p-5 border border-white/6 text-center" style={{ background: 'rgba(8,12,20,0.5)' }}>
         <p className="text-slate-400 text-sm mb-3">Browse all 24 Section X schools and their teams</p>
-        <Link href="/schools" className="btn-primary inline-flex">
-          View All Schools →
-        </Link>
+        <Link href="/schools" className="btn-primary inline-flex">View All Schools →</Link>
       </div>
     </div>
   )
@@ -278,8 +228,7 @@ export default function HomeClient({
     }).sort((a, b) => b.game_date > a.game_date ? 1 : b.game_date < a.game_date ? -1 : 0)
   }, [todayGames, recentGames])
 
-  const finalGamesOnly = useMemo(() =>
-    allGames.filter(g => g.status === 'Final'), [allGames])
+  const finalGamesOnly = useMemo(() => allGames.filter(g => g.status === 'Final'), [allGames])
 
   const byDate = useMemo(() => {
     const map = new Map<string, GameWithTeams[]>()
@@ -315,8 +264,6 @@ export default function HomeClient({
 
   const todayLive = todayGames.filter(g => g.status === 'Live')
   const closeCount = allGames.filter(g => isCloseGame(g.home_score, g.away_score) && g.status === 'Final').length
-
-  // Off-season detection: no finals in last 7 days
   const isOffSeason = finalGamesOnly.length === 0
 
   return (
@@ -362,28 +309,19 @@ export default function HomeClient({
             </div>
           </div>
 
-          {/* Game of the Night */}
           {featuredGame && (
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-yellow-400 text-sm">⭐</span>
-                <span className="text-xs font-black text-yellow-400 tracking-widest uppercase"
-                  style={{ fontFamily: 'var(--font-display)' }}>Game of the Night</span>
-                {homepageSponsor && (
-                  <span className="text-xs text-slate-500">· Presented by {homepageSponsor.business_name}</span>
-                )}
+                <span className="text-xs font-black text-yellow-400 tracking-widest uppercase" style={{ fontFamily: 'var(--font-display)' }}>Game of the Night</span>
+                {homepageSponsor && <span className="text-xs text-slate-500">· Presented by {homepageSponsor.business_name}</span>}
               </div>
               <ScoreCard game={featuredGame} featured />
             </div>
           )}
 
-          {/* Off-season state OR scores feed */}
           {isOffSeason ? (
-            <OffSeasonState
-              activeSeason={activeSeason}
-              allSpotlights={allSpotlights}
-              springGames={springGames as GameWithTeams[]}
-            />
+            <OffSeasonState activeSeason={activeSeason} allSpotlights={allSpotlights} springGames={springGames as GameWithTeams[]} />
           ) : (
             dates.map((date, dateIdx) => {
               const dateGames = byDate.get(date)!
@@ -518,6 +456,7 @@ export default function HomeClient({
 
         {/* ── SIDEBAR ── */}
         <div className="space-y-4">
+
           {/* School search */}
           <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3" style={{ fontFamily: 'var(--font-display)' }}>Find a School</p>
@@ -529,8 +468,7 @@ export default function HomeClient({
                   <Link key={school.id} href={`/schools/${school.slug}`}
                     className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors group"
                     onClick={() => setSchoolSearch('')}>
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center overflow-hidden flex-shrink-0"
-                      style={{ background: school.primary_color || '#1e3a5f' }}>
+                    <div className="w-6 h-6 rounded-md flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: school.primary_color || '#1e3a5f' }}>
                       {(school as any).logo_url
                         ? <img src={(school as any).logo_url} alt="" className="w-full h-full object-contain" />
                         : <span className="text-white text-xs font-black" style={{ fontFamily: 'var(--font-display)' }}>{school.school_name[0]}</span>
@@ -582,11 +520,9 @@ export default function HomeClient({
               <div className="p-4">
                 <div className="flex items-center gap-3 mb-3">
                   {featuredAthlete.photo_url ? (
-                    <img src={featuredAthlete.photo_url} alt={featuredAthlete.athlete_name}
-                      className="w-14 h-14 rounded-xl object-cover flex-shrink-0 border border-white/10" />
+                    <img src={featuredAthlete.photo_url} alt={featuredAthlete.athlete_name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0 border border-white/10" />
                   ) : (
-                    <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10"
-                      style={{ background: featuredAthlete.school?.primary_color || '#1e3a5f' }}>
+                    <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10" style={{ background: featuredAthlete.school?.primary_color || '#1e3a5f' }}>
                       {featuredAthlete.school?.logo_url
                         ? <img src={featuredAthlete.school.logo_url} alt="" className="w-full h-full object-contain p-1.5" />
                         : <span className="text-white font-black text-lg" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.athlete_name[0]}</span>
@@ -595,9 +531,7 @@ export default function HomeClient({
                   )}
                   <div className="min-w-0">
                     <p className="font-black text-white text-base leading-tight" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.athlete_name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {[featuredAthlete.grade, featuredAthlete.sport_name, featuredAthlete.school?.school_name].filter(Boolean).join(' · ')}
-                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">{[featuredAthlete.grade, featuredAthlete.sport_name, featuredAthlete.school?.school_name].filter(Boolean).join(' · ')}</p>
                   </div>
                 </div>
                 {featuredAthlete.stats && (
@@ -606,9 +540,7 @@ export default function HomeClient({
                   </div>
                 )}
                 <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">{featuredAthlete.body}</p>
-                <Link href="/nominate" className="block text-center mt-3 text-xs font-bold text-yellow-400 hover:text-yellow-300 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
-                  NOMINATE AN ATHLETE →
-                </Link>
+                <Link href="/nominate" className="block text-center mt-3 text-xs font-bold text-yellow-400 hover:text-yellow-300 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>NOMINATE AN ATHLETE →</Link>
               </div>
             </div>
           )}
@@ -617,13 +549,9 @@ export default function HomeClient({
           {latestShoutout && (
             <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
               <p className="text-xs font-black text-yellow-500 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)' }}>🏆 Latest Shoutout</p>
-              {latestShoutout.athlete_name && (
-                <p className="text-white font-black text-base leading-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>{latestShoutout.athlete_name}</p>
-              )}
+              {latestShoutout.athlete_name && <p className="text-white font-black text-base leading-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>{latestShoutout.athlete_name}</p>}
               <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">{latestShoutout.description}</p>
-              <Link href="/shoutout" className="block mt-2 text-xs text-yellow-500 font-bold hover:text-yellow-400 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
-                SEND A SHOUTOUT →
-              </Link>
+              <Link href="/shoutout" className="block mt-2 text-xs text-yellow-500 font-bold hover:text-yellow-400 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>SEND A SHOUTOUT →</Link>
             </div>
           )}
 
@@ -651,8 +579,7 @@ export default function HomeClient({
           {featuredPhoto && (
             <div className="rounded-2xl overflow-hidden border border-white/6">
               <div className="relative">
-                <img src={featuredPhoto.photo_url} alt={featuredPhoto.caption || 'Section X sports'}
-                  className="w-full aspect-video object-cover" loading="lazy" />
+                <img src={featuredPhoto.photo_url} alt={featuredPhoto.caption || 'Section X sports'} className="w-full aspect-video object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-3">
                   <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>Photo of the Week</p>
@@ -663,23 +590,9 @@ export default function HomeClient({
             </div>
           )}
 
-          {/* Sponsor */}
+          {/* Sponsor — now tracked via HomeSponsorWrapper */}
           {homepageSponsor ? (
-            <a href={homepageSponsor.website_url || '#'} target="_blank" rel="noopener noreferrer"
-              className="block rounded-2xl overflow-hidden transition-all group hover:-translate-y-0.5"
-              style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.15) 0%, rgba(8,12,24,0.95) 60%)', border: '1px solid rgba(37,99,235,0.25)', boxShadow: '0 8px 32px rgba(37,99,235,0.15)' }}>
-              <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
-                <p className="text-xs font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: '#3b82f6', letterSpacing: '0.14em' }}>Tonight's Scores Presented By</p>
-              </div>
-              <div className="px-4 py-4">
-                <p className="font-black text-white leading-tight mb-1" style={{ fontFamily: 'var(--font-display)', fontSize: '22px' }}>{homepageSponsor.business_name}</p>
-                {homepageSponsor.tagline && <p className="text-slate-400 text-sm mb-3">{homepageSponsor.tagline}</p>}
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-black text-sm text-white"
-                  style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.06em', boxShadow: '0 4px 16px rgba(37,99,235,0.4)' }}>
-                  VISIT SPONSOR <ChevronRight size={14} />
-                </div>
-              </div>
-            </a>
+            <HomeSponsorWrapper sponsor={homepageSponsor} />
           ) : (
             <Link href="/advertise" className="block rounded-2xl overflow-hidden transition-all hover:-translate-y-0.5"
               style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.03), rgba(8,12,24,0.8))', border: '1px dashed rgba(255,255,255,0.1)' }}>
@@ -689,10 +602,7 @@ export default function HomeClient({
               <div className="px-4 py-4">
                 <p className="font-black text-slate-400 text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>Your Business Here</p>
                 <p className="text-slate-600 text-xs mb-3">Reach thousands of North Country sports families every night.</p>
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold text-blue-400"
-                  style={{ fontFamily: 'var(--font-display)', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}>
-                  LEARN MORE →
-                </div>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold text-blue-400" style={{ fontFamily: 'var(--font-display)', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}>LEARN MORE →</div>
               </div>
             </Link>
           )}
