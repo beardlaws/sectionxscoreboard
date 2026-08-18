@@ -42,6 +42,7 @@ const navSections = [
       { href: '/admin/teams', label: 'Teams', icon: Users },
       { href: '/admin/sports', label: 'Sports', icon: Trophy },
       { href: '/admin/sponsors', label: 'Sponsors', icon: BarChart2 },
+      { href: '/admin/sponsors/analytics', label: 'Sponsor Analytics', icon: BarChart2 },
       { href: '/admin/alerts', label: 'Score Alerts', icon: Bell },
     ],
   },
@@ -62,17 +63,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const Sidebar = () => (
     <div className="flex flex-col h-full">
-      <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
+      <div className="p-4 flex items-center justify-between"
+        style={{ borderBottom: '1px solid var(--border)' }}>
         <Link href="/admin" className="flex items-center gap-2">
           <div className="w-7 h-7 rounded flex items-center justify-center text-white text-xs font-bold"
             style={{ background: 'var(--accent)', fontFamily: 'var(--font-display)' }}>
             SX
           </div>
-          <span className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+          <span className="font-semibold text-sm"
+            style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
             ADMIN
           </span>
         </Link>
-        <button className="md:hidden" style={{ color: 'var(--text-muted)' }} onClick={() => setSidebarOpen(false)}>
+        <button className="md:hidden" style={{ color: 'var(--text-muted)' }}
+          onClick={() => setSidebarOpen(false)}>
           <X size={18} />
         </button>
       </div>
@@ -102,7 +106,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </nav>
 
       <div className="p-3" style={{ borderTop: '1px solid var(--border)' }}>
-        <Link href="/" className="flex items-center gap-2 px-2 py-2 rounded text-sm transition-colors"
+        <Link href="/"
+          className="flex items-center gap-2 px-2 py-2 rounded text-sm transition-colors"
           style={{ color: 'var(--text-muted)' }}>
           <Home size={14} />
           View Site
@@ -120,7 +125,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {sidebarOpen && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setSidebarOpen(false)} />
+          <div className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            onClick={() => setSidebarOpen(false)} />
           <aside className="fixed left-0 top-0 bottom-0 z-50 w-56 md:hidden flex flex-col"
             style={{ background: 'var(--bg-card)', borderRight: '1px solid var(--border)' }}>
             <Sidebar />
@@ -131,7 +137,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="md:hidden flex items-center gap-3 px-4 h-12 flex-shrink-0"
           style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
-          <button onClick={() => setSidebarOpen(true)} style={{ color: 'var(--text-secondary)' }}>
+          <button onClick={() => setSidebarOpen(true)}
+            style={{ color: 'var(--text-secondary)' }}>
             <Menu size={20} />
           </button>
           <span className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>
