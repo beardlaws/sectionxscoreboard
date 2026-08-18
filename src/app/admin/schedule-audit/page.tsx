@@ -10,7 +10,7 @@ export default async function ScheduleAuditPage() {
   const supabase = createClient()
 
   const [
-    { data: teams },
+    { data: rawTeams },
     { data: sports },
     { data: seasons },
     { data: games },
@@ -76,10 +76,33 @@ export default async function ScheduleAuditPage() {
       `),
   ])
 
+  /*
+    Supabase may type the joined school relation as an array
+    even though each team belongs to one school.
+
+    Normalize it here so the client component always receives
+    a single school object or null.
+  */
+  const teams =
+    (rawTeams || []).map((team: any) => {
+      const school = Array.isArray(team.school)
+        ? team.school[0] || null
+        : team.school || null
+
+      return {
+        id: team.id,
+        team_name: team.team_name,
+        sport_id: team.sport_id,
+        level: team.level,
+        active: team.active,
+        school,
+      }
+    })
+
   return (
     <AdminLayout>
       <ScheduleAudit
-        teams={teams || []}
+        teams={teams}
         sports={sports || []}
         seasons={seasons || []}
         games={games || []}
