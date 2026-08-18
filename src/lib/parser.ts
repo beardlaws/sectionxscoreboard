@@ -390,3 +390,4 @@ export function parseCSV(text: string): Record<string, string>[] {
     return row
   })
 }
+export function parsePastedGames(...)
