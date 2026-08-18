@@ -1276,8 +1276,7 @@ export function parseArbiterSchedule(
 
       duplicate_warning: false,
 
-      approved:
-        confidence !== 'Low',
+      approved: true,
 
       error: null,
 
