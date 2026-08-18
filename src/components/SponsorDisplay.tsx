@@ -1,7 +1,4 @@
 // src/components/SponsorDisplay.tsx
-// Universal sponsor display with click + impression tracking
-// Drop this anywhere a sponsor should show
-
 'use client'
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -17,19 +14,16 @@ interface Sponsor {
 
 interface Props {
   sponsor: Sponsor
-  placement: string   // e.g. 'homepage', 'school', 'sport', 'scores', 'playoff'
-  pagePath: string    // e.g. '/schools/canton', '/sports/football'
+  placement: string
+  pagePath: string
   variant?: 'hero' | 'banner' | 'card' | 'compact'
 }
 
 const supabase = createClient()
 
-export default function SponsorDisplay({
-  sponsor, placement, pagePath, variant = 'banner'
-}: Props) {
+export default function SponsorDisplay({ sponsor, placement, pagePath, variant = 'banner' }: Props) {
   const tracked = useRef(false)
 
-  // Track impression once on mount
   useEffect(() => {
     if (tracked.current) return
     tracked.current = true
@@ -41,152 +35,132 @@ export default function SponsorDisplay({
   }, [sponsor.id, pagePath, placement])
 
   async function handleClick() {
-    // Track click
     await supabase.from('sponsor_clicks').insert({
       sponsor_id: sponsor.id,
       page_path: pagePath,
       placement_type: placement,
     })
-    // Open website
     if (sponsor.website_url) {
       window.open(sponsor.website_url, '_blank', 'noopener,noreferrer')
     }
   }
 
-  // ── HERO variant (homepage presenting sponsor - large) ──
+  // ── HERO — homepage sidebar, large and prominent ──
   if (variant === 'hero') {
     return (
-      <div
-        onClick={handleClick}
-        className="block rounded-2xl overflow-hidden transition-all group cursor-pointer hover:-translate-y-0.5"
-        style={{
-          background: 'linear-gradient(135deg, rgba(37,99,235,0.15) 0%, rgba(8,12,24,0.95) 60%)',
-          border: '1px solid rgba(37,99,235,0.25)',
-          boxShadow: '0 8px 32px rgba(37,99,235,0.15)',
-        }}>
-        <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
-          <p className="text-xs font-black uppercase tracking-widest"
-            style={{ fontFamily: 'var(--font-display)', color: '#3b82f6', letterSpacing: '0.14em' }}>
+      <div onClick={handleClick} className="rounded-2xl overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 group"
+        style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.18) 0%, rgba(8,12,24,0.97) 60%)', border: '1px solid rgba(37,99,235,0.3)', boxShadow: '0 8px 32px rgba(37,99,235,0.18)' }}>
+        <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'rgba(37,99,235,0.18)' }}>
+          <p className="text-xs font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: '#3b82f6', letterSpacing: '0.14em' }}>
             Tonight's Scores Presented By
           </p>
+          <span className="text-xs text-blue-400 opacity-60">AD</span>
         </div>
-        <div className="px-4 py-4 flex items-center gap-4">
-          {sponsor.logo_url && (
-            <img src={sponsor.logo_url} alt={sponsor.business_name}
-              className="w-16 h-16 object-contain rounded-xl flex-shrink-0 border border-white/10"
-              style={{ background: 'rgba(255,255,255,0.05)' }} />
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="font-black text-white leading-tight mb-1"
-              style={{ fontFamily: 'var(--font-display)', fontSize: '22px' }}>
-              {sponsor.business_name}
-            </p>
-            {sponsor.tagline && (
-              <p className="text-slate-400 text-sm">{sponsor.tagline}</p>
+        <div className="px-4 py-4">
+          <div className="flex items-center gap-3 mb-3">
+            {sponsor.logo_url ? (
+              <img src={sponsor.logo_url} alt={sponsor.business_name}
+                className="w-14 h-14 object-contain rounded-xl flex-shrink-0 border border-white/15 shadow-lg"
+                style={{ background: 'rgba(255,255,255,0.06)' }} />
+            ) : (
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-white text-lg border border-white/15"
+                style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>
+                {sponsor.business_name.slice(0, 2).toUpperCase()}
+              </div>
             )}
-          </div>
-          <div className="flex-shrink-0">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-black text-sm text-white"
-              style={{
-                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                fontFamily: 'var(--font-display)',
-                letterSpacing: '0.06em',
-                boxShadow: '0 4px 16px rgba(37,99,235,0.4)',
-              }}>
-              VISIT →
+            <div className="min-w-0">
+              <p className="font-black text-white leading-tight"
+                style={{ fontFamily: 'var(--font-display)', fontSize: '20px', letterSpacing: '0.02em' }}>
+                {sponsor.business_name}
+              </p>
+              {sponsor.tagline && (
+                <p className="text-slate-400 text-xs mt-0.5">{sponsor.tagline}</p>
+              )}
             </div>
+          </div>
+          <div className="w-full py-2.5 rounded-xl font-black text-sm text-white text-center transition-all group-hover:brightness-110"
+            style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', boxShadow: '0 4px 16px rgba(37,99,235,0.4)' }}>
+            VISIT {sponsor.business_name.toUpperCase()} →
           </div>
         </div>
       </div>
     )
   }
 
-  // ── BANNER variant (scores page, playoffs - full width slim) ──
+  // ── BANNER — scores/playoffs/sport pages, full width slim ──
   if (variant === 'banner') {
     return (
-      <div
-        onClick={handleClick}
-        className="flex items-center gap-3 rounded-xl px-4 py-3 transition-all hover:-translate-y-0.5 cursor-pointer"
-        style={{
-          background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(8,12,20,0.8))',
-          border: '1px solid rgba(37,99,235,0.2)',
-        }}>
-        {sponsor.logo_url && (
+      <div onClick={handleClick}
+        className="flex items-center gap-3 rounded-xl px-4 py-3 transition-all hover:-translate-y-0.5 cursor-pointer group"
+        style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,20,0.85))', border: '1px solid rgba(37,99,235,0.22)' }}>
+        {sponsor.logo_url ? (
           <img src={sponsor.logo_url} alt={sponsor.business_name}
             className="w-10 h-10 object-contain rounded-lg flex-shrink-0 border border-white/10"
             style={{ background: 'rgba(255,255,255,0.05)' }} />
+        ) : (
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white text-xs"
+            style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>
+            {sponsor.business_name.slice(0, 2).toUpperCase()}
+          </div>
         )}
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-slate-500"
-            style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>
+          <p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>
             {placement === 'scores' ? 'SCORES PRESENTED BY'
               : placement === 'playoff' ? 'PLAYOFFS PRESENTED BY'
-              : placement === 'sport' ? 'COVERAGE BY'
+              : placement === 'sport' ? 'COVERAGE SPONSORED BY'
               : 'PRESENTED BY'}
           </p>
-          <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-            {sponsor.business_name}
-          </p>
-          {sponsor.tagline && (
-            <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>
-          )}
+          <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>
+          {sponsor.tagline && <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>}
         </div>
-        <span className="text-xs font-black text-blue-400 flex-shrink-0 px-3 py-1.5 rounded-lg"
-          style={{ background: 'rgba(37,99,235,0.15)', fontFamily: 'var(--font-display)', border: '1px solid rgba(37,99,235,0.25)' }}>
+        <span className="text-xs font-black text-white px-3 py-1.5 rounded-lg flex-shrink-0 transition-all group-hover:brightness-110"
+          style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
           VISIT →
         </span>
       </div>
     )
   }
 
-  // ── CARD variant (school pages - sidebar) ──
+  // ── CARD — school sidebar ──
   if (variant === 'card') {
     return (
-      <div
-        onClick={handleClick}
-        className="rounded-xl overflow-hidden transition-all hover:-translate-y-0.5 cursor-pointer"
-        style={{
-          background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))',
-          border: '1px solid rgba(37,99,235,0.25)',
-        }}>
-        <div className="px-4 py-2 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
-          <p className="text-xs font-black text-blue-400 uppercase tracking-widest"
-            style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>
+      <div onClick={handleClick} className="rounded-xl overflow-hidden transition-all hover:-translate-y-0.5 cursor-pointer group"
+        style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))', border: '1px solid rgba(37,99,235,0.25)' }}>
+        <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
+          <p className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>
             School Sponsor
           </p>
+          <span className="text-xs text-blue-400 opacity-40">AD</span>
         </div>
         <div className="px-4 py-3 flex items-center gap-3">
-          {sponsor.logo_url && (
+          {sponsor.logo_url ? (
             <img src={sponsor.logo_url} alt={sponsor.business_name}
-              className="w-10 h-10 object-contain rounded-lg flex-shrink-0"
+              className="w-10 h-10 object-contain rounded-lg flex-shrink-0 border border-white/10"
               style={{ background: 'rgba(255,255,255,0.05)' }} />
+          ) : (
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white text-xs"
+              style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>
+              {sponsor.business_name.slice(0, 2).toUpperCase()}
+            </div>
           )}
           <div className="min-w-0 flex-1">
-            <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-              {sponsor.business_name}
-            </p>
-            {sponsor.tagline && (
-              <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>
-            )}
+            <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>
+            {sponsor.tagline && <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>}
           </div>
-          <span className="text-xs text-blue-400 ml-auto flex-shrink-0 font-bold"
-            style={{ fontFamily: 'var(--font-display)' }}>
-            Visit →
-          </span>
+          <span className="text-xs font-black text-blue-400 flex-shrink-0 group-hover:text-blue-300"
+            style={{ fontFamily: 'var(--font-display)' }}>Visit →</span>
         </div>
       </div>
     )
   }
 
-  // ── COMPACT variant (small inline placements) ──
+  // ── COMPACT ──
   return (
-    <div
-      onClick={handleClick}
+    <div onClick={handleClick}
       className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition-all hover:bg-white/5"
       style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
       {sponsor.logo_url && (
-        <img src={sponsor.logo_url} alt={sponsor.business_name}
-          className="w-6 h-6 object-contain rounded flex-shrink-0" />
+        <img src={sponsor.logo_url} alt={sponsor.business_name} className="w-5 h-5 object-contain rounded flex-shrink-0" />
       )}
       <span className="text-xs text-slate-300 font-bold truncate">{sponsor.business_name}</span>
       <span className="text-xs text-blue-400 ml-auto flex-shrink-0">→</span>
