@@ -391,3 +391,461 @@ export function parseCSV(text: string): Record<string, string>[] {
   })
 }
 export function parsePastedGames(...)
+interface ArbiterParseOptions extends ParseOptions {
+  sourceTeamId: string
+  year: number
+}
+
+const ARBITER_DAY =
+  '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
+
+const ARBITER_MONTH =
+  '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
+
+function arbiterMonthNumber(month: string): string {
+  const months: Record<string, string> = {
+    jan: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12',
+  }
+
+  return months[month.toLowerCase()] || '01'
+}
+
+function cleanArbiterText(text: string): string {
+  let cleaned = text
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Remove Arbiter column header if it came along with the copy/paste
+  cleaned = cleaned.replace(
+    /^.*?Date\/Time\s+Home or Away\s+Opponent\s+Location\s+Results\s+Type\s+Links\s*/i,
+    ''
+  )
+
+  // If anything still exists before the first actual game, remove it
+  const firstGame = cleaned.search(
+    new RegExp(`\\b${ARBITER_DAY}\\s+${ARBITER_MONTH}\\s+\\d{1,2}\\s+\\d{1,2}:\\d{2}\\s+(?:AM|PM)\\b`, 'i')
+  )
+
+  if (firstGame > 0) {
+    cleaned = cleaned.slice(firstGame)
+  }
+
+  return cleaned.trim()
+}
+
+function findKnownOpponentPrefix(
+  text: string,
+  teams: TeamRecord[],
+  sourceTeamId: string
+): {
+  opponent: string
+  location: string | null
+  resolution: ReturnType<typeof resolveTeamName>
+} | null {
+  const words = text.split(/\s+/).filter(Boolean)
+
+  let best:
+    | {
+        opponent: string
+        location: string | null
+        resolution: ReturnType<typeof resolveTeamName>
+        wordCount: number
+      }
+    | null = null
+
+  const maxWords = Math.min(words.length, 12)
+
+  for (let i = 1; i <= maxWords; i++) {
+    const candidate = words.slice(0, i).join(' ')
+    const resolution = resolveTeamName(candidate, teams)
+
+    if (!resolution.id || resolution.id === sourceTeamId) continue
+
+    if (resolution.confidence === 'High') {
+      best = {
+        opponent: candidate,
+        location: words.slice(i).join(' ').trim() || null,
+        resolution,
+        wordCount: i,
+      }
+    } else if (resolution.confidence === 'Medium' && !best) {
+      best = {
+        opponent: candidate,
+        location: words.slice(i).join(' ').trim() || null,
+        resolution,
+        wordCount: i,
+      }
+    }
+  }
+
+  if (!best) return null
+
+  return {
+    opponent: best.opponent,
+    location: best.location,
+    resolution: best.resolution,
+  }
+}
+
+function splitExternalOpponentAndLocation(
+  text: string,
+  sourceTeam: TeamRecord,
+  homeOrAway: '@' | 'vs'
+): {
+  opponent: string
+  location: string | null
+} {
+  let working = text.trim()
+
+  // Arbiter occasionally adds things like "with 1 others"
+  working = working.replace(/\s+with\s+\d+\s+others?\b/i, '')
+
+  // HOME GAME:
+  // Arbiter location often begins with the source school's name.
+  // Example:
+  // "Beekmantown Central High School Ogdensburg Free Academy Turf Field"
+  if (homeOrAway === 'vs') {
+    const possibleLocationStarts = [
+      sourceTeam.school_name,
+      sourceTeam.team_name,
+      ...sourceTeam.aliases,
+    ]
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+
+    for (const name of possibleLocationStarts) {
+      const index = working.toLowerCase().indexOf(name.toLowerCase())
+
+      if (index > 0) {
+        return {
+          opponent: working.slice(0, index).trim(),
+          location: working.slice(index).trim(),
+        }
+      }
+    }
+  }
+
+  // External schools usually have a recognizable school suffix.
+  // This allows:
+  // "Carthage Central High School Lowville Main Turf"
+  // to become opponent + location.
+  const schoolSuffixMatch = working.match(
+    /^(.+?(?:Central High School|Central School|High School|Junior Senior High School|Jr\.?\s*\/?\s*Sr\.?\s*High School|Academy|School District|CSD))\b\s*(.*)$/i
+  )
+
+  if (schoolSuffixMatch) {
+    return {
+      opponent: schoolSuffixMatch[1].trim(),
+      location: schoolSuffixMatch[2].trim() || null,
+    }
+  }
+
+  // Last-resort fallback:
+  // keep the whole value as the opponent instead of inventing a split.
+  return {
+    opponent: working,
+    location: null,
+  }
+}
+
+export function parseArbiterSchedule(
+  text: string,
+  options: ArbiterParseOptions
+): ParsedGameRow[] {
+  fuseInstance = null
+
+  const sourceTeam = options.teams.find(t => t.id === options.sourceTeamId)
+
+  if (!sourceTeam) {
+    return [
+      {
+        id: Math.random().toString(36).slice(2),
+        raw: text,
+        game_date: null,
+        home_team_name: null,
+        away_team_name: null,
+        home_score: null,
+        away_score: null,
+        status: 'Scheduled',
+        game_time: null,
+        location: null,
+        notes: null,
+        rescheduled_date: null,
+        game_number: null,
+        neutral_site: false,
+        event_name: null,
+        confidence: 'Low',
+        confidence_notes: ['Could not find the selected schedule team'],
+        home_team_id: null,
+        away_team_id: null,
+        home_team_match: null,
+        away_team_match: null,
+        external_home_name: null,
+        external_away_name: null,
+        duplicate_warning: false,
+        approved: false,
+        error: 'Selected Arbiter schedule team was not found',
+        sport_id: options.defaultSportId || null,
+      },
+    ]
+  }
+
+  const cleaned = cleanArbiterText(text)
+
+  // Arbiter copy/paste often becomes one huge line.
+  // Split it whenever another game date begins.
+  const chunks = cleaned
+    .split(
+      new RegExp(
+        `(?=\\b${ARBITER_DAY}\\s+${ARBITER_MONTH}\\s+\\d{1,2}\\s+\\d{1,2}:\\d{2}\\s+(?:AM|PM)\\b)`,
+        'i'
+      )
+    )
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const results: ParsedGameRow[] = []
+
+  for (const chunk of chunks) {
+    const header = chunk.match(
+      new RegExp(
+        `^${ARBITER_DAY}\\s+(${ARBITER_MONTH.replace('(?:', '').replace(')', '')})\\s+(\\d{1,2})\\s+(\\d{1,2}:\\d{2}\\s+(?:AM|PM))\\s+(@|vs)\\s+(.+)$`,
+        'i'
+      )
+    )
+
+    // Safer explicit fallback regex in case the generated month group is unhappy
+    const match =
+      header ||
+      chunk.match(
+        /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{1,2}:\d{2}\s+(?:AM|PM))\s+(@|vs)\s+(.+)$/i
+      )
+
+    if (!match) {
+      results.push({
+        id: Math.random().toString(36).slice(2),
+        raw: chunk,
+        game_date: null,
+        home_team_name: null,
+        away_team_name: null,
+        home_score: null,
+        away_score: null,
+        status: 'Scheduled',
+        game_time: null,
+        location: null,
+        notes: null,
+        rescheduled_date: null,
+        game_number: null,
+        neutral_site: false,
+        event_name: null,
+        confidence: 'Low',
+        confidence_notes: ['Could not parse Arbiter date/time/home-away format'],
+        home_team_id: null,
+        away_team_id: null,
+        home_team_match: null,
+        away_team_match: null,
+        external_home_name: null,
+        external_away_name: null,
+        duplicate_warning: false,
+        approved: false,
+        error: 'Could not parse Arbiter row',
+        sport_id: options.defaultSportId || null,
+      })
+
+      continue
+    }
+
+    const month = arbiterMonthNumber(match[1])
+    const day = match[2].padStart(2, '0')
+    const gameDate = `${options.year}-${month}-${day}`
+    const gameTime = match[3]
+    const homeOrAway = match[4].toLowerCase() as '@' | 'vs'
+
+    let tail = match[5]
+      .replace(/^Opponent\s+logo\s+/i, '')
+      .trim()
+
+    // Last Arbiter column is the game type:
+    // L = League
+    // N = Non-League
+    // S = Scrimmage
+    let arbiterType: string | null = null
+
+    const typeMatch = tail.match(/\s+([LNS])\s*$/i)
+
+    if (typeMatch) {
+      const code = typeMatch[1].toUpperCase()
+
+      arbiterType =
+        code === 'L'
+          ? 'League'
+          : code === 'N'
+            ? 'Non-League'
+            : 'Scrimmage'
+
+      tail = tail.slice(0, typeMatch.index).trim()
+    }
+
+    let opponentName = ''
+    let location: string | null = null
+    let opponentResolution:
+      | ReturnType<typeof resolveTeamName>
+      | null = null
+
+    const known = findKnownOpponentPrefix(
+      tail,
+      options.teams,
+      options.sourceTeamId
+    )
+
+    if (known) {
+      opponentName = known.opponent
+      location = known.location
+      opponentResolution = known.resolution
+    } else {
+      const split = splitExternalOpponentAndLocation(
+        tail,
+        sourceTeam,
+        homeOrAway
+      )
+
+      opponentName = split.opponent
+      location = split.location
+      opponentResolution = resolveTeamName(opponentName, options.teams)
+    }
+
+    const opponentIsInternal =
+      !!opponentResolution?.id &&
+      opponentResolution.id !== options.sourceTeamId
+
+    const opponentTeamId = opponentIsInternal
+      ? opponentResolution!.id
+      : null
+
+    const opponentDisplay =
+      opponentIsInternal
+        ? opponentResolution!.matched
+        : opponentName
+
+    let homeTeamName: string
+    let awayTeamName: string
+    let homeTeamId: string | null
+    let awayTeamId: string | null
+    let homeTeamMatch: string | null
+    let awayTeamMatch: string | null
+    let externalHomeName: string | null = null
+    let externalAwayName: string | null = null
+
+    if (homeOrAway === 'vs') {
+      homeTeamName = sourceTeam.school_name
+      awayTeamName = opponentName
+
+      homeTeamId = sourceTeam.id
+      awayTeamId = opponentTeamId
+
+      homeTeamMatch = sourceTeam.school_name
+      awayTeamMatch = opponentIsInternal
+        ? opponentDisplay
+        : `[EXT] ${opponentName}`
+
+      if (!opponentIsInternal) {
+        externalAwayName = opponentName
+      }
+    } else {
+      homeTeamName = opponentName
+      awayTeamName = sourceTeam.school_name
+
+      homeTeamId = opponentTeamId
+      awayTeamId = sourceTeam.id
+
+      homeTeamMatch = opponentIsInternal
+        ? opponentDisplay
+        : `[EXT] ${opponentName}`
+
+      awayTeamMatch = sourceTeam.school_name
+
+      if (!opponentIsInternal) {
+        externalHomeName = opponentName
+      }
+    }
+
+    const confidence: ImportConfidence =
+      opponentIsInternal ? 'High' : 'Medium'
+
+    const confidenceNotes = [
+      `Arbiter ${homeOrAway === 'vs' ? 'home' : 'away'} game`,
+      opponentIsInternal
+        ? `Opponent matched: ${opponentDisplay}`
+        : `External opponent: ${opponentName}`,
+    ]
+
+    if (arbiterType) {
+      confidenceNotes.push(`Type: ${arbiterType}`)
+    }
+
+    if (location) {
+      confidenceNotes.push(`Location: ${location}`)
+    }
+
+    results.push({
+      id: Math.random().toString(36).slice(2),
+      raw: chunk,
+
+      game_date: gameDate,
+
+      home_team_name: homeTeamName,
+      away_team_name: awayTeamName,
+
+      home_score: null,
+      away_score: null,
+
+      status: 'Scheduled',
+      game_time: gameTime,
+
+      location,
+      notes: arbiterType ? `Arbiter type: ${arbiterType}` : null,
+
+      rescheduled_date: null,
+      game_number: null,
+
+      neutral_site: false,
+      event_name: null,
+
+      confidence,
+      confidence_notes: confidenceNotes,
+
+      home_team_id: homeTeamId,
+      away_team_id: awayTeamId,
+
+      home_team_match: homeTeamMatch,
+      away_team_match: awayTeamMatch,
+
+      external_home_name: externalHomeName,
+      external_away_name: externalAwayName,
+
+      duplicate_warning: false,
+
+      approved: confidence !== 'Low',
+
+      error: null,
+
+      sport_id: options.defaultSportId || null,
+    })
+  }
+
+  return results
+}
