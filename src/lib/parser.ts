@@ -46,10 +46,6 @@ export function resetFuse() {
   fuseInstance = null
 }
 
-// ---------------------------------------------------------
-// DATE / HEADER HELPERS
-// ---------------------------------------------------------
-
 const DAY_NAMES =
   /^(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),?\s+/i
 
@@ -72,11 +68,11 @@ const MONTH_MAP: Record<string, string> = {
   OCTOBER: '10',
   NOVEMBER: '11',
   DECEMBER: '12',
+
   JAN: '01',
   FEB: '02',
   MAR: '03',
   APR: '04',
-  MAY: '05',
   JUN: '06',
   JUL: '07',
   AUG: '08',
@@ -121,10 +117,6 @@ function isHeaderLine(line: string): boolean {
   return false
 }
 
-// ---------------------------------------------------------
-// TEAM MATCHING
-// ---------------------------------------------------------
-
 function resolveTeamName(
   raw: string,
   teams: TeamRecord[]
@@ -145,7 +137,6 @@ function resolveTeamName(
     }
   }
 
-  // Constants alias match
   const aliasKey = Object.keys(SCHOOL_ALIASES).find(
     key => key.toLowerCase() === trimmed.toLowerCase()
   )
@@ -168,7 +159,6 @@ function resolveTeamName(
     }
   }
 
-  // Exact team or school name
   const exact = teams.find(
     team =>
       team.team_name.toLowerCase() === trimmed.toLowerCase() ||
@@ -187,7 +177,6 @@ function resolveTeamName(
     }
   }
 
-  // Common Section X abbreviations / variations
   const expanded = trimmed
     .replace(/^Madrid-Wadd\.$/i, 'Madrid-Waddington Central')
     .replace(/^Madrid-Wadd$/i, 'Madrid-Waddington Central')
@@ -222,7 +211,6 @@ function resolveTeamName(
     }
   }
 
-  // Partial match
   const partial = teams.find(team => {
     const school = team.school_name.toLowerCase()
     const input = trimmed.toLowerCase()
@@ -243,7 +231,6 @@ function resolveTeamName(
     }
   }
 
-  // Fuzzy match
   const fuse = getFuse(teams)
   const results = fuse.search(trimmed)
 
@@ -269,14 +256,8 @@ function resolveTeamName(
   }
 }
 
-// ---------------------------------------------------------
-// GENERAL TIME / DATE PARSING
-// ---------------------------------------------------------
-
 function parseTime(str: string): string | null {
-  const match = str.match(
-    /\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i
-  )
+  const match = str.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i)
 
   return match ? match[0] : null
 }
@@ -318,10 +299,6 @@ function parseDateFromLine(
   return defaultDate || null
 }
 
-// ---------------------------------------------------------
-// BULK PASTE PARSER
-// ---------------------------------------------------------
-
 export function parsePastedGames(
   text: string,
   options: ParseOptions
@@ -334,7 +311,6 @@ export function parsePastedGames(
     .filter(Boolean)
 
   const results: ParsedGameRow[] = []
-
   let currentDate = options.defaultDate || null
 
   for (const line of lines) {
@@ -349,8 +325,7 @@ export function parsePastedGames(
 
     const row = parseSingleLine(line, {
       ...options,
-      defaultDate:
-        currentDate || options.defaultDate,
+      defaultDate: currentDate || options.defaultDate,
     })
 
     results.push(row)
@@ -377,101 +352,52 @@ function parseSingleLine(
 
   let working = line
 
-  // Tournament/event
   const bracketMatch = working.match(/\[([^\]]+)\]/)
 
   if (bracketMatch) {
     eventName = bracketMatch[1]
-
-    working = working
-      .replace(bracketMatch[0], '')
-      .trim()
+    working = working.replace(bracketMatch[0], '').trim()
   }
 
-  // Neutral site
   if (/neutral\s*site/i.test(working)) {
     neutralSite = true
-
-    working = working
-      .replace(/neutral\s*site/gi, '')
-      .trim()
+    working = working.replace(/neutral\s*site/gi, '').trim()
   }
 
-  // Doubleheader number
   const doubleheaderMatch =
-    working.match(
-      /\((\d+)(?:st|nd|rd|th)?\s*game\)/i
-    ) ||
-    working.match(
-      /\((\d+)(?:st|nd|rd|th)\)/i
-    )
+    working.match(/\((\d+)(?:st|nd|rd|th)?\s*game\)/i) ||
+    working.match(/\((\d+)(?:st|nd|rd|th)\)/i)
 
   if (doubleheaderMatch) {
-    gameNumber = parseInt(
-      doubleheaderMatch[1],
-      10
-    )
-
-    working = working
-      .replace(doubleheaderMatch[0], '')
-      .trim()
+    gameNumber = parseInt(doubleheaderMatch[1], 10)
+    working = working.replace(doubleheaderMatch[0], '').trim()
   }
 
-  // Status
   if (/\bfinal\b/i.test(working)) {
     status = 'Final'
-
-    working = working
-      .replace(/\bfinal\b/gi, '')
-      .trim()
-  } else if (
-    /\bppd\.?\s+to\s+([\d/]+)/i.test(
-      working
-    )
-  ) {
+    working = working.replace(/\bfinal\b/gi, '').trim()
+  } else if (/\bppd\.?\s+to\s+([\d/]+)/i.test(working)) {
     const rescheduleMatch = working.match(
       /\bppd\.?\s+to\s+([\d/]+)/i
     )
 
     if (rescheduleMatch) {
-      rescheduledDate = parseDateFromLine(
-        rescheduleMatch[1]
-      )
+      rescheduledDate = parseDateFromLine(rescheduleMatch[1])
     }
 
     status = 'Postponed'
-
     working = working
-      .replace(
-        /\bppd\.?\s+to\s+[\d/]+/gi,
-        ''
-      )
+      .replace(/\bppd\.?\s+to\s+[\d/]+/gi, '')
       .trim()
-  } else if (
-    /\bppd\b|\bpostponed\b/i.test(
-      working
-    )
-  ) {
+  } else if (/\bppd\b|\bpostponed\b/i.test(working)) {
     status = 'Postponed'
-
     working = working
-      .replace(
-        /\b(ppd\.?|postponed)\b/gi,
-        ''
-      )
+      .replace(/\b(ppd\.?|postponed)\b/gi, '')
       .trim()
-  } else if (
-    /\bcanceled\b|\bcancelled\b/i.test(
-      working
-    )
-  ) {
+  } else if (/\bcanceled\b|\bcancelled\b/i.test(working)) {
     status = 'Canceled'
-
     working = working
-      .replace(
-        /\b(canceled|cancelled)\b/gi,
-        ''
-      )
+      .replace(/\b(canceled|cancelled)\b/gi, '')
       .trim()
   } else if (
     /\bsickness\b|\bweather\b|\bfield conditions\b/i.test(
@@ -479,25 +405,17 @@ function parseSingleLine(
     )
   ) {
     status = 'Postponed'
-
     working = working
-      .replace(
-        /\b(sickness|weather|field conditions)\b/gi,
-        ''
-      )
+      .replace(/\b(sickness|weather|field conditions)\b/gi, '')
       .trim()
   }
 
-  // Time
   gameTime = parseTime(working)
 
   if (gameTime) {
-    working = working
-      .replace(gameTime, '')
-      .trim()
+    working = working.replace(gameTime, '').trim()
   }
 
-  // Date
   const gameDate = parseDateFromLine(
     working,
     options.defaultDate
@@ -509,10 +427,7 @@ function parseSingleLine(
     gameDate !== options.defaultDate
   ) {
     working = working
-      .replace(
-        /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/,
-        ''
-      )
+      .replace(/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/, '')
       .trim()
   }
 
@@ -524,7 +439,6 @@ function parseSingleLine(
   let homeTeamName: string | null = null
   let awayTeamName: string | null = null
 
-  // "Away at Home"
   const atPattern = working.match(
     /^(.+?)\s+at\s+(.+?)(?:\s+(\d+)[-,\s]+(\d+))?$/i
   )
@@ -535,47 +449,30 @@ function parseSingleLine(
     let homePart = atPattern[2].trim()
 
     homePart = homePart
-      .replace(
-        /\s+\d{1,2}:\d{2}\s*(am|pm)?$/i,
-        ''
-      )
+      .replace(/\s+\d{1,2}:\d{2}\s*(am|pm)?$/i, '')
       .trim()
 
     homeTeamName = homePart
 
     if (atPattern[3] && atPattern[4]) {
-      awayScore = parseInt(
-        atPattern[3],
-        10
-      )
-
-      homeScore = parseInt(
-        atPattern[4],
-        10
-      )
+      awayScore = parseInt(atPattern[3], 10)
+      homeScore = parseInt(atPattern[4], 10)
 
       if (status === 'Scheduled') {
         status = 'Final'
       }
     }
   } else {
-    // "Away 5, Home 3"
     const scorePattern = working.match(
       /^(.+?)\s+(\d+)[,\s]+(.+?)\s+(\d+)\s*$/
     )
 
     if (scorePattern) {
       awayTeamName = scorePattern[1].trim()
-      awayScore = parseInt(
-        scorePattern[2],
-        10
-      )
+      awayScore = parseInt(scorePattern[2], 10)
 
       homeTeamName = scorePattern[3].trim()
-      homeScore = parseInt(
-        scorePattern[4],
-        10
-      )
+      homeScore = parseInt(scorePattern[4], 10)
 
       if (status === 'Scheduled') {
         status = 'Final'
@@ -633,10 +530,7 @@ function parseSingleLine(
 
   let confidence: ImportConfidence = 'High'
 
-  if (
-    homeTeamName &&
-    options.teams.length > 0
-  ) {
+  if (homeTeamName && options.teams.length > 0) {
     const result = resolveTeamName(
       homeTeamName,
       options.teams
@@ -647,21 +541,14 @@ function parseSingleLine(
 
     if (result.confidence === 'Low') {
       externalHomeName = homeTeamName
-    } else if (
-      result.confidence === 'Medium'
-    ) {
+    } else if (result.confidence === 'Medium') {
       confidence = 'Medium'
     }
 
-    confidenceNotes.push(
-      `Home: ${result.note}`
-    )
+    confidenceNotes.push(`Home: ${result.note}`)
   }
 
-  if (
-    awayTeamName &&
-    options.teams.length > 0
-  ) {
+  if (awayTeamName && options.teams.length > 0) {
     const result = resolveTeamName(
       awayTeamName,
       options.teams
@@ -679,9 +566,7 @@ function parseSingleLine(
       confidence = 'Medium'
     }
 
-    confidenceNotes.push(
-      `Away: ${result.note}`
-    )
+    confidenceNotes.push(`Away: ${result.note}`)
   }
 
   const homeResolved = !!homeTeamId
@@ -689,18 +574,12 @@ function parseSingleLine(
 
   if (!homeTeamName || !awayTeamName) {
     confidence = 'Low'
-  } else if (
-    homeResolved !== awayResolved
-  ) {
+  } else if (homeResolved !== awayResolved) {
     confidence = 'Medium'
-
     confidenceNotes.push(
       'Non-league game vs external opponent'
     )
-  } else if (
-    !homeResolved &&
-    !awayResolved
-  ) {
+  } else if (!homeResolved && !awayResolved) {
     confidence = 'Low'
   }
 
@@ -729,11 +608,8 @@ function parseSingleLine(
         ? `[EXT] ${externalAwayName}`
         : null),
 
-    external_home_name:
-      externalHomeName,
-
-    external_away_name:
-      externalAwayName,
+    external_home_name: externalHomeName,
+    external_away_name: externalAwayName,
 
     home_score: homeScore,
     away_score: awayScore,
@@ -743,37 +619,26 @@ function parseSingleLine(
     location: null,
     notes: null,
 
-    rescheduled_date:
-      rescheduledDate,
-
+    rescheduled_date: rescheduledDate,
     game_number: gameNumber,
 
     neutral_site: neutralSite,
     event_name: eventName,
 
     confidence,
-    confidence_notes:
-      confidenceNotes,
+    confidence_notes: confidenceNotes,
 
     duplicate_warning: false,
 
-    approved:
-      confidence !== 'Low',
+    approved: confidence !== 'Low',
 
     error: null,
 
-    sport_id:
-      options.defaultSportId || null,
+    sport_id: options.defaultSportId || null,
   }
 }
 
-// ---------------------------------------------------------
-// ARBITER PARSER
-// ---------------------------------------------------------
-
-function cleanArbiterText(
-  text: string
-): string {
+function cleanArbiterText(text: string): string {
   let cleaned = text
     .replace(/\u00a0/g, ' ')
     .replace(/\r?\n/g, ' ')
@@ -781,32 +646,20 @@ function cleanArbiterText(
     .replace(/\s+/g, ' ')
     .trim()
 
-  // Remove Arbiter column headings
   cleaned = cleaned.replace(
     /Date\/Time\s+Home or Away\s+Opponent\s+Location\s+Results\s+Type\s+Links\s*/i,
     ''
   )
 
-  // Find first actual scheduled game
   const firstGameIndex = cleaned.search(
     /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}\s+(?:AM|PM)\b/i
   )
 
   if (firstGameIndex > 0) {
-    cleaned = cleaned.slice(
-      firstGameIndex
-    )
+    cleaned = cleaned.slice(firstGameIndex)
   }
 
   return cleaned.trim()
-}
-
-function normalizeForComparison(
-  value: string
-): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
 }
 
 function getTeamSearchNames(
@@ -849,8 +702,6 @@ function findInternalOpponentFromTail(
     }
   }
 
-  // Longest names first so "Canton Central School"
-  // wins before a shorter alias such as "Canton"
   candidates.sort(
     (a, b) =>
       b.searchName.length -
@@ -863,19 +714,13 @@ function findInternalOpponentFromTail(
         candidate.searchName.toLowerCase()
       )
     ) {
-      const opponentText =
-        tail
-          .slice(
-            0,
-            candidate.searchName.length
-          )
-          .trim()
+      const opponentText = tail
+        .slice(0, candidate.searchName.length)
+        .trim()
 
       const locationText =
         tail
-          .slice(
-            candidate.searchName.length
-          )
+          .slice(candidate.searchName.length)
           .trim() || null
 
       return {
@@ -886,8 +731,6 @@ function findInternalOpponentFromTail(
     }
   }
 
-  // Second pass for Arbiter name variations such as
-  // "Franklin Academy - Malone CSD"
   const words = tail
     .split(/\s+/)
     .filter(Boolean)
@@ -965,10 +808,8 @@ function findInternalOpponentFromTail(
 
   return {
     team: bestMatch.team,
-    opponentText:
-      bestMatch.opponentText,
-    locationText:
-      bestMatch.locationText,
+    opponentText: bestMatch.opponentText,
+    locationText: bestMatch.locationText,
   }
 }
 
@@ -980,16 +821,13 @@ function splitExternalOpponent(
   opponent: string
   location: string | null
 } {
-  let working = tail
+  const working = tail
     .replace(
       /\s+with\s+\d+\s+others?\b/i,
       ''
     )
     .trim()
 
-  // Home games normally use the selected school's
-  // facility, making the source school name a very
-  // useful location delimiter.
   if (direction === 'vs') {
     const sourceNames =
       getTeamSearchNames(sourceTeam)
@@ -1021,9 +859,6 @@ function splitExternalOpponent(
     }
   }
 
-  // Common school-name endings used by outside opponents.
-  // Example:
-  // "Carthage Central High School Lowville Main Turf"
   const schoolEnding =
     working.match(
       /^(.+?(?:Central High School|Central School|High School|Junior Senior High School|Junior\/Senior High School|Jr\.?\s*\/?\s*Sr\.?\s*High School|Academy|School District|CSD))\b\s*(.*)$/i
@@ -1129,9 +964,6 @@ export function parseArbiterSchedule(
   const cleaned =
     cleanArbiterText(text)
 
-  // Arbiter often pastes every schedule row
-  // as a single continuous block. Split at each
-  // new date/time.
   const chunks = cleaned
     .split(
       /(?=\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}\s+(?:AM|PM)\b)/i
@@ -1183,10 +1015,6 @@ export function parseArbiterSchedule(
       )
       .trim()
 
-    // Arbiter type:
-    // L = League
-    // N = Non-League
-    // S = Scrimmage
     let arbiterType:
       | 'League'
       | 'Non-League'
@@ -1262,7 +1090,6 @@ export function parseArbiterSchedule(
         external.location
     }
 
-    // Clean any Arbiter "with X others" residue.
     opponentName =
       opponentName
         .replace(
@@ -1308,7 +1135,6 @@ export function parseArbiterSchedule(
       | null = null
 
     if (direction === 'vs') {
-      // Selected schedule team is HOME
       homeTeamName =
         sourceTeam.school_name
 
@@ -1334,7 +1160,6 @@ export function parseArbiterSchedule(
           opponentName
       }
     } else {
-      // Selected schedule team is AWAY
       homeTeamName =
         opponentName
 
@@ -1464,10 +1289,6 @@ export function parseArbiterSchedule(
 
   return results
 }
-
-// ---------------------------------------------------------
-// CSV PARSER
-// ---------------------------------------------------------
 
 export function parseCSV(
   text: string
