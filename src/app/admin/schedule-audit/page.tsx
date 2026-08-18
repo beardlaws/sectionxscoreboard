@@ -1,13 +1,22 @@
 // src/app/admin/schedule-audit/page.tsx
 
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import AdminLayout from '@/components/layout/AdminLayout'
 import ScheduleAudit from './ScheduleAudit'
 
 export const revalidate = 0
 
+function getAdminClient() {
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
+
 export default async function ScheduleAuditPage() {
   const supabase = createClient()
+  const adminSupabase = getAdminClient()
 
   const [
     { data: rawTeams },
@@ -63,7 +72,14 @@ export default async function ScheduleAuditPage() {
         game_number
       `),
 
-    supabase
+    /*
+      game_import_sources is admin-only infrastructure
+      protected by RLS.
+
+      Read it with the server-side secret-key client so
+      the Schedule Audit can see import tracking records.
+    */
+    adminSupabase
       .from('game_import_sources')
       .select(`
         id,
@@ -106,9 +122,7 @@ export default async function ScheduleAuditPage() {
         sports={sports || []}
         seasons={seasons || []}
         games={games || []}
-        importSources={
-          importSources || []
-        }
+        importSources={importSources || []}
       />
     </AdminLayout>
   )
