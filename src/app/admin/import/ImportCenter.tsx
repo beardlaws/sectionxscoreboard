@@ -1,10 +1,17 @@
 // src/app/admin/import/ImportCenter.tsx
 'use client'
 
-import { useState, useMemo } from 'react'
-import { parsePastedGames, parseArbiterSchedule } from '@/lib/parser'
+import { useMemo, useState } from 'react'
 import { format } from 'date-fns'
-import type { ParsedGameRow, Sport, Season } from '@/types'
+import {
+  parseArbiterSchedule,
+  parsePastedGames,
+} from '@/lib/parser'
+import type {
+  ParsedGameRow,
+  Season,
+  Sport,
+} from '@/types'
 
 interface Team {
   id: string
@@ -24,7 +31,7 @@ interface Props {
   seasons: Season[]
 }
 
-type Tab = 'paste' | 'csv' | 'arbiter' | 'history'
+type Tab = 'paste' | 'csv' | 'arbiter'
 
 export default function ImportCenter({
   teams,
@@ -38,15 +45,18 @@ export default function ImportCenter({
     format(new Date(), 'yyyy-MM-dd')
   )
 
-  const [defaultSportId, setDefaultSportId] = useState('')
+  const [defaultSportId, setDefaultSportId] =
+    useState('')
 
-  const [defaultSeasonId, setDefaultSeasonId] = useState(
-    seasons.find(s => s.is_active)?.id ||
-      seasons[0]?.id ||
-      ''
-  )
+  const [defaultSeasonId, setDefaultSeasonId] =
+    useState(
+      seasons.find(season => season.is_active)?.id ||
+        seasons[0]?.id ||
+        ''
+    )
 
-  const [arbiterTeamId, setArbiterTeamId] = useState('')
+  const [arbiterTeamId, setArbiterTeamId] =
+    useState('')
 
   const [parsedRows, setParsedRows] = useState<
     ParsedGameRow[]
@@ -62,60 +72,49 @@ export default function ImportCenter({
   const [skipNonFinal, setSkipNonFinal] =
     useState(true)
 
-  const [
-    publishResult,
-    setPublishResult,
-  ] = useState<{
-    published: number
-    skipped: number
-    errors?: string[]
-    errorMsg?: string
-  } | null>(null)
+  const [publishResult, setPublishResult] =
+    useState<{
+      published: number
+      skipped: number
+      errors?: string[]
+      trackingErrors?: string[]
+      errorMsg?: string
+    } | null>(null)
 
-  // Only pass teams matching the selected sport to the parser.
+  // Only teams for the selected sport are sent to the parser.
   const teamRecords = useMemo(() => {
     const filtered = defaultSportId
       ? teams.filter(
-          team =>
-            team.sport_id ===
-            defaultSportId
+          team => team.sport_id === defaultSportId
         )
       : teams
 
     return filtered.map(team => ({
       id: team.id,
       team_name: team.team_name,
-      school_name:
-        team.school?.school_name || '',
-      slug:
-        team.school?.slug || '',
-      aliases:
-        team.school?.alias
-          ? [team.school.alias]
-          : [],
+      school_name: team.school?.school_name || '',
+      slug: team.school?.slug || '',
+      aliases: team.school?.alias
+        ? [team.school.alias]
+        : [],
     }))
   }, [teams, defaultSportId])
 
   const selectedSeason = useMemo(
     () =>
       seasons.find(
-        season =>
-          season.id ===
-          defaultSeasonId
+        season => season.id === defaultSeasonId
       ),
     [seasons, defaultSeasonId]
   )
 
-  const selectedArbiterTeam =
-    useMemo(
-      () =>
-        teamRecords.find(
-          team =>
-            team.id ===
-            arbiterTeamId
-        ),
-      [teamRecords, arbiterTeamId]
-    )
+  const selectedArbiterTeam = useMemo(
+    () =>
+      teamRecords.find(
+        team => team.id === arbiterTeamId
+      ),
+    [teamRecords, arbiterTeamId]
+  )
 
   const handleParse = () => {
     if (!pasteText.trim()) return
@@ -123,55 +122,40 @@ export default function ImportCenter({
     let rows: ParsedGameRow[] = []
 
     if (tab === 'arbiter') {
-      if (
-        !defaultSportId ||
-        !arbiterTeamId
-      ) {
+      if (!defaultSportId || !arbiterTeamId) {
         return
       }
 
       const seasonYear =
         selectedSeason?.year ||
-        Number(
-          defaultDate.slice(0, 4)
-        ) ||
+        Number(defaultDate.slice(0, 4)) ||
         new Date().getFullYear()
 
-      rows = parseArbiterSchedule(
-        pasteText,
-        {
-          teams: teamRecords,
-          sourceTeamId:
-            arbiterTeamId,
-          defaultDate,
-          defaultSportId,
-          defaultSeasonId,
-          year: seasonYear,
-        }
-      )
+      rows = parseArbiterSchedule(pasteText, {
+        teams: teamRecords,
+        sourceTeamId: arbiterTeamId,
+        defaultDate,
+        defaultSportId,
+        defaultSeasonId,
+        year: seasonYear,
+      })
     } else {
-      rows = parsePastedGames(
-        pasteText,
-        {
-          teams: teamRecords,
-          defaultDate,
-          defaultSportId,
-          defaultSeasonId,
-        }
-      )
+      rows = parsePastedGames(pasteText, {
+        teams: teamRecords,
+        defaultDate,
+        defaultSportId,
+        defaultSeasonId,
+      })
     }
 
     if (skipNonFinal) {
       rows = rows.filter(
         row =>
-          row.status !==
-            'Postponed' &&
-          row.status !==
-            'Canceled'
+          row.status !== 'Postponed' &&
+          row.status !== 'Canceled'
       )
     }
 
-    // Auto-approve high confidence rows.
     rows = rows.map(row =>
       row.confidence === 'High'
         ? {
@@ -185,17 +169,14 @@ export default function ImportCenter({
     setStep('review')
   }
 
-  const toggleApprove = (
-    id: string
-  ) => {
-    setParsedRows(prev =>
-      prev.map(row =>
+  const toggleApprove = (id: string) => {
+    setParsedRows(previous =>
+      previous.map(row =>
         row.id === id &&
         row.confidence !== 'Low'
           ? {
               ...row,
-              approved:
-                !row.approved,
+              approved: !row.approved,
             }
           : row
       )
@@ -203,8 +184,8 @@ export default function ImportCenter({
   }
 
   const approveAll = () => {
-    setParsedRows(prev =>
-      prev.map(row =>
+    setParsedRows(previous =>
+      previous.map(row =>
         row.confidence !== 'Low'
           ? {
               ...row,
@@ -216,8 +197,8 @@ export default function ImportCenter({
   }
 
   const approveHigh = () => {
-    setParsedRows(prev =>
-      prev.map(row =>
+    setParsedRows(previous =>
+      previous.map(row =>
         row.confidence === 'High'
           ? {
               ...row,
@@ -228,167 +209,151 @@ export default function ImportCenter({
     )
   }
 
-  const updateRow = (
-    id: string,
-    updates: Partial<ParsedGameRow>
-  ) => {
-    setParsedRows(prev =>
-      prev.map(row =>
-        row.id === id
-          ? {
-              ...row,
-              ...updates,
-            }
-          : row
-      )
+  const handlePublish = async () => {
+    const toPublish = parsedRows.filter(
+      row => row.approved
     )
-  }
 
-  const handlePublish =
-    async () => {
-      const toPublish =
-        parsedRows.filter(
-          row => row.approved
-        )
+    if (toPublish.length === 0) return
 
-      if (
-        toPublish.length === 0
-      ) {
-        return
-      }
+    setPublishing(true)
 
-      setPublishing(true)
+    const games = toPublish
+      .filter(row => row.game_date)
+      .map(row => ({
+        season_id: defaultSeasonId || null,
 
-      const games = toPublish
-        .filter(
-          row => row.game_date
-        )
-        .map(row => ({
-          season_id:
-            defaultSeasonId ||
-            null,
+        sport_id:
+          row.sport_id ||
+          defaultSportId ||
+          null,
 
-          sport_id:
-            row.sport_id ||
-            defaultSportId ||
-            null,
+        game_date: row.game_date,
+        game_time: row.game_time,
 
-          game_date:
-            row.game_date,
+        location: row.location || null,
 
-          game_time:
-            row.game_time,
+        home_team_id:
+          row.home_team_id || null,
 
-          location:
-            row.location ||
-            null,
+        away_team_id:
+          row.away_team_id || null,
 
-          home_team_id:
-            row.home_team_id ||
-            null,
+        external_home_name:
+          row.external_home_name || null,
 
-          away_team_id:
-            row.away_team_id ||
-            null,
+        external_away_name:
+          row.external_away_name || null,
 
-          external_home_name:
-            row.external_home_name ||
-            null,
+        home_score: row.home_score,
+        away_score: row.away_score,
 
-          external_away_name:
-            row.external_away_name ||
-            null,
+        status: row.status,
 
-          home_score:
-            row.home_score,
+        rescheduled_date:
+          row.rescheduled_date,
 
-          away_score:
-            row.away_score,
+        game_number: row.game_number,
 
-          status:
-            row.status,
+        neutral_site: row.neutral_site,
 
-          rescheduled_date:
-            row.rescheduled_date,
+        event_name: row.event_name,
 
-          game_number:
-            row.game_number,
+        notes: row.notes || null,
 
-          neutral_site:
-            row.neutral_site,
+        parser_confidence:
+          row.confidence,
 
-          event_name:
-            row.event_name,
+        source:
+          tab === 'arbiter'
+            ? 'arbiter'
+            : 'bulk_paste',
 
-          notes:
-            row.notes ||
-            null,
+        verification_status:
+          'Reported',
+      }))
 
-          parser_confidence:
-            row.confidence,
+    try {
+      /*
+        Arbiter imports use the NEW request format.
 
-          source:
-            tab === 'arbiter'
-              ? 'arbiter'
-              : 'bulk_paste',
+        The API now knows which team's schedule
+        produced these games, allowing the audit
+        system to track schedule completion.
 
-          verification_status:
-            'Reported',
-        }))
+        Bulk Paste continues to work too.
+      */
+      const requestBody =
+        tab === 'arbiter'
+          ? {
+              games,
+              import_team_id:
+                arbiterTeamId,
+              import_source:
+                'arbiter',
+            }
+          : {
+              games,
+              import_source:
+                'bulk_paste',
+            }
 
-      try {
-        const res = await fetch(
-          '/api/admin/games',
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-            body: JSON.stringify(
-              games
-            ),
-          }
-        )
-
-        const result =
-          await res.json()
-
-        if (!res.ok) {
-          setPublishResult({
-            published: 0,
-            skipped:
-              toPublish.length,
-            errorMsg:
-              result.error ||
-              `Server error ${res.status}`,
-          })
-        } else {
-          setPublishResult({
-            published:
-              result.published ||
-              0,
-            skipped:
-              result.skipped ||
-              0,
-            errors:
-              result.errors,
-          })
+      const response = await fetch(
+        '/api/admin/games',
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify(
+            requestBody
+          ),
         }
-      } catch (error: any) {
+      )
+
+      const result =
+        await response.json()
+
+      if (!response.ok) {
         setPublishResult({
           published: 0,
           skipped:
             toPublish.length,
           errorMsg:
-            error.message,
+            result.error ||
+            `Server error ${response.status}`,
+        })
+      } else {
+        setPublishResult({
+          published:
+            result.published || 0,
+
+          skipped:
+            result.skipped || 0,
+
+          errors:
+            result.errors || [],
+
+          trackingErrors:
+            result.tracking_errors ||
+            [],
         })
       }
-
-      setStep('done')
-      setPublishing(false)
+    } catch (error: any) {
+      setPublishResult({
+        published: 0,
+        skipped:
+          toPublish.length,
+        errorMsg:
+          error.message,
+      })
     }
+
+    setStep('done')
+    setPublishing(false)
+  }
 
   const reset = () => {
     setPasteText('')
@@ -405,22 +370,19 @@ export default function ImportCenter({
   const highConfidence =
     parsedRows.filter(
       row =>
-        row.confidence ===
-        'High'
+        row.confidence === 'High'
     ).length
 
   const mediumConfidence =
     parsedRows.filter(
       row =>
-        row.confidence ===
-        'Medium'
+        row.confidence === 'Medium'
     ).length
 
   const lowConfidence =
     parsedRows.filter(
       row =>
-        row.confidence ===
-        'Low'
+        row.confidence === 'Low'
     ).length
 
   return (
@@ -459,32 +421,29 @@ export default function ImportCenter({
           [
             {
               id: 'paste',
-              label:
-                'Bulk Paste',
+              label: 'Bulk Paste',
             },
             {
               id: 'csv',
-              label:
-                'CSV Upload',
+              label: 'CSV Upload',
             },
             {
               id: 'arbiter',
-              label:
-                'Arbiter Import',
+              label: 'Arbiter Import',
             },
           ] as const
-        ).map(tabItem => (
+        ).map(item => (
           <button
-            key={tabItem.id}
+            key={item.id}
             className="px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors"
             style={{
               borderColor:
-                tab === tabItem.id
+                tab === item.id
                   ? 'var(--accent)'
                   : 'transparent',
 
               color:
-                tab === tabItem.id
+                tab === item.id
                   ? 'var(--accent-bright)'
                   : 'var(--text-muted)',
 
@@ -492,12 +451,13 @@ export default function ImportCenter({
                 'var(--font-display)',
             }}
             onClick={() => {
-              setTab(tabItem.id)
+              setTab(item.id)
               setStep('input')
               setParsedRows([])
+              setPublishResult(null)
             }}
           >
-            {tabItem.label}
+            {item.label}
           </button>
         ))}
       </div>
@@ -524,46 +484,71 @@ export default function ImportCenter({
                 'var(--text-secondary)',
             }}
           >
-            {
-              publishResult?.published
-            }{' '}
+            {publishResult?.published}{' '}
             game
-            {publishResult?.published !==
-            1
+            {publishResult?.published !== 1
               ? 's'
               : ''}{' '}
-            published
-            {(publishResult?.skipped ||
-              0) > 0 &&
-              ` · ${publishResult!.skipped} skipped`}
+            processed
+            {(publishResult?.skipped || 0) >
+              0 &&
+              ` · ${publishResult?.skipped} skipped`}
           </p>
+
+          {tab === 'arbiter' &&
+            selectedArbiterTeam && (
+              <p
+                className="text-xs mt-2"
+                style={{
+                  color:
+                    'var(--text-muted)',
+                }}
+              >
+                Schedule import tracked
+                for{' '}
+                <strong>
+                  {
+                    selectedArbiterTeam.school_name
+                  }
+                </strong>
+              </p>
+            )}
 
           {publishResult?.errorMsg && (
             <p
+              className="mt-3 text-xs"
               style={{
-                color:
-                  '#f87171',
-                fontSize: 12,
-                marginTop: 8,
+                color: '#f87171',
               }}
             >
-              {
-                publishResult.errorMsg
-              }
+              {publishResult.errorMsg}
             </p>
           )}
 
           {publishResult?.errors?.map(
             (error, index) => (
               <p
-                key={index}
+                key={`error-${index}`}
+                className="text-xs mt-1"
                 style={{
-                  color:
-                    '#f87171',
-                  fontSize: 11,
+                  color: '#f87171',
                 }}
               >
                 {error}
+              </p>
+            )
+          )}
+
+          {publishResult?.trackingErrors?.map(
+            (error, index) => (
+              <p
+                key={`tracking-${index}`}
+                className="text-xs mt-1"
+                style={{
+                  color: '#fbbf24',
+                }}
+              >
+                Tracking warning: {error}
               </p>
             )
           )}
@@ -577,7 +562,7 @@ export default function ImportCenter({
         </div>
       ) : step === 'input' ? (
         <div className="space-y-4">
-          {/* Settings row */}
+          {/* Main settings */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="label">
@@ -606,9 +591,7 @@ export default function ImportCenter({
 
               <select
                 className="input"
-                value={
-                  defaultSportId
-                }
+                value={defaultSportId}
                 onChange={event => {
                   setDefaultSportId(
                     event.target.value
@@ -620,19 +603,15 @@ export default function ImportCenter({
                   Auto-detect
                 </option>
 
-                {sports.map(
-                  sport => (
-                    <option
-                      key={sport.id}
-                      value={sport.id}
-                    >
-                      {
-                        sport.sport_name
-                      }{' '}
-                      ({sport.gender})
-                    </option>
-                  )
-                )}
+                {sports.map(sport => (
+                  <option
+                    key={sport.id}
+                    value={sport.id}
+                  >
+                    {sport.sport_name}{' '}
+                    ({sport.gender})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -643,9 +622,7 @@ export default function ImportCenter({
 
               <select
                 className="input"
-                value={
-                  defaultSeasonId
-                }
+                value={defaultSeasonId}
                 onChange={event =>
                   setDefaultSeasonId(
                     event.target.value
@@ -666,6 +643,7 @@ export default function ImportCenter({
             </div>
           </div>
 
+          {/* Bulk Paste */}
           {tab === 'paste' && (
             <>
               <div>
@@ -706,8 +684,7 @@ PH at BM 3:30`}
 
                 {!defaultSportId && (
                   <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
-                    ⚠️ You must
-                    select a sport
+                    ⚠️ Select a sport
                     before parsing.
                   </div>
                 )}
@@ -735,24 +712,11 @@ PH at BM 3:30`}
                   Skip postponed &
                   canceled
                 </label>
-
-                <span
-                  className="text-xs"
-                  style={{
-                    color:
-                      'var(--text-muted)',
-                  }}
-                >
-                  Paste the full
-                  schedule. Dates like
-                  "FRIDAY, APRIL 17"
-                  are read
-                  automatically.
-                </span>
               </div>
             </>
           )}
 
+          {/* CSV */}
           {tab === 'csv' && (
             <div
               className="card p-6 text-center"
@@ -775,24 +739,10 @@ PH at BM 3:30`}
                 CSV import coming
                 soon
               </p>
-
-              <p
-                className="text-xs mt-1"
-                style={{
-                  color:
-                    'var(--text-muted)',
-                }}
-              >
-                Format: date,
-                home_team,
-                away_team,
-                home_score,
-                away_score, sport,
-                status
-              </p>
             </div>
           )}
 
+          {/* Arbiter */}
           {tab === 'arbiter' && (
             <div className="space-y-4">
               <div>
@@ -805,9 +755,7 @@ PH at BM 3:30`}
 
                 <select
                   className="input"
-                  value={
-                    arbiterTeamId
-                  }
+                  value={arbiterTeamId}
                   onChange={event =>
                     setArbiterTeamId(
                       event.target.value
@@ -848,28 +796,36 @@ PH at BM 3:30`}
                       'var(--text-muted)',
                   }}
                 >
-                  If you copied OFA's
-                  Arbiter schedule,
-                  select Ogdensburg
-                  Free Academy here.
+                  This selection is
+                  also used to track
+                  whether this team's
+                  full Arbiter schedule
+                  has been imported.
                 </p>
               </div>
 
               {selectedArbiterTeam && (
                 <div
-                  className="rounded-lg p-3 text-sm"
+                  className="rounded-lg p-3"
                   style={{
                     background:
                       'var(--bg-card)',
                     border:
                       '1px solid var(--border)',
-                    color:
-                      'var(--text-secondary)',
                   }}
                 >
-                  Importing schedule
-                  for:{' '}
-                  <strong
+                  <div
+                    className="text-xs"
+                    style={{
+                      color:
+                        'var(--text-muted)',
+                    }}
+                  >
+                    Schedule source
+                  </div>
+
+                  <div
+                    className="font-semibold"
                     style={{
                       color:
                         'var(--text-primary)',
@@ -878,7 +834,21 @@ PH at BM 3:30`}
                     {
                       selectedArbiterTeam.school_name
                     }
-                  </strong>
+                  </div>
+
+                  <div
+                    className="text-xs mt-1"
+                    style={{
+                      color:
+                        'var(--text-secondary)',
+                    }}
+                  >
+                    Every published game
+                    from this import will
+                    be credited to this
+                    team's Arbiter
+                    schedule.
+                  </div>
                 </div>
               )}
 
@@ -942,8 +912,8 @@ PH at BM 3:30`}
           )}
         </div>
       ) : (
+        /* Review */
         <div>
-          {/* Summary bar */}
           <div
             className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded-lg"
             style={{
@@ -965,8 +935,7 @@ PH at BM 3:30`}
             </span>
 
             <span className="confidence-high text-xs">
-              ✓ {highConfidence}{' '}
-              high
+              ✓ {highConfidence} high
             </span>
 
             <span className="confidence-medium text-xs">
@@ -975,8 +944,7 @@ PH at BM 3:30`}
             </span>
 
             <span className="confidence-low text-xs">
-              ⚠ {lowConfidence}{' '}
-              low
+              ⚠ {lowConfidence} low
             </span>
 
             <div className="flex-1" />
@@ -1018,255 +986,275 @@ PH at BM 3:30`}
             </button>
           </div>
 
-          {/* Row table */}
-          <div className="space-y-2">
-            {parsedRows.map(
-              row => (
-                <div
-                  key={row.id}
-                  className="rounded-lg p-3"
+          {tab === 'arbiter' &&
+            selectedArbiterTeam && (
+              <div
+                className="mb-4 rounded-lg px-3 py-2 text-xs"
+                style={{
+                  background:
+                    'rgba(59,130,246,0.08)',
+                  border:
+                    '1px solid rgba(59,130,246,0.2)',
+                  color:
+                    'var(--text-secondary)',
+                }}
+              >
+                Publishing these games
+                will mark{' '}
+                <strong
                   style={{
-                    background:
-                      row.approved
-                        ? 'rgba(34,197,94,0.05)'
-                        : 'var(--bg-card)',
-
-                    border: `1px solid ${
-                      row.approved
-                        ? 'rgba(34,197,94,0.2)'
-                        : row.confidence ===
-                            'Low'
-                          ? 'rgba(239,68,68,0.3)'
-                          : 'var(--border)'
-                    }`,
+                    color:
+                      'var(--text-primary)',
                   }}
                 >
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      className="mt-1 flex-shrink-0"
-                      checked={
-                        row.approved
-                      }
-                      disabled={
-                        row.confidence ===
-                        'Low'
-                      }
-                      onChange={() =>
-                        toggleApprove(
-                          row.id
-                        )
-                      }
-                    />
+                  {
+                    selectedArbiterTeam.school_name
+                  }
+                </strong>{' '}
+                as the Arbiter schedule
+                source.
+              </div>
+            )}
 
-                    <div className="flex-1 min-w-0">
-                      <div
-                        className="text-xs mb-2 font-mono"
-                        style={{
-                          color:
-                            'var(--text-muted)',
-                        }}
-                      >
-                        {row.raw}
-                      </div>
+          <div className="space-y-2">
+            {parsedRows.map(row => (
+              <div
+                key={row.id}
+                className="rounded-lg p-3"
+                style={{
+                  background:
+                    row.approved
+                      ? 'rgba(34,197,94,0.05)'
+                      : 'var(--bg-card)',
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                        <div>
-                          <div
-                            className="section-label mb-0.5"
-                            style={{
-                              fontSize:
-                                '9px',
-                            }}
-                          >
-                            Away
-                          </div>
+                  border: `1px solid ${
+                    row.approved
+                      ? 'rgba(34,197,94,0.2)'
+                      : row.confidence ===
+                          'Low'
+                        ? 'rgba(239,68,68,0.3)'
+                        : 'var(--border)'
+                  }`,
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 flex-shrink-0"
+                    checked={
+                      row.approved
+                    }
+                    disabled={
+                      row.confidence ===
+                      'Low'
+                    }
+                    onChange={() =>
+                      toggleApprove(
+                        row.id
+                      )
+                    }
+                  />
 
-                          <div
-                            className={
-                              row.away_team_id
-                                ? 'confidence-high'
-                                : row.external_away_name
-                                  ? 'confidence-medium'
-                                  : 'confidence-low'
-                            }
-                          >
-                            {row.away_team_match ||
-                              row.away_team_name ||
-                              '—'}
-                          </div>
-                        </div>
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className="text-xs mb-2 font-mono"
+                      style={{
+                        color:
+                          'var(--text-muted)',
+                      }}
+                    >
+                      {row.raw}
+                    </div>
 
-                        <div>
-                          <div
-                            className="section-label mb-0.5"
-                            style={{
-                              fontSize:
-                                '9px',
-                            }}
-                          >
-                            Home
-                          </div>
-
-                          <div
-                            className={
-                              row.home_team_id
-                                ? 'confidence-high'
-                                : row.external_home_name
-                                  ? 'confidence-medium'
-                                  : 'confidence-low'
-                            }
-                          >
-                            {row.home_team_match ||
-                              row.home_team_name ||
-                              '—'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div
-                            className="section-label mb-0.5"
-                            style={{
-                              fontSize:
-                                '9px',
-                            }}
-                          >
-                            Score
-                          </div>
-
-                          <div
-                            style={{
-                              color:
-                                'var(--text-primary)',
-                            }}
-                          >
-                            {row.away_score !==
-                              null &&
-                            row.home_score !==
-                              null
-                              ? `${row.away_score} – ${row.home_score}`
-                              : '—'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div
-                            className="section-label mb-0.5"
-                            style={{
-                              fontSize:
-                                '9px',
-                            }}
-                          >
-                            Status /
-                            Date
-                          </div>
-
-                          <div>
-                            <span
-                              className={`badge text-xs ${
-                                row.status ===
-                                'Final'
-                                  ? 'badge-final'
-                                  : row.status ===
-                                      'Scheduled'
-                                    ? 'badge-scheduled'
-                                    : row.status ===
-                                        'Postponed'
-                                      ? 'badge-postponed'
-                                      : 'badge-canceled'
-                              }`}
-                            >
-                              {
-                                row.status
-                              }
-                            </span>
-
-                            <span
-                              className="ml-1 text-xs"
-                              style={{
-                                color:
-                                  'var(--text-muted)',
-                              }}
-                            >
-                              {
-                                row.game_date
-                              }
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {(row.game_time ||
-                        row.location ||
-                        row.notes) && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                      <div>
                         <div
-                          className="mt-2 text-xs"
+                          className="section-label mb-0.5"
                           style={{
-                            color:
-                              'var(--text-secondary)',
+                            fontSize:
+                              '9px',
                           }}
                         >
-                          {row.game_time && (
-                            <span>
-                              Time:{' '}
-                              {
-                                row.game_time
-                              }
-                            </span>
-                          )}
-
-                          {row.location && (
-                            <span>
-                              {row.game_time
-                                ? ' · '
-                                : ''}
-                              Location:{' '}
-                              {
-                                row.location
-                              }
-                            </span>
-                          )}
-
-                          {row.notes && (
-                            <span>
-                              {row.game_time ||
-                              row.location
-                                ? ' · '
-                                : ''}
-                              {row.notes}
-                            </span>
-                          )}
+                          Away
                         </div>
-                      )}
 
-                      {row.confidence ===
-                        'Low' && (
-                        <div className="mt-2 text-xs confidence-low">
-                          ⚠ Low
-                          confidence —
-                          manual
-                          correction
-                          required:{' '}
-                          {row.confidence_notes.join(
-                            ' · '
-                          )}
+                        <div
+                          className={
+                            row.away_team_id
+                              ? 'confidence-high'
+                              : row.external_away_name
+                                ? 'confidence-medium'
+                                : 'confidence-low'
+                          }
+                        >
+                          {row.away_team_match ||
+                            row.away_team_name ||
+                            '—'}
                         </div>
-                      )}
+                      </div>
 
-                      {row.confidence ===
-                        'Medium' && (
-                        <div className="mt-1 text-xs confidence-medium">
-                          ~{' '}
-                          {row.confidence_notes.join(
-                            ' · '
-                          )}
+                      <div>
+                        <div
+                          className="section-label mb-0.5"
+                          style={{
+                            fontSize:
+                              '9px',
+                          }}
+                        >
+                          Home
                         </div>
-                      )}
+
+                        <div
+                          className={
+                            row.home_team_id
+                              ? 'confidence-high'
+                              : row.external_home_name
+                                ? 'confidence-medium'
+                                : 'confidence-low'
+                          }
+                        >
+                          {row.home_team_match ||
+                            row.home_team_name ||
+                            '—'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div
+                          className="section-label mb-0.5"
+                          style={{
+                            fontSize:
+                              '9px',
+                          }}
+                        >
+                          Score
+                        </div>
+
+                        <div
+                          style={{
+                            color:
+                              'var(--text-primary)',
+                          }}
+                        >
+                          {row.away_score !==
+                            null &&
+                          row.home_score !==
+                            null
+                            ? `${row.away_score} – ${row.home_score}`
+                            : '—'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div
+                          className="section-label mb-0.5"
+                          style={{
+                            fontSize:
+                              '9px',
+                          }}
+                        >
+                          Status / Date
+                        </div>
+
+                        <div>
+                          <span
+                            className={`badge text-xs ${
+                              row.status ===
+                              'Final'
+                                ? 'badge-final'
+                                : row.status ===
+                                    'Scheduled'
+                                  ? 'badge-scheduled'
+                                  : row.status ===
+                                      'Postponed'
+                                    ? 'badge-postponed'
+                                    : 'badge-canceled'
+                            }`}
+                          >
+                            {row.status}
+                          </span>
+
+                          <span
+                            className="ml-1 text-xs"
+                            style={{
+                              color:
+                                'var(--text-muted)',
+                            }}
+                          >
+                            {
+                              row.game_date
+                            }
+                          </span>
+                        </div>
+                      </div>
                     </div>
+
+                    {(row.game_time ||
+                      row.location ||
+                      row.notes) && (
+                      <div
+                        className="mt-2 text-xs"
+                        style={{
+                          color:
+                            'var(--text-secondary)',
+                        }}
+                      >
+                        {row.game_time && (
+                          <span>
+                            Time:{' '}
+                            {
+                              row.game_time
+                            }
+                          </span>
+                        )}
+
+                        {row.location && (
+                          <span>
+                            {row.game_time
+                              ? ' · '
+                              : ''}
+                            Location:{' '}
+                            {row.location}
+                          </span>
+                        )}
+
+                        {row.notes && (
+                          <span>
+                            {row.game_time ||
+                            row.location
+                              ? ' · '
+                              : ''}
+                            {row.notes}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {row.confidence ===
+                      'Low' && (
+                      <div className="mt-2 text-xs confidence-low">
+                        ⚠ Low confidence
+                        — manual correction
+                        required:{' '}
+                        {row.confidence_notes.join(
+                          ' · '
+                        )}
+                      </div>
+                    )}
+
+                    {row.confidence ===
+                      'Medium' && (
+                      <div className="mt-1 text-xs confidence-medium">
+                        ~{' '}
+                        {row.confidence_notes.join(
+                          ' · '
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-              )
-            )}
+              </div>
+            ))}
           </div>
         </div>
       )}
