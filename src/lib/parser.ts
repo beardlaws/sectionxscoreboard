@@ -112,7 +112,6 @@ const MONTH_MAP: Record<string, string> = {
   FEB: '02',
   MAR: '03',
   APR: '04',
-  MAY: '05',
   JUN: '06',
   JUL: '07',
   AUG: '08',
