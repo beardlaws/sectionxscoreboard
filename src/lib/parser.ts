@@ -647,7 +647,7 @@ function cleanArbiterText(text: string): string {
     .trim()
 
   cleaned = cleaned.replace(
-    /Date\/Time\s+Home or Away\s+Opponent\s+Location\s+Results\s+Type\s+Links\s*/i,
+    /Date\/Time\s+(?:Home or Away\s+)?Opponent\s+Location\s+Results(?:\s+Status)?\s+Type\s+Links\s*/i,
     ''
   )
 
@@ -665,11 +665,22 @@ function cleanArbiterText(text: string): string {
 function getTeamSearchNames(
   team: TeamRecord
 ): string[] {
-  return [
-    team.school_name,
-    team.team_name,
-    ...team.aliases,
-  ]
+  const constantAliases = Object.entries(SCHOOL_ALIASES)
+    .filter(
+      ([, resolvedName]) =>
+        resolvedName.toLowerCase() ===
+        team.school_name.toLowerCase()
+    )
+    .map(([alias]) => alias)
+
+  return Array.from(
+    new Set([
+      team.school_name,
+      team.team_name,
+      ...team.aliases,
+      ...constantAliases,
+    ])
+  )
     .filter(Boolean)
     .map(name => name.trim())
     .filter(Boolean)
@@ -731,86 +742,21 @@ function findInternalOpponentFromTail(
     }
   }
 
-  const words = tail
-    .split(/\s+/)
-    .filter(Boolean)
+  /*
+    IMPORTANT:
+    Arbiter schedules regularly include non-Section X opponents.
 
-  const maxWords = Math.min(
-    words.length,
-    10
-  )
+    Do not fuzzy-match an unknown opponent here. Names such as
+    "Peru Central School" are too similar to Section X schools that
+    also contain "Central School" and can be incorrectly assigned to
+    an internal team.
 
-  let bestMatch:
-    | {
-        team: TeamRecord
-        opponentText: string
-        locationText: string | null
-        score: number
-      }
-    | null = null
+    Internal Arbiter opponents must match a known school/team/alias
+    at the START of the row. If they do not, the caller will treat the
+    opponent as external.
+  */
+  return null
 
-  for (
-    let wordCount = 1;
-    wordCount <= maxWords;
-    wordCount++
-  ) {
-    const candidateText = words
-      .slice(0, wordCount)
-      .join(' ')
-
-    const resolution = resolveTeamName(
-      candidateText,
-      teams
-    )
-
-    if (
-      !resolution.id ||
-      resolution.id === sourceTeamId
-    ) {
-      continue
-    }
-
-    const team = teams.find(
-      t => t.id === resolution.id
-    )
-
-    if (!team) continue
-
-    const score =
-      resolution.confidence === 'High'
-        ? 2
-        : resolution.confidence === 'Medium'
-          ? 1
-          : 0
-
-    if (
-      score > 0 &&
-      (!bestMatch ||
-        score > bestMatch.score ||
-        (score === bestMatch.score &&
-          candidateText.length >
-            bestMatch.opponentText.length))
-    ) {
-      bestMatch = {
-        team,
-        opponentText: candidateText,
-        locationText:
-          words
-            .slice(wordCount)
-            .join(' ')
-            .trim() || null,
-        score,
-      }
-    }
-  }
-
-  if (!bestMatch) return null
-
-  return {
-    team: bestMatch.team,
-    opponentText: bestMatch.opponentText,
-    locationText: bestMatch.locationText,
-  }
 }
 
 function splitExternalOpponent(
@@ -1052,6 +998,44 @@ export function parseArbiterSchedule(
         .trim()
     }
 
+    /*
+      Arbiter can place status text between the location and the
+      trailing type code. Pull that status out BEFORE trying to
+      identify the opponent/location.
+    */
+    let status: GameStatus = 'Scheduled'
+
+    if (/\b(?:Canceled|Cancelled)\b/i.test(tail)) {
+      status = 'Canceled'
+      tail = tail
+        .replace(/\b(?:Canceled|Cancelled)\b/gi, '')
+        .trim()
+    } else if (/\b(?:Postponed|PPD)\b/i.test(tail)) {
+      status = 'Postponed'
+      tail = tail
+        .replace(/\b(?:Postponed|PPD)\b/gi, '')
+        .trim()
+    }
+
+    /*
+      "with 1 others" means Arbiter is grouping a multi-team event.
+      Preserve the named opponent, but force review rather than
+      pretending this is an ordinary head-to-head row.
+    */
+    const multiTeamMatch =
+      tail.match(/\s+with\s+(\d+)\s+others?\b/i)
+
+    const additionalOpponentCount =
+      multiTeamMatch
+        ? parseInt(multiTeamMatch[1], 10)
+        : null
+
+    if (multiTeamMatch) {
+      tail = tail
+        .replace(/\s+with\s+\d+\s+others?\b/gi, '')
+        .trim()
+    }
+
     let opponentName = ''
     let location: string | null = null
 
@@ -1188,9 +1172,11 @@ export function parseArbiterSchedule(
 
     const confidence:
       ImportConfidence =
-      opponentTeam
-        ? 'High'
-        : 'Medium'
+      additionalOpponentCount !== null
+        ? 'Medium'
+        : opponentTeam
+          ? 'High'
+          : 'Medium'
 
     const confidenceNotes: string[] = [
       direction === 'vs'
@@ -1201,6 +1187,20 @@ export function parseArbiterSchedule(
         ? `Opponent matched: ${opponentDisplay}`
         : `External opponent: ${opponentName}`,
     ]
+
+    if (additionalOpponentCount !== null) {
+      confidenceNotes.push(
+        `Multi-team Arbiter event: ${additionalOpponentCount} additional opponent${
+          additionalOpponentCount === 1 ? '' : 's'
+        }. Review before publishing.`
+      )
+    }
+
+    if (status !== 'Scheduled') {
+      confidenceNotes.push(
+        `Status: ${status}`
+      )
+    }
 
     if (arbiterType) {
       confidenceNotes.push(
@@ -1252,14 +1252,22 @@ export function parseArbiterSchedule(
       home_score: null,
       away_score: null,
 
-      status: 'Scheduled',
+      status,
 
       location,
 
-      notes:
+      notes: [
         arbiterType
           ? `Arbiter type: ${arbiterType}`
           : null,
+        additionalOpponentCount !== null
+          ? `Multi-team Arbiter event with ${additionalOpponentCount} additional opponent${
+              additionalOpponentCount === 1 ? '' : 's'
+            }`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ') || null,
 
       rescheduled_date: null,
 
@@ -1267,7 +1275,10 @@ export function parseArbiterSchedule(
 
       neutral_site: false,
 
-      event_name: null,
+      event_name:
+        additionalOpponentCount !== null
+          ? 'Multi-team event'
+          : null,
 
       confidence,
 
@@ -1276,7 +1287,8 @@ export function parseArbiterSchedule(
 
       duplicate_warning: false,
 
-      approved: true,
+      approved:
+        additionalOpponentCount === null,
 
       error: null,
 
