@@ -20,7 +20,7 @@ export const SPORT_SEASON_MAP: Record<string, SeasonType> = {
   'Girls Basketball': 'Winter',
   Hockey: 'Winter',
   Wrestling: 'Winter',
-  Swimming: 'Winter',
+  Swimming: 'Fall',
   'Indoor Track': 'Winter',
 }
 
