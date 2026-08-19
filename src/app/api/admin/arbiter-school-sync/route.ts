@@ -17,18 +17,14 @@ type SeasonType =
 interface DiscoveredTeam {
   teamId: string
   entityId: string
-
   sportName: string | null
   teamLabel: string
-
   gender: Gender
   level: string | null
   isVarsity: boolean
-
   displayName: string
   sectionXSportName: string | null
   seasonType: SeasonType
-
   scheduleUrl: string
 }
 
@@ -43,22 +39,15 @@ interface ScheduleRow {
   raw: string
 }
 
-interface SyncedTeam
-  extends DiscoveredTeam {
+interface SyncedTeam extends DiscoveredTeam {
   success: boolean
-
   rowCount: number
-
   rows: ScheduleRow[]
-
   arbiterText: string
-
   error: string | null
 }
 
-function decodeHtml(
-  value: string
-): string {
+function decodeHtml(value: string): string {
   return value
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
@@ -70,57 +59,17 @@ function decodeHtml(
     .replace(/&#160;/g, ' ')
 }
 
-function stripHtml(
-  value: string
-): string {
+function stripHtml(value: string): string {
   return decodeHtml(
     value
-      .replace(
-        /<script[\s\S]*?<\/script>/gi,
-        ''
-      )
-      .replace(
-        /<style[\s\S]*?<\/style>/gi,
-        ''
-      )
-      .replace(
-        /<br\s*\/?>/gi,
-        ' '
-      )
-      .replace(
-        /<img\b[^>]*>/gi,
-        ' '
-      )
-      .replace(
-        /<[^>]+>/g,
-        ' '
-      )
-      .replace(
-        /\s+/g,
-        ' '
-      )
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<img\b[^>]*>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim()
   )
-}
-
-function extractEntityId(
-  rawUrl: string
-): string | null {
-  try {
-    const parsed =
-      new URL(rawUrl)
-
-    return (
-      parsed.searchParams.get(
-        'entityId'
-      ) ||
-      parsed.searchParams.get(
-        'activeEntityId'
-      )
-    )
-  } catch {
-    return null
-  }
 }
 
 function normalizeSchoolUrl(
@@ -130,25 +79,18 @@ function normalizeSchoolUrl(
   url: string
 } | null {
   try {
-    const parsed =
-      new URL(rawUrl)
+    const parsed = new URL(rawUrl)
 
     if (
-      parsed.hostname !==
-        'arbiterlive.com' &&
-      parsed.hostname !==
-        'www.arbiterlive.com'
+      parsed.hostname !== 'arbiterlive.com' &&
+      parsed.hostname !== 'www.arbiterlive.com'
     ) {
       return null
     }
 
     const entityId =
-      parsed.searchParams.get(
-        'entityId'
-      ) ||
-      parsed.searchParams.get(
-        'activeEntityId'
-      )
+      parsed.searchParams.get('entityId') ||
+      parsed.searchParams.get('activeEntityId')
 
     if (!entityId) {
       return null
@@ -156,73 +98,48 @@ function normalizeSchoolUrl(
 
     return {
       entityId,
-
-      url:
-        `https://arbiterlive.com/Teams?entityId=${entityId}`,
+      url: `https://arbiterlive.com/Teams?entityId=${entityId}`,
     }
   } catch {
     return null
   }
 }
 
-function classifyGender(
-  label: string
-): Gender {
-  if (
-    /^boys\b/i.test(label)
-  ) {
+function classifyGender(label: string): Gender {
+  if (/^boys\b/i.test(label)) {
     return 'Boys'
   }
 
-  if (
-    /^girls\b/i.test(label)
-  ) {
+  if (/^girls\b/i.test(label)) {
     return 'Girls'
   }
 
-  if (
-    /\b(coed|co-ed|mixed)\b/i.test(
-      label
-    )
-  ) {
+  if (/\b(coed|co-ed|mixed)\b/i.test(label)) {
     return 'Coed'
   }
 
   return null
 }
 
-function classifyLevel(
-  label: string
-): string | null {
-  /*
-    Junior Varsity MUST be
-    checked before Varsity.
-  */
+function classifyLevel(label: string): string | null {
   if (
-    /\bjunior varsity\b/i.test(
-      label
-    ) ||
+    /\bjunior varsity\b/i.test(label) ||
     /\bjv\b/i.test(label)
   ) {
     return 'Junior Varsity'
   }
 
-  if (
-    /\bvarsity\b/i.test(label)
-  ) {
+  if (/\bvarsity\b/i.test(label)) {
     return 'Varsity'
   }
 
-  if (
-    /\bmodified\b/i.test(label)
-  ) {
+  if (/\bmodified\b/i.test(label)) {
     return 'Modified'
   }
 
-  const gradeMatch =
-    label.match(
-      /\b(\d+(?:\/\d+)*(?:\/\d+)?(?:th|st|nd|rd)?)\b/i
-    )
+  const gradeMatch = label.match(
+    /\b(\d+(?:\/\d+)*(?:\/\d+)?(?:th|st|nd|rd)?)\b/i
+  )
 
   if (gradeMatch) {
     return gradeMatch[1]
@@ -231,11 +148,8 @@ function classifyLevel(
   return null
 }
 
-function looksLikeSportHeading(
-  text: string
-): boolean {
-  const cleaned =
-    text.trim()
+function looksLikeSportHeading(text: string): boolean {
+  const cleaned = text.trim()
 
   if (!cleaned) {
     return false
@@ -249,17 +163,11 @@ function looksLikeSportHeading(
     return false
   }
 
-  if (
-    /^\d+\s+teams?$/i.test(
-      cleaned
-    )
-  ) {
+  if (/^\d+\s+teams?$/i.test(cleaned)) {
     return false
   }
 
-  if (
-    cleaned.length > 60
-  ) {
+  if (cleaned.length > 60) {
     return false
   }
 
@@ -274,33 +182,21 @@ function inferSectionXSportName(
     return null
   }
 
-  const sport =
-    sportName.trim()
+  const sport = sportName.trim()
 
-  /*
-    Sports stored in Section X
-    with explicit gender names.
-  */
-  const genderedSports =
-    new Set([
-      'Soccer',
-      'Basketball',
-      'Lacrosse',
-    ])
+  const genderedSports = new Set([
+    'Soccer',
+    'Basketball',
+    'Lacrosse',
+  ])
 
   if (
     genderedSports.has(sport) &&
-    (gender === 'Boys' ||
-      gender === 'Girls')
+    (gender === 'Boys' || gender === 'Girls')
   ) {
     return `${gender} ${sport}`
   }
 
-  /*
-    Section X currently stores
-    these without Boys/Girls in
-    the sport name.
-  */
   return sport
 }
 
@@ -311,24 +207,30 @@ function inferSeasonType(
     return null
   }
 
-  const sport =
-    sportName
-      .toLowerCase()
-      .trim()
+  const sport = sportName
+    .toLowerCase()
+    .trim()
 
+  /*
+    IMPORTANT:
+    Section X Girls Swimming is a FALL sport.
+
+    Keep swimming here so Arbiter School Sync
+    matches the sports table in Supabase.
+  */
   const fallSports = [
     'football',
     'soccer',
     'volleyball',
     'cross country',
     'golf',
+    'swimming',
   ]
 
   const winterSports = [
     'basketball',
     'hockey',
     'wrestling',
-    'swimming',
     'indoor track',
   ]
 
@@ -340,27 +242,24 @@ function inferSeasonType(
   ]
 
   if (
-    fallSports.some(
-      name =>
-        sport.includes(name)
+    fallSports.some(name =>
+      sport.includes(name)
     )
   ) {
     return 'Fall'
   }
 
   if (
-    winterSports.some(
-      name =>
-        sport.includes(name)
+    winterSports.some(name =>
+      sport.includes(name)
     )
   ) {
     return 'Winter'
   }
 
   if (
-    springSports.some(
-      name =>
-        sport.includes(name)
+    springSports.some(name =>
+      sport.includes(name)
     )
   ) {
     return 'Spring'
@@ -373,45 +272,20 @@ function discoverTeams(
   html: string,
   fallbackEntityId: string
 ): DiscoveredTeam[] {
-  const discovered =
-    new Map<
-      string,
-      DiscoveredTeam
-    >()
+  const discovered = new Map<
+    string,
+    DiscoveredTeam
+  >()
 
-  /*
-    Arbiter groups team links
-    underneath sport headings.
-
-    Example:
-
-      Basketball
-        Boys Varsity
-        Girls Varsity
-
-      Soccer
-        Boys Varsity
-        Girls Varsity
-  */
   const tokenRegex =
     /<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>|<a\b[^>]*href=["']([^"']*\/Teams\/Schedule\/(\d+)\?[^"']*activeEntityId=(\d+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
 
-  let currentSport:
-    | string
-    | null = null
-
-  let match:
-    | RegExpExecArray
-    | null
+  let currentSport: string | null = null
+  let match: RegExpExecArray | null
 
   while (
-    (match =
-      tokenRegex.exec(html)) !==
-    null
+    (match = tokenRegex.exec(html)) !== null
   ) {
-    /*
-      Heading
-    */
     if (match[1]) {
       const headingText =
         stripHtml(match[2])
@@ -421,18 +295,13 @@ function discoverTeams(
           headingText
         )
       ) {
-        currentSport =
-          headingText
+        currentSport = headingText
       }
 
       continue
     }
 
-    /*
-      Team schedule link
-    */
-    const teamId =
-      match[4]
+    const teamId = match[4]
 
     const entityId =
       match[5] ||
@@ -442,21 +311,15 @@ function discoverTeams(
       stripHtml(match[6]) ||
       `Arbiter Team ${teamId}`
 
-    if (
-      discovered.has(teamId)
-    ) {
+    if (discovered.has(teamId)) {
       continue
     }
 
     const gender =
-      classifyGender(
-        teamLabel
-      )
+      classifyGender(teamLabel)
 
     const level =
-      classifyLevel(
-        teamLabel
-      )
+      classifyLevel(teamLabel)
 
     const isVarsity =
       level === 'Varsity'
@@ -472,44 +335,30 @@ function discoverTeams(
         currentSport
       )
 
-    const displayName =
-      [
-        gender,
-        level,
-        currentSport,
-      ]
-        .filter(Boolean)
-        .join(' ')
+    const displayName = [
+      gender,
+      level,
+      currentSport,
+    ]
+      .filter(Boolean)
+      .join(' ')
 
-    discovered.set(
+    discovered.set(teamId, {
       teamId,
-      {
-        teamId,
-        entityId,
-
-        sportName:
-          currentSport,
-
+      entityId,
+      sportName: currentSport,
+      teamLabel,
+      gender,
+      level,
+      isVarsity,
+      displayName:
+        displayName ||
         teamLabel,
-
-        gender,
-
-        level,
-
-        isVarsity,
-
-        displayName:
-          displayName ||
-          teamLabel,
-
-        sectionXSportName,
-
-        seasonType,
-
-        scheduleUrl:
-          `https://arbiterlive.com/Teams/Schedule/${teamId}?activeEntityId=${entityId}`,
-      }
-    )
+      sectionXSportName,
+      seasonType,
+      scheduleUrl:
+        `https://arbiterlive.com/Teams/Schedule/${teamId}?activeEntityId=${entityId}`,
+    })
   }
 
   return Array.from(
@@ -525,20 +374,15 @@ function extractCells(
   const cellRegex =
     /<td\b[^>]*>([\s\S]*?)<\/td>/gi
 
-  let match:
-    | RegExpExecArray
-    | null
+  let match: RegExpExecArray | null
 
   while (
     (match =
-      cellRegex.exec(
-        rowHtml
-      )) !== null
+      cellRegex.exec(rowHtml)) !==
+    null
   ) {
     cells.push(
-      stripHtml(
-        match[1]
-      )
+      stripHtml(match[1])
     )
   }
 
@@ -551,32 +395,20 @@ function findScheduleTable(
   const tableRegex =
     /<table\b[^>]*>([\s\S]*?)<\/table>/gi
 
-  let match:
-    | RegExpExecArray
-    | null
+  let match: RegExpExecArray | null
 
   while (
     (match =
-      tableRegex.exec(
-        html
-      )) !== null
+      tableRegex.exec(html)) !==
+    null
   ) {
-    const table =
-      match[0]
-
-    const text =
-      stripHtml(table)
+    const table = match[0]
+    const text = stripHtml(table)
 
     if (
-      /Date\/Time/i.test(
-        text
-      ) &&
-      /Opponent/i.test(
-        text
-      ) &&
-      /Location/i.test(
-        text
-      )
+      /Date\/Time/i.test(text) &&
+      /Opponent/i.test(text) &&
+      /Location/i.test(text)
     ) {
       return table
     }
@@ -588,50 +420,35 @@ function findScheduleTable(
 function parseScheduleTable(
   tableHtml: string
 ): ScheduleRow[] {
-  const rows:
-    ScheduleRow[] = []
+  const rows: ScheduleRow[] = []
 
   const rowRegex =
     /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi
 
-  let match:
-    | RegExpExecArray
-    | null
+  let match: RegExpExecArray | null
 
   while (
     (match =
-      rowRegex.exec(
-        tableHtml
-      )) !== null
+      rowRegex.exec(tableHtml)) !==
+    null
   ) {
     const cells =
-      extractCells(
-        match[0]
-      )
+      extractCells(match[0])
 
-    if (
-      cells.length < 3
-    ) {
+    if (cells.length < 3) {
       continue
     }
 
     const dateTime =
-      cells[0]?.trim() ||
-      ''
+      cells[0]?.trim() || ''
 
     if (
       !dateTime ||
-      /Date\/Time/i.test(
-        dateTime
-      )
+      /Date\/Time/i.test(dateTime)
     ) {
       continue
     }
 
-    /*
-      Real Arbiter event rows
-      begin with a weekday.
-    */
     if (
       !/\b(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/i.test(
         dateTime
@@ -641,61 +458,42 @@ function parseScheduleTable(
     }
 
     const homeAway =
-      cells[1]?.trim() ||
-      ''
+      cells[1]?.trim() || ''
 
     const opponent =
-      cells[2]?.trim() ||
-      ''
+      cells[2]?.trim() || ''
 
     const location =
-      cells[3]?.trim() ||
-      ''
+      cells[3]?.trim() || ''
 
     const results =
-      cells[4]?.trim() ||
-      ''
+      cells[4]?.trim() || ''
 
     const status =
-      cells[5]?.trim() ||
-      ''
+      cells[5]?.trim() || ''
 
     const type =
-      cells[6]?.trim() ||
-      ''
+      cells[6]?.trim() || ''
 
-    /*
-      Produce text compatible
-      with our existing
-      parseArbiterSchedule().
-    */
-    const raw =
-      [
-        dateTime,
-        homeAway,
-        opponent,
-        location,
-        status,
-        type,
-      ]
-        .filter(Boolean)
-        .join('    ')
+    const raw = [
+      dateTime,
+      homeAway,
+      opponent,
+      location,
+      status,
+      type,
+    ]
+      .filter(Boolean)
+      .join('    ')
 
     rows.push({
       dateTime,
-
       homeAway,
-
       opponent,
-
       location,
-
       results,
-
       status,
-
       type,
-
       raw,
     })
   }
@@ -711,7 +509,6 @@ function rowsToArbiterText(
 
   return [
     header,
-
     ...rows.map(
       row => row.raw
     ),
@@ -722,23 +519,19 @@ async function fetchArbiterHtml(
   url: string
 ): Promise<string> {
   const response =
-    await fetch(
-      url,
-      {
-        method: 'GET',
+    await fetch(url, {
+      method: 'GET',
 
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (compatible; SectionXScoreboard/1.0)',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (compatible; SectionXScoreboard/1.0)',
 
-          Accept:
-            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
 
-        cache:
-          'no-store',
-      }
-    )
+      cache: 'no-store',
+    })
 
   if (!response.ok) {
     throw new Error(
@@ -759,61 +552,39 @@ async function syncTeam(
       )
 
     const table =
-      findScheduleTable(
-        html
-      )
+      findScheduleTable(html)
 
     if (!table) {
       return {
         ...team,
-
         success: false,
-
         rowCount: 0,
-
         rows: [],
-
         arbiterText: '',
-
         error:
           'Schedule table not found.',
       }
     }
 
     const rows =
-      parseScheduleTable(
-        table
-      )
+      parseScheduleTable(table)
 
     return {
       ...team,
-
       success: true,
-
-      rowCount:
-        rows.length,
-
+      rowCount: rows.length,
       rows,
-
       arbiterText:
-        rowsToArbiterText(
-          rows
-        ),
-
+        rowsToArbiterText(rows),
       error: null,
     }
   } catch (error: any) {
     return {
       ...team,
-
       success: false,
-
       rowCount: 0,
-
       rows: [],
-
       arbiterText: '',
-
       error:
         error?.message ||
         'Schedule fetch failed.',
@@ -825,8 +596,7 @@ export async function POST(
   req: NextRequest
 ) {
   try {
-    const body =
-      await req.json()
+    const body = await req.json()
 
     const rawUrl =
       typeof body?.url ===
@@ -847,9 +617,7 @@ export async function POST(
     }
 
     const normalized =
-      normalizeSchoolUrl(
-        rawUrl
-      )
+      normalizeSchoolUrl(rawUrl)
 
     if (!normalized) {
       return NextResponse.json(
@@ -863,73 +631,43 @@ export async function POST(
       )
     }
 
-    /*
-      STEP 1:
-      Fetch school team page.
-    */
     const schoolHtml =
       await fetchArbiterHtml(
         normalized.url
       )
 
-    /*
-      STEP 2:
-      Discover all teams.
-    */
     const discovered =
       discoverTeams(
         schoolHtml,
         normalized.entityId
       )
 
-    /*
-      STEP 3:
-      Keep Varsity only.
-    */
     const varsityTeams =
       discovered.filter(
-        team =>
-          team.isVarsity
+        team => team.isVarsity
       )
 
-    /*
-      STEP 4:
-      Fetch ALL varsity
-      schedules.
-
-      Promise.all is fine here
-      because a school normally
-      only exposes a handful of
-      varsity teams at once.
-    */
     const syncedTeams =
       await Promise.all(
         varsityTeams.map(
-          team =>
-            syncTeam(team)
+          team => syncTeam(team)
         )
       )
 
     const successful =
       syncedTeams.filter(
-        team =>
-          team.success
+        team => team.success
       )
 
     const failed =
       syncedTeams.filter(
-        team =>
-          !team.success
+        team => !team.success
       )
 
     const totalRows =
       successful.reduce(
-        (
-          total,
-          team
-        ) =>
-          total +
-          team.rowCount,
+        (total, team) =>
+          total + team.rowCount,
         0
       )
 
@@ -939,8 +677,7 @@ export async function POST(
           successful
             .map(
               team =>
-                team
-                  .sectionXSportName
+                team.sectionXSportName
             )
             .filter(
               (
@@ -963,9 +700,9 @@ export async function POST(
               (
                 value
               ): value is
-                'Fall' |
-                'Winter' |
-                'Spring' =>
+                | 'Fall'
+                | 'Winter'
+                | 'Spring' =>
                 !!value
             )
         )
@@ -973,33 +710,22 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-
       entityId:
         normalized.entityId,
-
       schoolUrl:
         normalized.url,
-
       discoveredTeams:
         discovered.length,
-
       varsityTeams:
         varsityTeams.length,
-
       schedulesFetched:
         successful.length,
-
       schedulesFailed:
         failed.length,
-
       totalRows,
-
       sports,
-
       seasons,
-
-      teams:
-        syncedTeams,
+      teams: syncedTeams,
     })
   } catch (error: any) {
     console.error(
