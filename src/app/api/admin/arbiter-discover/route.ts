@@ -40,7 +40,9 @@ function stripHtml(value: string): string {
   )
 }
 
-function extractEntityId(url: string): string | null {
+function extractEntityId(
+  url: string
+): string | null {
   try {
     const parsed = new URL(url)
 
@@ -103,15 +105,27 @@ function classifyGender(
 function classifyLevel(
   label: string
 ): string | null {
-  if (/\bvarsity\b/i.test(label)) {
-    return 'Varsity'
-  }
+  /*
+    IMPORTANT:
+    Check Junior Varsity BEFORE Varsity.
 
+    "Junior Varsity" contains the word "Varsity",
+    so checking Varsity first incorrectly classifies JV
+    teams as varsity.
+  */
   if (
     /\bjunior varsity\b/i.test(label) ||
     /\bjv\b/i.test(label)
   ) {
     return 'Junior Varsity'
+  }
+
+  if (/\bvarsity\b/i.test(label)) {
+    return 'Varsity'
+  }
+
+  if (/\bmodified\b/i.test(label)) {
+    return 'Modified'
   }
 
   const gradeMatch = label.match(
@@ -122,25 +136,19 @@ function classifyLevel(
     return gradeMatch[1]
   }
 
-  if (/\bmodified\b/i.test(label)) {
-    return 'Modified'
-  }
-
   return null
 }
 
 function looksLikeSportHeading(
   text: string
 ): boolean {
-  const cleaned = text.trim()
+  const cleaned =
+    text.trim()
 
   if (!cleaned) {
     return false
   }
 
-  /*
-    Ignore page-level headings and team-count labels.
-  */
   if (
     /^(active teams|today'?s games|teams?|schedule|practice|roster|coaches?|season stats)$/i.test(
       cleaned
@@ -149,15 +157,17 @@ function looksLikeSportHeading(
     return false
   }
 
-  if (/^\d+\s+teams?$/i.test(cleaned)) {
+  if (
+    /^\d+\s+teams?$/i.test(
+      cleaned
+    )
+  ) {
     return false
   }
 
-  /*
-    Arbiter sport headings are generally short:
-    Basketball, Soccer, Football, Baseball, etc.
-  */
-  if (cleaned.length > 60) {
+  if (
+    cleaned.length > 60
+  ) {
     return false
   }
 
@@ -169,37 +179,46 @@ function discoverTeams(
   fallbackEntityId: string
 ): DiscoveredTeam[] {
   const discovered =
-    new Map<string, DiscoveredTeam>()
+    new Map<
+      string,
+      DiscoveredTeam
+    >()
 
   /*
-    We scan headings and links IN DOCUMENT ORDER.
+    Scan headings and schedule links in document order.
 
-    Arbiter's school page groups teams beneath sport
-    headings, for example:
+    Arbiter groups teams underneath sport headings:
 
       Basketball
         Boys Varsity
+        Boys Junior Varsity
         Girls Varsity
 
       Soccer
         Boys Varsity
         Girls Varsity
 
-    Keeping track of the latest heading lets us attach
-    the sport name to each schedule link.
+    We remember the most recent heading and attach it
+    to each schedule link that follows.
   */
   const tokenRegex =
     /<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>|<a\b[^>]*href=["']([^"']*\/Teams\/Schedule\/(\d+)\?[^"']*activeEntityId=(\d+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
 
-  let currentSport: string | null = null
+  let currentSport:
+    | string
+    | null = null
 
-  let match: RegExpExecArray | null
+  let match:
+    | RegExpExecArray
+    | null
 
   while (
-    (match = tokenRegex.exec(html)) !== null
+    (match =
+      tokenRegex.exec(html)) !==
+    null
   ) {
     /*
-      Heading token
+      Heading
     */
     if (match[1]) {
       const headingText =
@@ -218,11 +237,8 @@ function discoverTeams(
     }
 
     /*
-      Schedule-link token
+      Schedule link
     */
-    const href =
-      decodeHtml(match[3])
-
     const teamId =
       match[4]
 
@@ -241,10 +257,14 @@ function discoverTeams(
     }
 
     const gender =
-      classifyGender(teamLabel)
+      classifyGender(
+        teamLabel
+      )
 
     const level =
-      classifyLevel(teamLabel)
+      classifyLevel(
+        teamLabel
+      )
 
     const isVarsity =
       level === 'Varsity'
@@ -252,9 +272,7 @@ function discoverTeams(
     const displayName =
       [
         gender,
-        isVarsity
-          ? 'Varsity'
-          : level,
+        level,
         currentSport,
       ]
         .filter(Boolean)
@@ -290,16 +308,16 @@ function discoverTeams(
   /*
     Backup discovery in case Arbiter changes markup.
 
-    These fallback records may not have sport context,
-    but we still preserve the team ID instead of losing
-    the team entirely.
+    These fallback records preserve the ID even if
+    sport/team metadata cannot be read.
   */
   const looseRegex =
     /\/Teams\/Schedule\/(\d+)\?[^"'<> ]*activeEntityId=(\d+)/gi
 
   while (
     (match =
-      looseRegex.exec(html)) !== null
+      looseRegex.exec(html)) !==
+    null
   ) {
     const teamId =
       match[1]
@@ -350,12 +368,16 @@ function discoverTeams(
         b.sportName || ''
       )
 
-    if (sportCompare !== 0) {
+    if (
+      sportCompare !== 0
+    ) {
       return sportCompare
     }
 
-    return a.teamLabel.localeCompare(
-      b.teamLabel
+    return (
+      a.teamLabel.localeCompare(
+        b.teamLabel
+      )
     )
   })
 }
@@ -368,7 +390,8 @@ export async function POST(
       await req.json()
 
     const rawUrl =
-      typeof body?.url === 'string'
+      typeof body?.url ===
+      'string'
         ? body.url.trim()
         : ''
 
@@ -385,7 +408,9 @@ export async function POST(
     }
 
     const entityId =
-      extractEntityId(rawUrl)
+      extractEntityId(
+        rawUrl
+      )
 
     if (!entityId) {
       return NextResponse.json(
@@ -430,11 +455,14 @@ export async function POST(
               'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           },
 
-          cache: 'no-store',
+          cache:
+            'no-store',
         }
       )
 
-    if (!response.ok) {
+    if (
+      !response.ok
+    ) {
       return NextResponse.json(
         {
           error:
@@ -470,7 +498,9 @@ export async function POST(
                 team.sportName
             )
             .filter(
-              (value): value is string =>
+              (
+                value
+              ): value is string =>
                 !!value
             )
         )
@@ -497,7 +527,9 @@ export async function POST(
         varsityTeams,
       }
     )
-  } catch (error: any) {
+  } catch (
+    error: any
+  ) {
     console.error(
       'Arbiter discovery error:',
       error
