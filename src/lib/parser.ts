@@ -28,22 +28,61 @@ interface ArbiterParseOptions extends ParseOptions {
   year: number
 }
 
-let fuseInstance: Fuse<TeamRecord> | null = null
+/*
+  Arbiter often uses official district names that differ from the
+  display names used by Section X Scoreboard.
+
+  These are parser-side aliases so Arbiter imports do not depend on
+  every variation being present in constants.ts.
+
+  IMPORTANT:
+  An alias can only resolve to an internal team if that sport/team
+  actually exists in options.teams. The parser will never invent a
+  Section X team ID.
+*/
+const ARBITER_SCHOOL_ALIASES: Record<string, string> = {
+  'Franklin Academy': 'Malone Central School',
+  'Franklin Academy - Malone CSD': 'Malone Central School',
+  'Franklin Academy - MCSD': 'Malone Central School',
+  'Franklin Academy Malone CSD': 'Malone Central School',
+  'Malone CSD': 'Malone Central School',
+  'Massena Central School': 'Massena Central School',
+  'Massena CSD': 'Massena Central School',
+  'Ogdensburg Free Academy': 'Ogdensburg Free Academy',
+  'St. Lawrence Central School': 'St Lawrence Central School',
+  'St Lawrence Central School': 'St Lawrence Central School',
+}
+
+function normalizeName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[.'’]/g, '')
+    .replace(/\s*-\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 function getFuse(teams: TeamRecord[]): Fuse<TeamRecord> {
-  if (!fuseInstance) {
-    fuseInstance = new Fuse(teams, {
-      keys: ['team_name', 'school_name', 'aliases'],
-      threshold: 0.4,
-      includeScore: true,
-    })
-  }
+  /*
+    Do NOT cache Fuse globally.
 
-  return fuseInstance
+    School Sync parses different sports one after another. A cached
+    Fuse instance from Boys Soccer must never be reused for Swimming,
+    Basketball, etc.
+  */
+  return new Fuse(teams, {
+    keys: ['team_name', 'school_name', 'aliases'],
+    threshold: 0.4,
+    includeScore: true,
+  })
 }
 
 export function resetFuse() {
-  fuseInstance = null
+  /*
+    Kept for compatibility with existing callers.
+    Fuse is intentionally rebuilt for each match set.
+  */
 }
 
 const DAY_NAMES =
@@ -73,6 +112,7 @@ const MONTH_MAP: Record<string, string> = {
   FEB: '02',
   MAR: '03',
   APR: '04',
+  MAY: '05',
   JUN: '06',
   JUL: '07',
   AUG: '08',
@@ -117,6 +157,13 @@ function isHeaderLine(line: string): boolean {
   return false
 }
 
+function getAliasMap(): Record<string, string> {
+  return {
+    ...SCHOOL_ALIASES,
+    ...ARBITER_SCHOOL_ALIASES,
+  }
+}
+
 function resolveTeamName(
   raw: string,
   teams: TeamRecord[]
@@ -137,16 +184,24 @@ function resolveTeamName(
     }
   }
 
-  const aliasKey = Object.keys(SCHOOL_ALIASES).find(
-    key => key.toLowerCase() === trimmed.toLowerCase()
+  const aliasMap = getAliasMap()
+  const normalizedInput = normalizeName(trimmed)
+
+  /*
+    1. Resolve known aliases first.
+  */
+  const aliasEntry = Object.entries(aliasMap).find(
+    ([alias]) => normalizeName(alias) === normalizedInput
   )
 
-  if (aliasKey) {
-    const resolvedName = SCHOOL_ALIASES[aliasKey]
+  if (aliasEntry) {
+    const resolvedName = aliasEntry[1]
+    const resolvedNormalized = normalizeName(resolvedName)
 
     const found = teams.find(
       team =>
-        team.school_name.toLowerCase() === resolvedName.toLowerCase()
+        normalizeName(team.school_name) === resolvedNormalized ||
+        normalizeName(team.team_name) === resolvedNormalized
     )
 
     if (found) {
@@ -159,12 +214,15 @@ function resolveTeamName(
     }
   }
 
+  /*
+    2. Exact normalized match.
+  */
   const exact = teams.find(
     team =>
-      team.team_name.toLowerCase() === trimmed.toLowerCase() ||
-      team.school_name.toLowerCase() === trimmed.toLowerCase() ||
+      normalizeName(team.team_name) === normalizedInput ||
+      normalizeName(team.school_name) === normalizedInput ||
       team.aliases.some(
-        alias => alias.toLowerCase() === trimmed.toLowerCase()
+        alias => normalizeName(alias) === normalizedInput
       )
   )
 
@@ -177,6 +235,9 @@ function resolveTeamName(
     }
   }
 
+  /*
+    3. Common Section X shorthand expansion.
+  */
   const expanded = trimmed
     .replace(/^Madrid-Wadd\.$/i, 'Madrid-Waddington Central')
     .replace(/^Madrid-Wadd$/i, 'Madrid-Waddington Central')
@@ -193,12 +254,19 @@ function resolveTeamName(
     .replace(/^Colton-Pierrepont$/i, 'Colton-Pierrepont Central School')
     .replace(/^Clifton-Fine$/i, 'Clifton-Fine Central School')
     .replace(/^Edwards-Knox$/i, 'Edwards-Knox Central School')
+    .replace(/^Franklin Academy$/i, 'Malone Central School')
+    .replace(/^Franklin Academy - Malone CSD$/i, 'Malone Central School')
+    .replace(/^Franklin Academy - MCSD$/i, 'Malone Central School')
+    .replace(/^Malone CSD$/i, 'Malone Central School')
+    .replace(/^Massena CSD$/i, 'Massena Central School')
 
-  if (expanded !== trimmed) {
+  if (normalizeName(expanded) !== normalizedInput) {
+    const expandedNormalized = normalizeName(expanded)
+
     const expandedMatch = teams.find(
       team =>
-        team.school_name.toLowerCase() === expanded.toLowerCase() ||
-        team.team_name.toLowerCase() === expanded.toLowerCase()
+        normalizeName(team.school_name) === expandedNormalized ||
+        normalizeName(team.team_name) === expandedNormalized
     )
 
     if (expandedMatch) {
@@ -211,9 +279,12 @@ function resolveTeamName(
     }
   }
 
+  /*
+    4. Conservative partial match.
+  */
   const partial = teams.find(team => {
-    const school = team.school_name.toLowerCase()
-    const input = trimmed.toLowerCase()
+    const school = normalizeName(team.school_name)
+    const input = normalizedInput
 
     return (
       school.startsWith(input) ||
@@ -231,6 +302,9 @@ function resolveTeamName(
     }
   }
 
+  /*
+    5. Fuzzy match as the last internal-team attempt.
+  */
   const fuse = getFuse(teams)
   const results = fuse.search(trimmed)
 
@@ -258,7 +332,6 @@ function resolveTeamName(
 
 function parseTime(str: string): string | null {
   const match = str.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i)
-
   return match ? match[0] : null
 }
 
@@ -303,8 +376,6 @@ export function parsePastedGames(
   text: string,
   options: ParseOptions
 ): ParsedGameRow[] {
-  fuseInstance = null
-
   const lines = text
     .split('\n')
     .map(line => line.trim())
@@ -400,9 +471,7 @@ function parseSingleLine(
       .replace(/\b(canceled|cancelled)\b/gi, '')
       .trim()
   } else if (
-    /\bsickness\b|\bweather\b|\bfield conditions\b/i.test(
-      working
-    )
+    /\bsickness\b|\bweather\b|\bfield conditions\b/i.test(working)
   ) {
     status = 'Postponed'
     working = working
@@ -470,7 +539,6 @@ function parseSingleLine(
     if (scorePattern) {
       awayTeamName = scorePattern[1].trim()
       awayScore = parseInt(scorePattern[2], 10)
-
       homeTeamName = scorePattern[3].trim()
       homeScore = parseInt(scorePattern[4], 10)
 
@@ -521,20 +589,14 @@ function parseSingleLine(
 
   let homeTeamId: string | null = null
   let awayTeamId: string | null = null
-
   let homeTeamMatch: string | null = null
   let awayTeamMatch: string | null = null
-
   let externalHomeName: string | null = null
   let externalAwayName: string | null = null
-
   let confidence: ImportConfidence = 'High'
 
   if (homeTeamName && options.teams.length > 0) {
-    const result = resolveTeamName(
-      homeTeamName,
-      options.teams
-    )
+    const result = resolveTeamName(homeTeamName, options.teams)
 
     homeTeamId = result.id
     homeTeamMatch = result.matched
@@ -549,10 +611,7 @@ function parseSingleLine(
   }
 
   if (awayTeamName && options.teams.length > 0) {
-    const result = resolveTeamName(
-      awayTeamName,
-      options.teams
-    )
+    const result = resolveTeamName(awayTeamName, options.teams)
 
     awayTeamId = result.id
     awayTeamMatch = result.matched
@@ -576,9 +635,7 @@ function parseSingleLine(
     confidence = 'Low'
   } else if (homeResolved !== awayResolved) {
     confidence = 'Medium'
-    confidenceNotes.push(
-      'Non-league game vs external opponent'
-    )
+    confidenceNotes.push('Non-league game vs external opponent')
   } else if (!homeResolved && !awayResolved) {
     confidence = 'Low'
   }
@@ -586,54 +643,34 @@ function parseSingleLine(
   return {
     id,
     raw: line,
-
     game_date: gameDate,
     game_time: gameTime,
-
     home_team_name: homeTeamName,
     away_team_name: awayTeamName,
-
     home_team_id: homeTeamId,
     away_team_id: awayTeamId,
-
     home_team_match:
       homeTeamMatch ||
-      (externalHomeName
-        ? `[EXT] ${externalHomeName}`
-        : null),
-
+      (externalHomeName ? `[EXT] ${externalHomeName}` : null),
     away_team_match:
       awayTeamMatch ||
-      (externalAwayName
-        ? `[EXT] ${externalAwayName}`
-        : null),
-
+      (externalAwayName ? `[EXT] ${externalAwayName}` : null),
     external_home_name: externalHomeName,
     external_away_name: externalAwayName,
-
     home_score: homeScore,
     away_score: awayScore,
-
     status,
-
     location: null,
     notes: null,
-
     rescheduled_date: rescheduledDate,
     game_number: gameNumber,
-
     neutral_site: neutralSite,
     event_name: eventName,
-
     confidence,
     confidence_notes: confidenceNotes,
-
     duplicate_warning: false,
-
     approved: confidence !== 'Low',
-
     error: null,
-
     sport_id: options.defaultSportId || null,
   }
 }
@@ -662,14 +699,13 @@ function cleanArbiterText(text: string): string {
   return cleaned.trim()
 }
 
-function getTeamSearchNames(
-  team: TeamRecord
-): string[] {
-  const constantAliases = Object.entries(SCHOOL_ALIASES)
+function getTeamSearchNames(team: TeamRecord): string[] {
+  const aliasMap = getAliasMap()
+
+  const constantAliases = Object.entries(aliasMap)
     .filter(
       ([, resolvedName]) =>
-        resolvedName.toLowerCase() ===
-        team.school_name.toLowerCase()
+        normalizeName(resolvedName) === normalizeName(team.school_name)
     )
     .map(([alias]) => alias)
 
@@ -695,7 +731,7 @@ function findInternalOpponentFromTail(
   opponentText: string
   locationText: string | null
 } | null {
-  const lowerTail = tail.toLowerCase()
+  const lowerTail = normalizeName(tail)
 
   const candidates: {
     team: TeamRecord
@@ -713,26 +749,45 @@ function findInternalOpponentFromTail(
     }
   }
 
+  /*
+    Longest alias first prevents "Franklin Academy" from winning before
+    "Franklin Academy - Malone CSD".
+  */
   candidates.sort(
-    (a, b) =>
-      b.searchName.length -
-      a.searchName.length
+    (a, b) => b.searchName.length - a.searchName.length
   )
 
   for (const candidate of candidates) {
-    if (
-      lowerTail.startsWith(
-        candidate.searchName.toLowerCase()
-      )
-    ) {
-      const opponentText = tail
-        .slice(0, candidate.searchName.length)
-        .trim()
+    const normalizedCandidate = normalizeName(candidate.searchName)
 
-      const locationText =
-        tail
-          .slice(candidate.searchName.length)
-          .trim() || null
+    if (lowerTail.startsWith(normalizedCandidate)) {
+      /*
+        Use the original text length when possible. If punctuation
+        normalization changed the exact character count, fall back to
+        a case-insensitive raw prefix lookup.
+      */
+      const rawLower = tail.toLowerCase()
+      const searchLower = candidate.searchName.toLowerCase()
+
+      let consumed = candidate.searchName.length
+
+      if (!rawLower.startsWith(searchLower)) {
+        const aliasPattern = candidate.searchName
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          .replace(/\s*-\s*/g, '\\s*-\\s*')
+          .replace(/\./g, '\\.?')
+
+        const rawMatch = tail.match(
+          new RegExp(`^${aliasPattern}`, 'i')
+        )
+
+        if (rawMatch) {
+          consumed = rawMatch[0].length
+        }
+      }
+
+      const opponentText = tail.slice(0, consumed).trim()
+      const locationText = tail.slice(consumed).trim() || null
 
       return {
         team: candidate.team,
@@ -742,21 +797,7 @@ function findInternalOpponentFromTail(
     }
   }
 
-  /*
-    IMPORTANT:
-    Arbiter schedules regularly include non-Section X opponents.
-
-    Do not fuzzy-match an unknown opponent here. Names such as
-    "Peru Central School" are too similar to Section X schools that
-    also contain "Central School" and can be incorrectly assigned to
-    an internal team.
-
-    Internal Arbiter opponents must match a known school/team/alias
-    at the START of the row. If they do not, the caller will treat the
-    opponent as external.
-  */
   return null
-
 }
 
 function splitExternalOpponent(
@@ -768,56 +809,36 @@ function splitExternalOpponent(
   location: string | null
 } {
   const working = tail
-    .replace(
-      /\s+with\s+\d+\s+others?\b/i,
-      ''
-    )
+    .replace(/\s+with\s+\d+\s+others?\b/i, '')
     .trim()
 
   if (direction === 'vs') {
-    const sourceNames =
-      getTeamSearchNames(sourceTeam)
-        .sort(
-          (a, b) =>
-            b.length - a.length
-        )
+    const sourceNames = getTeamSearchNames(sourceTeam).sort(
+      (a, b) => b.length - a.length
+    )
 
     for (const sourceName of sourceNames) {
       const index = working
         .toLowerCase()
-        .indexOf(
-          sourceName.toLowerCase()
-        )
+        .indexOf(sourceName.toLowerCase())
 
       if (index > 0) {
         return {
-          opponent:
-            working
-              .slice(0, index)
-              .trim(),
-
-          location:
-            working
-              .slice(index)
-              .trim() || null,
+          opponent: working.slice(0, index).trim(),
+          location: working.slice(index).trim() || null,
         }
       }
     }
   }
 
-  const schoolEnding =
-    working.match(
-      /^(.+?(?:Central High School|Central School|High School|Junior Senior High School|Junior\/Senior High School|Jr\.?\s*\/?\s*Sr\.?\s*High School|Academy|School District|CSD))\b\s*(.*)$/i
-    )
+  const schoolEnding = working.match(
+    /^(.+?(?:Central High School|Central School|High School|Junior Senior High School|Junior\/Senior High School|Jr\.?\s*\/?\s*Sr\.?\s*High School|Academy|School District|CSD))\b\s*(.*)$/i
+  )
 
   if (schoolEnding) {
     return {
-      opponent:
-        schoolEnding[1].trim(),
-
-      location:
-        schoolEnding[2].trim() ||
-        null,
+      opponent: schoolEnding[1].trim(),
+      location: schoolEnding[2].trim() || null,
     }
   }
 
@@ -833,56 +854,33 @@ function createLowConfidenceArbiterRow(
   sportId?: string
 ): ParsedGameRow {
   return {
-    id:
-      Math.random()
-        .toString(36)
-        .slice(2),
-
+    id: Math.random().toString(36).slice(2),
     raw,
-
     game_date: null,
     game_time: null,
-
     home_team_name: null,
     away_team_name: null,
-
     home_team_id: null,
     away_team_id: null,
-
     home_team_match: null,
     away_team_match: null,
-
     external_home_name: null,
     external_away_name: null,
-
     home_score: null,
     away_score: null,
-
     status: 'Scheduled',
-
     location: null,
     notes: null,
-
     rescheduled_date: null,
     game_number: null,
-
     neutral_site: false,
     event_name: null,
-
     confidence: 'Low',
-
-    confidence_notes: [
-      message,
-    ],
-
+    confidence_notes: [message],
     duplicate_warning: false,
-
     approved: false,
-
     error: message,
-
-    sport_id:
-      sportId || null,
+    sport_id: sportId || null,
   }
 }
 
@@ -890,11 +888,8 @@ export function parseArbiterSchedule(
   text: string,
   options: ArbiterParseOptions
 ): ParsedGameRow[] {
-  fuseInstance = null
-
   const sourceTeam = options.teams.find(
-    team =>
-      team.id === options.sourceTeamId
+    team => team.id === options.sourceTeamId
   )
 
   if (!sourceTeam) {
@@ -907,8 +902,7 @@ export function parseArbiterSchedule(
     ]
   }
 
-  const cleaned =
-    cleanArbiterText(text)
+  const cleaned = cleanArbiterText(text)
 
   const chunks = cleaned
     .split(
@@ -932,33 +926,18 @@ export function parseArbiterSchedule(
           options.defaultSportId
         )
       )
-
       continue
     }
 
-    const month =
-      MONTH_MAP[
-        match[1].toUpperCase()
-      ]
-
-    const day =
-      match[2].padStart(2, '0')
-
-    const gameDate =
-      `${options.year}-${month}-${day}`
-
+    const month = MONTH_MAP[match[1].toUpperCase()]
+    const day = match[2].padStart(2, '0')
+    const gameDate = `${options.year}-${month}-${day}`
     const gameTime = match[3]
 
-    const direction =
-      match[4].toLowerCase() as
-        | '@'
-        | 'vs'
+    const direction = match[4].toLowerCase() as '@' | 'vs'
 
     let tail = match[5]
-      .replace(
-        /^Opponent\s+logo\s+/i,
-        ''
-      )
+      .replace(/^Opponent\s+logo\s+/i, '')
       .trim()
 
     let arbiterType:
@@ -967,42 +946,22 @@ export function parseArbiterSchedule(
       | 'Scrimmage'
       | null = null
 
-    const typeMatch =
-      tail.match(
-        /\s+([LNS])\s*$/
-      )
+    const typeMatch = tail.match(/\s+([LNS])\s*$/)
 
     if (typeMatch) {
-      const typeCode =
-        typeMatch[1].toUpperCase()
+      const typeCode = typeMatch[1].toUpperCase()
 
       if (typeCode === 'L') {
         arbiterType = 'League'
-      } else if (
-        typeCode === 'N'
-      ) {
-        arbiterType =
-          'Non-League'
-      } else if (
-        typeCode === 'S'
-      ) {
-        arbiterType =
-          'Scrimmage'
+      } else if (typeCode === 'N') {
+        arbiterType = 'Non-League'
+      } else if (typeCode === 'S') {
+        arbiterType = 'Scrimmage'
       }
 
-      tail = tail
-        .slice(
-          0,
-          typeMatch.index
-        )
-        .trim()
+      tail = tail.slice(0, typeMatch.index).trim()
     }
 
-    /*
-      Arbiter can place status text between the location and the
-      trailing type code. Pull that status out BEFORE trying to
-      identify the opponent/location.
-    */
     let status: GameStatus = 'Scheduled'
 
     if (/\b(?:Canceled|Cancelled)\b/i.test(tail)) {
@@ -1017,11 +976,6 @@ export function parseArbiterSchedule(
         .trim()
     }
 
-    /*
-      "with 1 others" means Arbiter is grouping a multi-team event.
-      Preserve the named opponent, but force review rather than
-      pretending this is an ordinary head-to-head row.
-    */
     const multiTeamMatch =
       tail.match(/\s+with\s+(\d+)\s+others?\b/i)
 
@@ -1038,49 +992,32 @@ export function parseArbiterSchedule(
 
     let opponentName = ''
     let location: string | null = null
+    let opponentTeam: TeamRecord | null = null
 
-    let opponentTeam:
-      | TeamRecord
-      | null = null
-
-    const internal =
-      findInternalOpponentFromTail(
-        tail,
-        options.teams,
-        options.sourceTeamId
-      )
+    const internal = findInternalOpponentFromTail(
+      tail,
+      options.teams,
+      options.sourceTeamId
+    )
 
     if (internal) {
-      opponentTeam =
-        internal.team
-
-      opponentName =
-        internal.opponentText
-
-      location =
-        internal.locationText
+      opponentTeam = internal.team
+      opponentName = internal.opponentText
+      location = internal.locationText
     } else {
-      const external =
-        splitExternalOpponent(
-          tail,
-          sourceTeam,
-          direction
-        )
+      const external = splitExternalOpponent(
+        tail,
+        sourceTeam,
+        direction
+      )
 
-      opponentName =
-        external.opponent
-
-      location =
-        external.location
+      opponentName = external.opponent
+      location = external.location
     }
 
-    opponentName =
-      opponentName
-        .replace(
-          /\s+with\s+\d+\s+others?\b/gi,
-          ''
-        )
-        .trim()
+    opponentName = opponentName
+      .replace(/\s+with\s+\d+\s+others?\b/gi, '')
+      .trim()
 
     if (!opponentName) {
       results.push(
@@ -1090,88 +1027,51 @@ export function parseArbiterSchedule(
           options.defaultSportId
         )
       )
-
       continue
     }
 
-    const opponentTeamId =
-      opponentTeam?.id || null
-
+    const opponentTeamId = opponentTeam?.id || null
     const opponentDisplay =
-      opponentTeam?.school_name ||
-      opponentName
+      opponentTeam?.school_name || opponentName
 
     let homeTeamName: string
     let awayTeamName: string
-
     let homeTeamId: string | null
     let awayTeamId: string | null
-
     let homeTeamMatch: string | null
     let awayTeamMatch: string | null
-
-    let externalHomeName:
-      | string
-      | null = null
-
-    let externalAwayName:
-      | string
-      | null = null
+    let externalHomeName: string | null = null
+    let externalAwayName: string | null = null
 
     if (direction === 'vs') {
-      homeTeamName =
-        sourceTeam.school_name
-
-      awayTeamName =
-        opponentName
-
-      homeTeamId =
-        sourceTeam.id
-
-      awayTeamId =
-        opponentTeamId
-
-      homeTeamMatch =
-        sourceTeam.school_name
-
-      awayTeamMatch =
-        opponentTeam
-          ? opponentDisplay
-          : `[EXT] ${opponentName}`
+      homeTeamName = sourceTeam.school_name
+      awayTeamName = opponentName
+      homeTeamId = sourceTeam.id
+      awayTeamId = opponentTeamId
+      homeTeamMatch = sourceTeam.school_name
+      awayTeamMatch = opponentTeam
+        ? opponentDisplay
+        : `[EXT] ${opponentName}`
 
       if (!opponentTeam) {
-        externalAwayName =
-          opponentName
+        externalAwayName = opponentName
       }
     } else {
-      homeTeamName =
-        opponentName
-
-      awayTeamName =
-        sourceTeam.school_name
-
-      homeTeamId =
-        opponentTeamId
-
-      awayTeamId =
-        sourceTeam.id
-
-      homeTeamMatch =
-        opponentTeam
-          ? opponentDisplay
-          : `[EXT] ${opponentName}`
-
-      awayTeamMatch =
-        sourceTeam.school_name
+      homeTeamName = opponentName
+      awayTeamName = sourceTeam.school_name
+      homeTeamId = opponentTeamId
+      awayTeamId = sourceTeam.id
+      homeTeamMatch = opponentTeam
+        ? opponentDisplay
+        : `[EXT] ${opponentName}`
+      awayTeamMatch = sourceTeam.school_name
 
       if (!opponentTeam) {
-        externalHomeName =
-          opponentName
+        externalHomeName = opponentName
       }
     }
 
-    const confidence:
-      ImportConfidence =
+    const confidence: ImportConfidence =
       additionalOpponentCount !== null
         ? 'Medium'
         : opponentTeam
@@ -1182,7 +1082,6 @@ export function parseArbiterSchedule(
       direction === 'vs'
         ? 'Arbiter home game'
         : 'Arbiter away game',
-
       opponentTeam
         ? `Opponent matched: ${opponentDisplay}`
         : `External opponent: ${opponentName}`,
@@ -1197,104 +1096,60 @@ export function parseArbiterSchedule(
     }
 
     if (status !== 'Scheduled') {
-      confidenceNotes.push(
-        `Status: ${status}`
-      )
+      confidenceNotes.push(`Status: ${status}`)
     }
 
     if (arbiterType) {
-      confidenceNotes.push(
-        `Type: ${arbiterType}`
-      )
+      confidenceNotes.push(`Type: ${arbiterType}`)
     }
 
     if (location) {
-      confidenceNotes.push(
-        `Location: ${location}`
-      )
+      confidenceNotes.push(`Location: ${location}`)
     }
 
     results.push({
-      id:
-        Math.random()
-          .toString(36)
-          .slice(2),
-
+      id: Math.random().toString(36).slice(2),
       raw: chunk,
-
       game_date: gameDate,
       game_time: gameTime,
-
-      home_team_name:
-        homeTeamName,
-
-      away_team_name:
-        awayTeamName,
-
-      home_team_id:
-        homeTeamId,
-
-      away_team_id:
-        awayTeamId,
-
-      home_team_match:
-        homeTeamMatch,
-
-      away_team_match:
-        awayTeamMatch,
-
-      external_home_name:
-        externalHomeName,
-
-      external_away_name:
-        externalAwayName,
-
+      home_team_name: homeTeamName,
+      away_team_name: awayTeamName,
+      home_team_id: homeTeamId,
+      away_team_id: awayTeamId,
+      home_team_match: homeTeamMatch,
+      away_team_match: awayTeamMatch,
+      external_home_name: externalHomeName,
+      external_away_name: externalAwayName,
       home_score: null,
       away_score: null,
-
       status,
-
       location,
-
-      notes: [
-        arbiterType
-          ? `Arbiter type: ${arbiterType}`
-          : null,
-        additionalOpponentCount !== null
-          ? `Multi-team Arbiter event with ${additionalOpponentCount} additional opponent${
-              additionalOpponentCount === 1 ? '' : 's'
-            }`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(' · ') || null,
-
+      notes:
+        [
+          arbiterType
+            ? `Arbiter type: ${arbiterType}`
+            : null,
+          additionalOpponentCount !== null
+            ? `Multi-team Arbiter event with ${additionalOpponentCount} additional opponent${
+                additionalOpponentCount === 1 ? '' : 's'
+              }`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || null,
       rescheduled_date: null,
-
       game_number: null,
-
       neutral_site: false,
-
       event_name:
         additionalOpponentCount !== null
           ? 'Multi-team event'
           : null,
-
       confidence,
-
-      confidence_notes:
-        confidenceNotes,
-
+      confidence_notes: confidenceNotes,
       duplicate_warning: false,
-
-      approved:
-        additionalOpponentCount === null,
-
+      approved: additionalOpponentCount === null,
       error: null,
-
-      sport_id:
-        options.defaultSportId ||
-        null,
+      sport_id: options.defaultSportId || null,
     })
   }
 
@@ -1304,9 +1159,7 @@ export function parseArbiterSchedule(
 export function parseCSV(
   text: string
 ): Record<string, string>[] {
-  const lines = text
-    .split('\n')
-    .filter(Boolean)
+  const lines = text.split('\n').filter(Boolean)
 
   if (lines.length < 2) {
     return []
@@ -1321,27 +1174,17 @@ export function parseCSV(
         .replace(/\s+/g, '_')
     )
 
-  return lines
-    .slice(1)
-    .map(line => {
-      const values = line
-        .split(',')
-        .map(value =>
-          value.trim()
-        )
+  return lines.slice(1).map(line => {
+    const values = line
+      .split(',')
+      .map(value => value.trim())
 
-      const row: Record<
-        string,
-        string
-      > = {}
+    const row: Record<string, string> = {}
 
-      headers.forEach(
-        (header, index) => {
-          row[header] =
-            values[index] || ''
-        }
-      )
-
-      return row
+    headers.forEach((header, index) => {
+      row[header] = values[index] || ''
     })
+
+    return row
+  })
 }
