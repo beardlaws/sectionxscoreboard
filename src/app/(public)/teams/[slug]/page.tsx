@@ -557,12 +557,22 @@ export default async function TeamPage({ params }: Props) {
                         </td>
 
                         <td className="px-4 py-2.5">
-                          <span
-                            className="font-semibold text-slate-100"
-                            style={{ fontFamily: 'var(--font-display)' }}
-                          >
-                            {entry.athlete?.display_name || 'Unknown Athlete'}
-                          </span>
+                          {entry.athlete?.slug ? (
+                            <Link
+                              href={`/athletes/${entry.athlete.slug}`}
+                              className="font-semibold text-slate-100 hover:text-blue-400 transition-colors"
+                              style={{ fontFamily: 'var(--font-display)' }}
+                            >
+                              {entry.athlete.display_name || 'Unknown Athlete'}
+                            </Link>
+                          ) : (
+                            <span
+                              className="font-semibold text-slate-100"
+                              style={{ fontFamily: 'var(--font-display)' }}
+                            >
+                              {entry.athlete?.display_name || 'Unknown Athlete'}
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-2.5 text-slate-400">
