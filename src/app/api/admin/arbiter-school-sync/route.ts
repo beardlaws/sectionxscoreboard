@@ -39,11 +39,45 @@ interface ScheduleRow {
   raw: string
 }
 
+interface RosterRow {
+  jerseyNumber: string
+  rawName: string
+  displayName: string
+  firstName: string
+  lastName: string
+  classYear: string
+  position: string
+  height: string
+  raw: string
+}
+
+interface CoachRow {
+  rawName: string
+  displayName: string
+  firstName: string
+  lastName: string
+  title: string
+  raw: string
+}
+
 interface SyncedTeam extends DiscoveredTeam {
   success: boolean
+
   rowCount: number
   rows: ScheduleRow[]
   arbiterText: string
+  scheduleError: string | null
+
+  rosterFound: boolean
+  rosterCount: number
+  roster: RosterRow[]
+  rosterError: string | null
+
+  coachesFound: boolean
+  coachCount: number
+  coaches: CoachRow[]
+  coachesError: string | null
+
   error: string | null
 }
 
@@ -211,13 +245,6 @@ function inferSeasonType(
     .toLowerCase()
     .trim()
 
-  /*
-    IMPORTANT:
-    Section X Girls Swimming is a FALL sport.
-
-    Keep swimming here so Arbiter School Sync
-    matches the sports table in Supabase.
-  */
   const fallSports = [
     'football',
     'soccer',
@@ -372,7 +399,7 @@ function extractCells(
   const cells: string[] = []
 
   const cellRegex =
-    /<td\b[^>]*>([\s\S]*?)<\/td>/gi
+    /<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi
 
   let match: RegExpExecArray | null
 
@@ -389,38 +416,10 @@ function extractCells(
   return cells
 }
 
-function findScheduleTable(
-  html: string
-): string | null {
-  const tableRegex =
-    /<table\b[^>]*>([\s\S]*?)<\/table>/gi
-
-  let match: RegExpExecArray | null
-
-  while (
-    (match =
-      tableRegex.exec(html)) !==
-    null
-  ) {
-    const table = match[0]
-    const text = stripHtml(table)
-
-    if (
-      /Date\/Time/i.test(text) &&
-      /Opponent/i.test(text) &&
-      /Location/i.test(text)
-    ) {
-      return table
-    }
-  }
-
-  return null
-}
-
-function parseScheduleTable(
+function extractRows(
   tableHtml: string
-): ScheduleRow[] {
-  const rows: ScheduleRow[] = []
+): string[][] {
+  const rows: string[][] = []
 
   const rowRegex =
     /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi
@@ -435,6 +434,131 @@ function parseScheduleTable(
     const cells =
       extractCells(match[0])
 
+    if (cells.length > 0) {
+      rows.push(cells)
+    }
+  }
+
+  return rows
+}
+
+function findTableByHeaders(
+  html: string,
+  requiredHeaders: string[]
+): string | null {
+  const tableRegex =
+    /<table\b[^>]*>([\s\S]*?)<\/table>/gi
+
+  let match: RegExpExecArray | null
+
+  while (
+    (match =
+      tableRegex.exec(html)) !==
+    null
+  ) {
+    const table = match[0]
+    const rows = extractRows(table)
+
+    if (rows.length === 0) {
+      continue
+    }
+
+    const headerText =
+      rows[0]
+        .join(' | ')
+        .toLowerCase()
+
+    const matchesAll =
+      requiredHeaders.every(
+        header =>
+          headerText.includes(
+            header.toLowerCase()
+          )
+      )
+
+    if (matchesAll) {
+      return table
+    }
+  }
+
+  return null
+}
+
+function findScheduleTable(
+  html: string
+): string | null {
+  return findTableByHeaders(
+    html,
+    [
+      'Date/Time',
+      'Opponent',
+      'Location',
+    ]
+  )
+}
+
+function findRosterTable(
+  html: string
+): string | null {
+  return findTableByHeaders(
+    html,
+    [
+      'Jersey',
+      'Name',
+      'Class',
+      'Position',
+      'Height',
+    ]
+  )
+}
+
+function findCoachesTable(
+  html: string
+): string | null {
+  const tableRegex =
+    /<table\b[^>]*>([\s\S]*?)<\/table>/gi
+
+  let match: RegExpExecArray | null
+
+  while (
+    (match =
+      tableRegex.exec(html)) !==
+    null
+  ) {
+    const table = match[0]
+    const rows = extractRows(table)
+
+    if (rows.length === 0) {
+      continue
+    }
+
+    const header =
+      rows[0]
+        .map(value =>
+          value.toLowerCase()
+        )
+
+    if (
+      header.length >= 2 &&
+      header[0] === 'name' &&
+      header[1] === 'title'
+    ) {
+      return table
+    }
+  }
+
+  return null
+}
+
+function parseScheduleTable(
+  tableHtml: string
+): ScheduleRow[] {
+  const rows: ScheduleRow[] = []
+
+  const tableRows =
+    extractRows(tableHtml)
+
+  for (const cells of tableRows) {
     if (cells.length < 3) {
       continue
     }
@@ -444,7 +568,9 @@ function parseScheduleTable(
 
     if (
       !dateTime ||
-      /Date\/Time/i.test(dateTime)
+      /Date\/Time/i.test(
+        dateTime
+      )
     ) {
       continue
     }
@@ -501,6 +627,238 @@ function parseScheduleTable(
   return rows
 }
 
+function cleanPersonName(
+  value: string
+): string {
+  return value
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function splitPersonName(
+  rawName: string
+): {
+  displayName: string
+  firstName: string
+  lastName: string
+} {
+  const cleaned =
+    cleanPersonName(rawName)
+
+  if (!cleaned) {
+    return {
+      displayName: '',
+      firstName: '',
+      lastName: '',
+    }
+  }
+
+  if (cleaned.includes(',')) {
+    const [
+      rawLast,
+      ...rest
+    ] = cleaned.split(',')
+
+    const lastName =
+      rawLast.trim()
+
+    const firstName =
+      rest.join(',')
+        .trim()
+
+    return {
+      displayName:
+        [firstName, lastName]
+          .filter(Boolean)
+          .join(' '),
+      firstName,
+      lastName,
+    }
+  }
+
+  const parts =
+    cleaned
+      .split(' ')
+      .filter(Boolean)
+
+  if (parts.length === 1) {
+    return {
+      displayName:
+        cleaned,
+      firstName:
+        cleaned,
+      lastName: '',
+    }
+  }
+
+  const firstName =
+    parts[0]
+
+  const lastName =
+    parts
+      .slice(1)
+      .join(' ')
+
+  return {
+    displayName:
+      cleaned,
+    firstName,
+    lastName,
+  }
+}
+
+function parseRosterTable(
+  tableHtml: string
+): RosterRow[] {
+  const rows: RosterRow[] = []
+  const tableRows =
+    extractRows(tableHtml)
+
+  for (
+    const cells of tableRows
+  ) {
+    if (cells.length < 2) {
+      continue
+    }
+
+    const firstCell =
+      cells[0]?.trim() || ''
+
+    const secondCell =
+      cells[1]?.trim() || ''
+
+    if (
+      /^Jersey$/i.test(
+        firstCell
+      ) &&
+      /^Name$/i.test(
+        secondCell
+      )
+    ) {
+      continue
+    }
+
+    const jerseyNumber =
+      cells[0]?.trim() || ''
+
+    const rawName =
+      cells[1]?.trim() || ''
+
+    const classYear =
+      cells[2]?.trim() || ''
+
+    const position =
+      cells[3]?.trim() || ''
+
+    const height =
+      cells[4]?.trim() || ''
+
+    if (!rawName) {
+      continue
+    }
+
+    const parsedName =
+      splitPersonName(
+        rawName
+      )
+
+    if (
+      !parsedName.displayName
+    ) {
+      continue
+    }
+
+    rows.push({
+      jerseyNumber,
+      rawName,
+      displayName:
+        parsedName.displayName,
+      firstName:
+        parsedName.firstName,
+      lastName:
+        parsedName.lastName,
+      classYear,
+      position,
+      height,
+      raw: [
+        jerseyNumber,
+        rawName,
+        classYear,
+        position,
+        height,
+      ].join(' | '),
+    })
+  }
+
+  return rows
+}
+
+function parseCoachesTable(
+  tableHtml: string
+): CoachRow[] {
+  const rows: CoachRow[] = []
+  const tableRows =
+    extractRows(tableHtml)
+
+  for (
+    const cells of tableRows
+  ) {
+    if (cells.length < 2) {
+      continue
+    }
+
+    const rawName =
+      cells[0]?.trim() || ''
+
+    const title =
+      cells[1]?.trim() || ''
+
+    if (
+      /^Name$/i.test(
+        rawName
+      ) &&
+      /^Title$/i.test(
+        title
+      )
+    ) {
+      continue
+    }
+
+    if (!rawName) {
+      continue
+    }
+
+    const parsedName =
+      splitPersonName(
+        rawName
+      )
+
+    if (
+      !parsedName.displayName
+    ) {
+      continue
+    }
+
+    rows.push({
+      rawName,
+      displayName:
+        parsedName.displayName,
+      firstName:
+        parsedName.firstName,
+      lastName:
+        parsedName.lastName,
+      title,
+      raw: [
+        rawName,
+        title,
+      ].join(' | '),
+    })
+  }
+
+  return rows
+}
+
 function rowsToArbiterText(
   rows: ScheduleRow[]
 ): string {
@@ -551,43 +909,143 @@ async function syncTeam(
         team.scheduleUrl
       )
 
-    const table =
-      findScheduleTable(html)
+    const scheduleTable =
+      findScheduleTable(
+        html
+      )
 
-    if (!table) {
-      return {
-        ...team,
-        success: false,
-        rowCount: 0,
-        rows: [],
-        arbiterText: '',
-        error:
-          'Schedule table not found.',
-      }
+    const rosterTable =
+      findRosterTable(
+        html
+      )
+
+    const coachesTable =
+      findCoachesTable(
+        html
+      )
+
+    let scheduleRows:
+      ScheduleRow[] = []
+
+    let scheduleError:
+      string | null = null
+
+    if (scheduleTable) {
+      scheduleRows =
+        parseScheduleTable(
+          scheduleTable
+        )
+    } else {
+      scheduleError =
+        'Schedule table not found.'
     }
 
-    const rows =
-      parseScheduleTable(table)
+    let roster:
+      RosterRow[] = []
+
+    let rosterError:
+      string | null = null
+
+    if (rosterTable) {
+      roster =
+        parseRosterTable(
+          rosterTable
+        )
+    } else {
+      rosterError =
+        'Roster table not published.'
+    }
+
+    let coaches:
+      CoachRow[] = []
+
+    let coachesError:
+      string | null = null
+
+    if (coachesTable) {
+      coaches =
+        parseCoachesTable(
+          coachesTable
+        )
+    } else {
+      coachesError =
+        'Coaches table not published.'
+    }
+
+    const success =
+      !!scheduleTable
 
     return {
       ...team,
-      success: true,
-      rowCount: rows.length,
-      rows,
+
+      success,
+
+      rowCount:
+        scheduleRows.length,
+
+      rows:
+        scheduleRows,
+
       arbiterText:
-        rowsToArbiterText(rows),
-      error: null,
+        rowsToArbiterText(
+          scheduleRows
+        ),
+
+      scheduleError,
+
+      rosterFound:
+        !!rosterTable,
+
+      rosterCount:
+        roster.length,
+
+      roster,
+
+      rosterError,
+
+      coachesFound:
+        !!coachesTable,
+
+      coachCount:
+        coaches.length,
+
+      coaches,
+
+      coachesError,
+
+      error:
+        scheduleError,
     }
   } catch (error: any) {
     return {
       ...team,
+
       success: false,
+
       rowCount: 0,
       rows: [],
       arbiterText: '',
-      error:
+      scheduleError:
         error?.message ||
         'Schedule fetch failed.',
+
+      rosterFound: false,
+      rosterCount: 0,
+      roster: [],
+      rosterError:
+        error?.message ||
+        'Roster fetch failed.',
+
+      coachesFound: false,
+      coachCount: 0,
+      coaches: [],
+      coachesError:
+        error?.message ||
+        'Coach fetch failed.',
+
+      error:
+        error?.message ||
+        'Team fetch failed.',
     }
   }
 }
@@ -617,7 +1075,9 @@ export async function POST(
     }
 
     const normalized =
-      normalizeSchoolUrl(rawUrl)
+      normalizeSchoolUrl(
+        rawUrl
+      )
 
     if (!normalized) {
       return NextResponse.json(
@@ -650,31 +1110,63 @@ export async function POST(
     const syncedTeams =
       await Promise.all(
         varsityTeams.map(
-          team => syncTeam(team)
+          team =>
+            syncTeam(team)
         )
       )
 
-    const successful =
+    const successfulSchedules =
       syncedTeams.filter(
         team => team.success
       )
 
-    const failed =
+    const failedSchedules =
       syncedTeams.filter(
         team => !team.success
       )
 
     const totalRows =
-      successful.reduce(
+      successfulSchedules.reduce(
         (total, team) =>
-          total + team.rowCount,
+          total +
+          team.rowCount,
         0
       )
+
+    const totalRosterEntries =
+      syncedTeams.reduce(
+        (total, team) =>
+          total +
+          team.rosterCount,
+        0
+      )
+
+    const totalCoaches =
+      syncedTeams.reduce(
+        (total, team) =>
+          total +
+          team.coachCount,
+        0
+      )
+
+    const teamsWithRosters =
+      syncedTeams.filter(
+        team =>
+          team.rosterFound &&
+          team.rosterCount > 0
+      ).length
+
+    const teamsWithCoaches =
+      syncedTeams.filter(
+        team =>
+          team.coachesFound &&
+          team.coachCount > 0
+      ).length
 
     const sports =
       Array.from(
         new Set(
-          successful
+          successfulSchedules
             .map(
               team =>
                 team.sectionXSportName
@@ -691,7 +1183,7 @@ export async function POST(
     const seasons =
       Array.from(
         new Set(
-          successful
+          successfulSchedules
             .map(
               team =>
                 team.seasonType
@@ -710,22 +1202,38 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+
       entityId:
         normalized.entityId,
+
       schoolUrl:
         normalized.url,
+
       discoveredTeams:
         discovered.length,
+
       varsityTeams:
         varsityTeams.length,
+
       schedulesFetched:
-        successful.length,
+        successfulSchedules.length,
+
       schedulesFailed:
-        failed.length,
+        failedSchedules.length,
+
       totalRows,
+
+      teamsWithRosters,
+      totalRosterEntries,
+
+      teamsWithCoaches,
+      totalCoaches,
+
       sports,
       seasons,
-      teams: syncedTeams,
+
+      teams:
+        syncedTeams,
     })
   } catch (error: any) {
     console.error(
