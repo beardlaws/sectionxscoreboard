@@ -143,6 +143,87 @@ export default async function TeamPage({ params }: Props) {
     .eq('season_id', activeSeason?.id || '')
     .maybeSingle()
 
+  const { data: rosterEntries } = activeSeason
+    ? await supabase
+        .from('roster_entries')
+        .select(`
+          id,
+          jersey_number,
+          class_year,
+          position,
+          height,
+          athlete:athletes(
+            id,
+            first_name,
+            last_name,
+            display_name,
+            slug
+          )
+        `)
+        .eq('team_id', team.id)
+        .eq('season_id', activeSeason.id)
+        .eq('active', true)
+        .order('jersey_number', { ascending: true })
+    : { data: [] }
+
+  const { data: coachEntries } = activeSeason
+    ? await supabase
+        .from('team_coaches')
+        .select(`
+          id,
+          title,
+          coach:coaches(
+            id,
+            first_name,
+            last_name,
+            display_name,
+            slug
+          )
+        `)
+        .eq('team_id', team.id)
+        .eq('season_id', activeSeason.id)
+        .eq('active', true)
+    : { data: [] }
+
+  const roster = (rosterEntries || []).map((entry: any) => ({
+    ...entry,
+    athlete: Array.isArray(entry.athlete)
+      ? entry.athlete[0] || null
+      : entry.athlete || null,
+  }))
+
+  const coaches = (coachEntries || []).map((entry: any) => ({
+    ...entry,
+    coach: Array.isArray(entry.coach)
+      ? entry.coach[0] || null
+      : entry.coach || null,
+  }))
+
+  const CLASS_ORDER: Record<string, number> = {
+    Senior: 1,
+    Junior: 2,
+    Sophomore: 3,
+    Freshman: 4,
+    '8th Grade': 5,
+    '7th Grade': 6,
+  }
+
+  roster.sort((a: any, b: any) => {
+    const aClass = CLASS_ORDER[a.class_year || ''] || 99
+    const bClass = CLASS_ORDER[b.class_year || ''] || 99
+    if (aClass !== bClass) return aClass - bClass
+
+    const aName = a.athlete?.display_name || ''
+    const bName = b.athlete?.display_name || ''
+    return aName.localeCompare(bName)
+  })
+
+  const classCounts = roster.reduce((acc: Record<string, number>, entry: any) => {
+    const key = entry.class_year || 'Unlisted'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
   return (
     <PublicLayout>
       <div className="max-w-3xl mx-auto px-4 py-6">
@@ -348,6 +429,228 @@ export default async function TeamPage({ params }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Team hub quick nav */}
+        <div className="flex items-center gap-2 flex-wrap mb-6">
+          <a
+            href="#schedule"
+            className="px-3 py-1.5 rounded-full text-xs font-black text-slate-300 hover:text-white transition-colors"
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '0.06em',
+            }}
+          >
+            Schedule
+          </a>
+
+          <a
+            href="#roster"
+            className="px-3 py-1.5 rounded-full text-xs font-black text-slate-300 hover:text-white transition-colors"
+            style={{
+              background: roster.length > 0
+                ? 'rgba(37,99,235,0.12)'
+                : 'rgba(255,255,255,0.05)',
+              border: roster.length > 0
+                ? '1px solid rgba(37,99,235,0.25)'
+                : '1px solid rgba(255,255,255,0.08)',
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '0.06em',
+            }}
+          >
+            Roster {roster.length > 0 ? `· ${roster.length}` : ''}
+          </a>
+
+          <a
+            href="#coaches"
+            className="px-3 py-1.5 rounded-full text-xs font-black text-slate-300 hover:text-white transition-colors"
+            style={{
+              background: coaches.length > 0
+                ? 'rgba(168,85,247,0.10)'
+                : 'rgba(255,255,255,0.05)',
+              border: coaches.length > 0
+                ? '1px solid rgba(168,85,247,0.22)'
+                : '1px solid rgba(255,255,255,0.08)',
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '0.06em',
+            }}
+          >
+            Coaches {coaches.length > 0 ? `· ${coaches.length}` : ''}
+          </a>
+
+          <Link
+            href={`/standings?sport=${sport?.slug || ''}`}
+            className="px-3 py-1.5 rounded-full text-xs font-black text-slate-300 hover:text-white transition-colors"
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '0.06em',
+            }}
+          >
+            Standings
+          </Link>
+        </div>
+
+        {/* Roster */}
+        <section id="roster" className="mb-6 scroll-mt-24">
+          <div className="flex items-center gap-2 mb-3">
+            <span
+              className="font-black text-xs text-blue-400 uppercase tracking-widest"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              Roster {roster.length > 0 ? `· ${roster.length}` : ''}
+            </span>
+            <div className="flex-1 h-px bg-white/5" />
+          </div>
+
+          {roster.length > 0 ? (
+            <div
+              className="rounded-2xl overflow-hidden border border-white/6"
+              style={{ background: 'rgba(8,12,20,0.72)' }}
+            >
+              <div className="px-4 py-3 border-b border-white/[0.05]">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {Object.entries(classCounts).map(([label, count]) => (
+                    <span
+                      key={label}
+                      className="text-xs rounded-full px-2.5 py-1"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        color: '#94a3b8',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}
+                    >
+                      {count} {label}
+                      {Number(count) !== 1 ? 's' : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-white/[0.05]">
+                      <th className="text-left px-4 py-2 font-medium w-14">#</th>
+                      <th className="text-left px-4 py-2 font-medium">Player</th>
+                      <th className="text-left px-4 py-2 font-medium">Class</th>
+                      <th className="text-left px-4 py-2 font-medium">Position</th>
+                      <th className="text-left px-4 py-2 font-medium">Height</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roster.map((entry: any) => (
+                      <tr
+                        key={entry.id}
+                        className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.025]"
+                      >
+                        <td
+                          className="px-4 py-2.5 font-bold"
+                          style={{
+                            color: entry.jersey_number ? '#60a5fa' : '#334155',
+                            fontFamily: 'var(--font-mono)',
+                          }}
+                        >
+                          {entry.jersey_number || '—'}
+                        </td>
+
+                        <td className="px-4 py-2.5">
+                          <span
+                            className="font-semibold text-slate-100"
+                            style={{ fontFamily: 'var(--font-display)' }}
+                          >
+                            {entry.athlete?.display_name || 'Unknown Athlete'}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-2.5 text-slate-400">
+                          {entry.class_year || '—'}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-slate-400">
+                          {entry.position || '—'}
+                        </td>
+
+                        <td className="px-4 py-2.5 text-slate-400">
+                          {entry.height || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="px-4 py-2.5 border-t border-white/[0.05]">
+                <p className="text-[11px] text-slate-600">
+                  Roster information is synced from the team's published public source and may be updated during the season.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="rounded-2xl p-6 text-center border border-white/6"
+              style={{ background: 'rgba(8,12,20,0.55)' }}
+            >
+              <p className="text-slate-500 text-sm">
+                Roster not published yet.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* Coaches */}
+        <section id="coaches" className="mb-6 scroll-mt-24">
+          <div className="flex items-center gap-2 mb-3">
+            <span
+              className="font-black text-xs text-purple-400 uppercase tracking-widest"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              Coaching Staff {coaches.length > 0 ? `· ${coaches.length}` : ''}
+            </span>
+            <div className="flex-1 h-px bg-white/5" />
+          </div>
+
+          {coaches.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {coaches.map((entry: any) => (
+                <div
+                  key={entry.id}
+                  className="rounded-xl p-4"
+                  style={{
+                    background: 'rgba(168,85,247,0.05)',
+                    border: '1px solid rgba(168,85,247,0.14)',
+                  }}
+                >
+                  <div
+                    className="font-black text-white"
+                    style={{ fontFamily: 'var(--font-display)' }}
+                  >
+                    {entry.coach?.display_name || 'Coach'}
+                  </div>
+                  <div className="text-xs text-purple-300 mt-1">
+                    {entry.title || 'Coach'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              className="rounded-xl p-5 text-center"
+              style={{
+                background: 'rgba(8,12,20,0.55)',
+                border: '1px solid rgba(255,255,255,0.06)',
+              }}
+            >
+              <p className="text-sm text-slate-500">
+                Coaching staff not published yet.
+              </p>
+            </div>
+          )}
+        </section>
+
+        <div id="schedule" className="scroll-mt-24" />
 
         {/* Upcoming games */}
         {upcoming.length > 0 && (
