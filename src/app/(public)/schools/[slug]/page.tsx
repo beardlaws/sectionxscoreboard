@@ -25,25 +25,66 @@ const SPORT_ICONS: Record<string, string> = {
   'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
   'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
   'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
-  Volleyball: '🏐', 'Boys Golf': '⛳',
+  Volleyball: '🏐', 'Boys Golf': '⛳', 'Girls Golf': '⛳',
+  Swimming: '🏊', 'Girls Swimming': '🏊',
+  'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
+  'Cross Country': '🏃', 'Boys Cross Country': '🏃', 'Girls Cross Country': '🏃',
+  'Boys Track': '🏃', 'Girls Track': '🏃',
+}
+
+function one<T = any>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] || null : value || null
+}
+
+function formatDate(date: string) {
+  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function formatTime(time: string | null) {
+  if (!time) return 'TBD'
+  const [h, m] = time.split(':')
+  const hour = Number(h)
+  if (Number.isNaN(hour)) return time
+  return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`
 }
 
 export default async function SchoolPage({ params }: PageProps) {
   const supabase = createClient()
+
   const { data: school, error } = await supabase.from('schools').select('*').eq('slug', params.slug).single()
   if (!school || error) notFound()
 
   const logoUrl = (school as any).logo_url as string | null | undefined
-  const { data: activeSeason } = await supabase.from('seasons').select('id, name').eq('is_active', true).single()
+  const { data: activeSeason } = await supabase.from('seasons').select('id, name, year, season_type').eq('is_active', true).single()
 
-  const { data: teams } = await supabase
-    .from('teams').select('*, sport:sports(*)')
-    .eq('school_id', school.id).eq('active', true).order('team_name')
+  const { data: teamSeasonRows } = activeSeason?.id
+    ? await supabase
+        .from('team_seasons')
+        .select(`
+          id, team_id, season_id, division, class, active_for_season,
+          team:teams(
+            id, team_name, slug, school_id, sport_id, level, active,
+            sport:sports(id, sport_name, slug, gender, season_type)
+          )
+        `)
+        .eq('season_id', activeSeason.id)
+        .neq('active_for_season', false)
+    : { data: [] }
 
-  const teamIds = (teams || []).map(t => t.id)
-  const sportIds = [...new Set((teams || []).map(t => (t.sport as any)?.id).filter(Boolean))]
+  const activeTeams = (teamSeasonRows || [])
+    .filter((record: any) => {
+      const team = one<any>(record.team)
+      return !!team && team.school_id === school.id && team.active !== false && (!team.level || team.level.toLowerCase().trim() === 'varsity')
+    })
+    .map((record: any) => {
+      const team = one<any>(record.team)
+      const sport = one<any>(team?.sport)
+      return { ...team, sport, division: record.division || '', class: record.class || '' }
+    })
 
-  // Fetch school sponsor
+  const teamIds = activeTeams.map((t: any) => t.id)
+  const sportIds = [...new Set(activeTeams.map((t: any) => t.sport?.id).filter(Boolean))]
+
   const { data: schoolSponsor } = await supabase
     .from('sponsors')
     .select('*')
@@ -53,252 +94,212 @@ export default async function SchoolPage({ params }: PageProps) {
     .limit(1)
     .maybeSingle()
 
-  const { data: recentGames } = teamIds.length > 0
-    ? await supabase.from('games')
-        .select(`*, sport:sports(*),
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { data: seasonGames } = teamIds.length > 0 && activeSeason?.id
+    ? await supabase
+        .from('games')
+        .select(`
+          *, sport:sports(*),
           home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
           away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
           external_home:external_opponents!games_external_home_opponent_id_fkey(*),
-          external_away:external_opponents!games_external_away_opponent_id_fkey(*)`)
-        .or(`home_team_id.in.(${teamIds.join(',')}),away_team_id.in.(${teamIds.join(',')})`)
-        .eq('status', 'Final')
+          external_away:external_opponents!games_external_away_opponent_id_fkey(*)
+        `)
+        .eq('season_id', activeSeason.id)
         .in('sport_id', sportIds.length > 0 ? sportIds : ['none'])
-        .order('game_date', { ascending: false }).limit(15)
+        .or(`home_team_id.in.(${teamIds.join(',')}),away_team_id.in.(${teamIds.join(',')})`)
+        .order('game_date', { ascending: true })
     : { data: [] }
 
-  async function getTeamRecord(teamId: string, sportId: string, isGolf: boolean) {
-    if (!activeSeason?.id) return { w: 0, l: 0, t: 0 }
-    const { data: tgames } = await supabase.from('games')
-      .select('home_team_id, home_score, away_score')
-      .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
-      .eq('season_id', activeSeason.id).eq('sport_id', sportId).eq('status', 'Final')
-    let w = 0, l = 0, t = 0
-    for (const g of (tgames || [])) {
-      if (g.home_score == null || g.away_score == null) continue
-      const isHome = g.home_team_id === teamId
-      const mine = isHome ? g.home_score : g.away_score
-      const opp = isHome ? g.away_score : g.home_score
-      if (isGolf ? mine < opp : mine > opp) w++
-      else if (mine === opp) t++
-      else l++
+  const games = seasonGames || []
+  const teamRecords = new Map<string, { w: number; l: number; t: number }>()
+  activeTeams.forEach((team: any) => teamRecords.set(team.id, { w: 0, l: 0, t: 0 }))
+
+  for (const game of games) {
+    if (game.status !== 'Final' || game.home_score == null || game.away_score == null) continue
+    const isGolf = game.sport?.sport_name?.toLowerCase().includes('golf')
+    const homeWins = isGolf ? game.home_score < game.away_score : game.home_score > game.away_score
+    const awayWins = isGolf ? game.away_score < game.home_score : game.away_score > game.home_score
+
+    for (const id of [game.home_team_id, game.away_team_id]) {
+      if (!id || !teamRecords.has(id)) continue
+      const rec = teamRecords.get(id)!
+      const isHome = game.home_team_id === id
+      if (game.home_score === game.away_score) rec.t++
+      else if ((isHome && homeWins) || (!isHome && awayWins)) rec.w++
+      else rec.l++
     }
-    return { w, l, t }
   }
 
-  const teamRecords: Record<string, { w: number; l: number; t: number }> = {}
-  for (const team of (teams || [])) {
-    const sportId = (team.sport as any)?.id
-    if (!sportId) continue
-    teamRecords[team.id] = await getTeamRecord(team.id, sportId, !!(team.sport as any)?.sport_name?.toLowerCase().includes('golf'))
+  const nextGameByTeam = new Map<string, any>()
+  for (const game of games) {
+    if (!['Scheduled', 'Postponed'].includes(game.status) || game.game_date < today) continue
+    for (const id of [game.home_team_id, game.away_team_id]) {
+      if (id && teamIds.includes(id) && !nextGameByTeam.has(id)) nextGameByTeam.set(id, game)
+    }
   }
 
-  const sportsBySeason: Record<string, typeof teams> = {}
-  const SEASON_ORDER = ['Spring', 'Fall', 'Winter', 'Other']
-  for (const team of teams || []) {
-    const s = (team.sport as any)?.season_type || 'Other'
-    if (!sportsBySeason[s]) sportsBySeason[s] = []
-    sportsBySeason[s]!.push(team)
+  const todaysGames = games.filter((g: any) => g.game_date === today && ['Scheduled', 'Postponed'].includes(g.status))
+  const upcomingGames = games.filter((g: any) => g.game_date >= today && ['Scheduled', 'Postponed'].includes(g.status)).slice(0, 8)
+  const recentGames = games.filter((g: any) => g.status === 'Final').sort((a: any, b: any) => b.game_date.localeCompare(a.game_date)).slice(0, 12)
+
+  const logoInitials = school.alias || school.school_name?.split(' ')
+    .filter((w: string) => !['Central', 'School', 'Free', 'Academy', 'High', 'of'].includes(w))
+    .map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()
+
+  const sportDisplay = (team: any) => {
+    const sport = team.sport
+    if (!sport) return ''
+    return sport.gender === 'Boys' || sport.gender === 'Girls' ? `${sport.gender} ${sport.sport_name}` : sport.sport_name
   }
 
-  const resultsBySport: Record<string, any[]> = {}
-  for (const game of (recentGames || [])) {
-    const key = (game as any).sport?.sport_name || 'Other'
-    if (!resultsBySport[key]) resultsBySport[key] = []
-    if (resultsBySport[key].length < 5) resultsBySport[key].push(game)
-  }
+  const iconForTeam = (team: any) => SPORT_ICONS[sportDisplay(team)] || SPORT_ICONS[team.sport?.sport_name || ''] || '🏆'
 
-  const logoInitials = school.alias ||
-    school.school_name?.split(' ')
-      .filter((w: string) => !['Central', 'School', 'Free', 'Academy', 'High', 'of'].includes(w))
-      .map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()
+  const schoolSide = (game: any) => teamIds.includes(game.home_team_id) ? 'home' : teamIds.includes(game.away_team_id) ? 'away' : null
+  const opponent = (game: any) => {
+    const side = schoolSide(game)
+    if (side === 'home') return game.away_team?.school?.school_name || game.external_away?.name || 'TBD'
+    if (side === 'away') return game.home_team?.school?.school_name || game.external_home?.name || 'TBD'
+    return 'TBD'
+  }
+  const atVs = (game: any) => game.neutral_site ? 'vs' : schoolSide(game) === 'home' ? 'vs' : '@'
 
   return (
     <PublicLayout>
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        {/* Hero */}
+      <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="rounded-2xl overflow-hidden mb-6 relative"
           style={{ background: `linear-gradient(135deg, ${school.primary_color || '#1e2d47'} 0%, ${school.secondary_color || '#0f172a'}cc 100%)` }}>
           <div className="relative px-6 py-8">
             <nav className="text-xs mb-4 opacity-60 text-white">
-              <Link href="/schools" className="hover:opacity-100">Schools</Link>
-              <span className="mx-2">/</span>
-              <span>{school.school_name}</span>
+              <Link href="/schools" className="hover:opacity-100">Schools</Link><span className="mx-2">/</span><span>{school.school_name}</span>
             </nav>
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="text-white/60 text-sm font-bold uppercase tracking-widest mb-1"
-                  style={{ fontFamily: 'var(--font-display)' }}>{school.city}, NY · {school.county} County</p>
-                <h1 className="text-4xl md:text-5xl font-black text-white leading-none"
-                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
+                <p className="text-white/60 text-sm font-bold uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>
+                  {school.city}, NY · {school.county} County
+                </p>
+                <h1 className="text-4xl md:text-5xl font-black text-white leading-none" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
                   {school.school_name}
                 </h1>
-                <p className="text-white/70 text-lg font-bold mt-1"
-                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
-                  {school.mascot}
-                </p>
+                <p className="text-white/70 text-lg font-bold mt-1" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>{school.mascot}</p>
+                {activeSeason && <div className="mt-3 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-widest bg-black/20 text-white/80 border border-white/10">{activeSeason.name}</div>}
               </div>
               <div className="flex-shrink-0 w-24 h-24 rounded-2xl flex items-center justify-center overflow-hidden border-2 border-white/20"
                 style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(8px)' }}>
-                {logoUrl
-                  ? <img src={logoUrl} alt="" className="w-full h-full object-contain p-2" />
-                  : <span className="font-black text-white text-2xl" style={{ fontFamily: 'var(--font-display)' }}>{logoInitials}</span>
-                }
+                {logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-contain p-2" /> :
+                  <span className="font-black text-white text-2xl" style={{ fontFamily: 'var(--font-display)' }}>{logoInitials}</span>}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Sports grid */}
-        {(teams || []).length > 0 && activeSeason && (
-          <div className="mb-6">
-            <div className="flex items-center gap-2 mb-3">
-              <h2 className="font-black text-white uppercase tracking-widest text-sm" style={{ fontFamily: 'var(--font-display)' }}>{activeSeason.name} Teams</h2>
-              <div className="flex-1 h-px bg-white/6" />
+        <section className="mb-7">
+          <div className="flex items-center gap-2 mb-3"><h2 className="font-black text-white uppercase tracking-widest text-sm" style={{ fontFamily: 'var(--font-display)' }}>Today</h2><div className="flex-1 h-px bg-white/6" /></div>
+          {todaysGames.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {todaysGames.map((game: any) => (
+                <Link key={game.id} href={`/games/${game.id}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div className="text-xs uppercase tracking-widest font-black text-slate-500 mb-1">{game.sport?.sport_name || 'Sport'}</div>
+                  <div className="font-black text-white text-lg">{atVs(game)} {opponent(game)}</div>
+                  <div className="text-sm text-slate-400 mt-1">{formatTime(game.game_time)}{game.location ? ` · ${game.location}` : ''}</div>
+                </Link>
+              ))}
             </div>
-            {SEASON_ORDER.filter(s => sportsBySeason[s]?.length).map(season => (
-              <div key={season} className="mb-4">
-                {Object.keys(sportsBySeason).length > 1 && (
-                  <p className="text-xs text-slate-600 uppercase tracking-widest font-bold mb-2" style={{ fontFamily: 'var(--font-display)' }}>{season}</p>
-                )}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {sportsBySeason[season]?.map(team => {
-                    const rec = teamRecords[team.id]
-                    const hasRecord = rec && (rec.w + rec.l + rec.t) > 0
-                    const sportName = (team.sport as any)?.gender && (team.sport as any).gender !== 'Both'
-                      ? `${(team.sport as any).gender} ${(team.sport as any).sport_name}` : (team.sport as any)?.sport_name || ''
-                    const icon = SPORT_ICONS[sportName] || SPORT_ICONS[(team.sport as any)?.sport_name || ''] || '🏆'
-                    return (
-                      <Link key={team.id} href={`/teams/${team.slug}`}
-                        className="rounded-xl p-3 border transition-all hover:-translate-y-0.5 hover:shadow-lg"
-                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <span className="text-base leading-none">{icon}</span>
-                          <span className="text-xs font-black text-slate-400 uppercase truncate" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>
-                            {(team.sport as any)?.sport_name}
-                          </span>
-                        </div>
-                        {hasRecord
-                          ? <span className="font-black text-white text-xl" style={{ fontFamily: 'var(--font-display)' }}>{rec.w}-{rec.l}{rec.t > 0 ? `-${rec.t}` : ''}</span>
-                          : <span className="text-xs text-slate-700" style={{ fontFamily: 'var(--font-display)' }}>No games yet</span>
-                        }
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+          ) : <div className="rounded-xl px-4 py-5 border text-sm text-slate-500" style={{ background: 'rgba(8,12,20,0.45)', border: '1px solid rgba(255,255,255,0.06)' }}>No games scheduled today.</div>}
+        </section>
+
+        <section className="mb-7">
+          <div className="flex items-center gap-2 mb-3"><h2 className="font-black text-white uppercase tracking-widest text-sm" style={{ fontFamily: 'var(--font-display)' }}>Upcoming</h2><div className="flex-1 h-px bg-white/6" /></div>
+          {upcomingGames.length > 0 ? (
+            <div className="rounded-xl overflow-hidden border" style={{ background: 'rgba(8,12,20,0.65)', borderColor: 'rgba(255,255,255,0.07)' }}>
+              {upcomingGames.map((game: any) => (
+                <Link key={game.id} href={`/games/${game.id}`} className="grid grid-cols-[72px_1fr_auto] md:grid-cols-[110px_150px_1fr_auto] gap-3 items-center px-4 py-3 border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.03] transition-colors">
+                  <div className="text-xs font-black text-slate-500 uppercase">{formatDate(game.game_date)}</div>
+                  <div className="hidden md:block text-xs font-black text-slate-500 uppercase tracking-wider">{game.sport?.sport_name}</div>
+                  <div className="min-w-0"><div className="font-bold text-white truncate">{atVs(game)} {opponent(game)}</div><div className="text-xs text-slate-500 md:hidden">{game.sport?.sport_name}</div></div>
+                  <div className="text-xs text-slate-400 text-right">{formatTime(game.game_time)}</div>
+                </Link>
+              ))}
+            </div>
+          ) : <div className="rounded-xl px-4 py-5 border text-sm text-slate-500" style={{ background: 'rgba(8,12,20,0.45)', border: '1px solid rgba(255,255,255,0.06)' }}>No upcoming games loaded yet.</div>}
+        </section>
+
+        {activeTeams.length > 0 && activeSeason && (
+          <section className="mb-7">
+            <div className="flex items-center gap-2 mb-3"><h2 className="font-black text-white uppercase tracking-widest text-sm" style={{ fontFamily: 'var(--font-display)' }}>{activeSeason.name} Teams</h2><div className="flex-1 h-px bg-white/6" /></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {activeTeams.map((team: any) => {
+                const rec = teamRecords.get(team.id) || { w: 0, l: 0, t: 0 }
+                const next = nextGameByTeam.get(team.id)
+                return (
+                  <Link key={team.id} href={`/teams/${team.slug}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2"><span className="text-lg">{iconForTeam(team)}</span><span className="text-xs font-black text-slate-400 uppercase tracking-wider truncate" style={{ fontFamily: 'var(--font-display)' }}>{sportDisplay(team)}</span></div>
+                        <div className="font-black text-white text-2xl mt-2" style={{ fontFamily: 'var(--font-display)' }}>{rec.w}-{rec.l}{rec.t > 0 ? `-${rec.t}` : ''}</div>
+                        {(team.division || team.class) && <div className="text-xs text-slate-500 mt-1">{team.division ? `${team.division} Division` : ''}{team.division && team.class ? ' · ' : ''}{team.class ? `Class ${team.class}` : ''}</div>}
+                      </div>
+                      <span className="text-xs text-blue-400 font-bold">View →</span>
+                    </div>
+                    {next && <div className="mt-4 pt-3 border-t border-white/[0.06]"><div className="text-[10px] uppercase tracking-widest font-black text-slate-600 mb-1">Next</div><div className="text-sm text-slate-300 truncate">{atVs(next)} {opponent(next)} · {formatDate(next.game_date)}</div></div>}
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-2 space-y-5">
-            {Object.keys(resultsBySport).length > 0 ? Object.entries(resultsBySport).map(([sportName, sportGames]) => (
-              <div key={sportName}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm">{SPORT_ICONS[sportName] || '🏆'}</span>
-                  <span className="font-black text-slate-400 uppercase tracking-widest text-xs" style={{ fontFamily: 'var(--font-display)' }}>{sportName}</span>
-                  <div className="flex-1 h-px bg-white/5" />
-                </div>
-                <div className="rounded-xl overflow-hidden border border-white/6" style={{ background: 'rgba(8,12,20,0.7)' }}>
-                  {sportGames.map((game: any) => {
-                    const ht = game.home_team
-                    const at = game.away_team
-                    const homeName = ht?.school?.school_name || game.external_home?.name || 'TBD'
-                    const awayName = at?.school?.school_name || game.external_away?.name || 'TBD'
-                    const homeColor = ht?.school?.primary_color || '#334155'
-                    const awayColor = at?.school?.primary_color || '#334155'
-                    const homeLogo = ht?.school?.logo_url
-                    const awayLogo = at?.school?.logo_url
-                    const isSchoolHome = teamIds.includes(ht?.id)
-                    const isGolf = game.sport?.sport_name?.toLowerCase().includes('golf')
-                    const homeWins = isGolf ? (game.home_score ?? 999) < (game.away_score ?? 999) : (game.home_score ?? 0) > (game.away_score ?? 0)
-                    const awayWins = isGolf ? (game.away_score ?? 999) < (game.home_score ?? 999) : (game.away_score ?? 0) > (game.home_score ?? 0)
-                    const schoolWon = isSchoolHome ? homeWins : awayWins
-                    return (
-                      <Link key={game.id} href={`/games/${game.id}`}
-                        className="flex items-center px-4 py-2.5 hover:bg-white/[0.03] transition-colors border-b border-white/[0.04] last:border-b-0">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3" style={{ background: homeWins ? homeColor : awayColor }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <span className="text-xs text-slate-600 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
-                            {awayLogo
-                              ? <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden border border-white/10" style={{ background: awayColor }}><img src={awayLogo} alt="" className="w-full h-full object-contain" /></div>
-                              : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: awayColor }} />
-                            }
-                            <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: '13px', color: awayWins ? '#e2e8f5' : '#6b7a8d' }}>{awayName}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-slate-600 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>HME</span>
-                            {homeLogo
-                              ? <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden border border-white/10" style={{ background: homeColor }}><img src={homeLogo} alt="" className="w-full h-full object-contain" /></div>
-                              : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: homeColor }} />
-                            }
-                            <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: '13px', color: homeWins ? '#e2e8f5' : '#6b7a8d' }}>{homeName}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end ml-3 flex-shrink-0">
-                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '16px' : '13px', color: awayWins ? '#fff' : '#374151', lineHeight: 1 }}>{game.away_score}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '16px' : '13px', color: homeWins ? '#fff' : '#374151', lineHeight: 1, marginTop: '2px' }}>{game.home_score}</span>
-                        </div>
-                        <div className="ml-2 flex flex-col items-center flex-shrink-0">
-                          <span className="text-xs font-black text-emerald-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px' }}>F</span>
-                          <span className={`text-xs font-black mt-0.5 ${schoolWon ? 'text-green-400' : 'text-red-400'}`} style={{ fontFamily: 'var(--font-display)', fontSize: '10px' }}>{schoolWon ? 'W' : 'L'}</span>
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
+          <div className="md:col-span-2 space-y-4">
+            <div className="flex items-center gap-2"><h2 className="font-black text-white uppercase tracking-widest text-sm" style={{ fontFamily: 'var(--font-display)' }}>Recent Results</h2><div className="flex-1 h-px bg-white/6" /></div>
+            {recentGames.length > 0 ? (
+              <div className="rounded-xl overflow-hidden border" style={{ background: 'rgba(8,12,20,0.7)', borderColor: 'rgba(255,255,255,0.06)' }}>
+                {recentGames.map((game: any) => {
+                  const isHome = teamIds.includes(game.home_team_id)
+                  const mine = isHome ? game.home_score : game.away_score
+                  const oppScore = isHome ? game.away_score : game.home_score
+                  const isGolf = game.sport?.sport_name?.toLowerCase().includes('golf')
+                  const won = isGolf ? mine < oppScore : mine > oppScore
+                  const tied = mine === oppScore
+                  return (
+                    <Link key={game.id} href={`/games/${game.id}`} className="grid grid-cols-[80px_1fr_auto] gap-3 items-center px-4 py-3 border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.03]">
+                      <div className="text-xs text-slate-500">{formatDate(game.game_date)}</div>
+                      <div><div className="text-xs text-slate-500 uppercase">{game.sport?.sport_name}</div><div className="font-bold text-white">{atVs(game)} {opponent(game)}</div></div>
+                      <div className="flex items-center gap-2"><span className="font-mono text-white">{mine}-{oppScore}</span><span className={`text-xs font-black ${tied ? 'text-slate-400' : won ? 'text-green-400' : 'text-red-400'}`}>{tied ? 'T' : won ? 'W' : 'L'}</span></div>
+                    </Link>
+                  )
+                })}
               </div>
-            )) : (
-              <div className="rounded-xl p-8 text-center border border-white/6" style={{ background: 'rgba(8,12,20,0.5)' }}>
-                <p className="text-slate-500 text-sm">No results yet this season.</p>
-              </div>
-            )}
+            ) : <div className="rounded-xl p-8 text-center border border-white/6" style={{ background: 'rgba(8,12,20,0.5)' }}><p className="text-slate-500 text-sm">No results yet this season.</p></div>}
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-4">
-            <Link href="/submit-score"
-              className="block rounded-xl p-4 text-center text-white font-black uppercase tracking-widest text-sm"
+            <Link href="/submit-score" className="block rounded-xl p-4 text-center text-white font-black uppercase tracking-widest text-sm"
               style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', boxShadow: '0 4px 20px rgba(37,99,235,0.3)' }}>
               ✏️ Submit a Score
             </Link>
 
-            {/* School Sponsor — shows if one is assigned */}
             {schoolSponsor ? (
-              <a href={(schoolSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
-                className="block rounded-xl overflow-hidden transition-all hover:-translate-y-0.5"
+              <a href={(schoolSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer" className="block rounded-xl overflow-hidden transition-all hover:-translate-y-0.5"
                 style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))', border: '1px solid rgba(37,99,235,0.25)' }}>
-                <div className="px-4 py-2 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
-                  <p className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>
-                    School Sponsor
-                  </p>
-                </div>
+                <div className="px-4 py-2 border-b" style={{ borderColor: 'rgba(37,99,235,0.15)' }}><p className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>School Sponsor</p></div>
                 <div className="px-4 py-3 flex items-center gap-3">
-                  {(schoolSponsor as any).logo_url && (
-                    <img src={(schoolSponsor as any).logo_url} alt={(schoolSponsor as any).business_name}
-                      className="w-10 h-10 object-contain rounded-lg flex-shrink-0"
-                      style={{ background: 'rgba(255,255,255,0.05)' }} />
-                  )}
-                  <div className="min-w-0">
-                    <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(schoolSponsor as any).business_name}</p>
-                    {(schoolSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(schoolSponsor as any).tagline}</p>}
-                  </div>
+                  {(schoolSponsor as any).logo_url && <img src={(schoolSponsor as any).logo_url} alt={(schoolSponsor as any).business_name} className="w-10 h-10 object-contain rounded-lg flex-shrink-0" style={{ background: 'rgba(255,255,255,0.05)' }} />}
+                  <div className="min-w-0"><p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(schoolSponsor as any).business_name}</p>{(schoolSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(schoolSponsor as any).tagline}</p>}</div>
                   <span className="text-xs text-blue-400 ml-auto flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span>
                 </div>
               </a>
             ) : (
-              <Link href="/advertise"
-                className="block rounded-xl p-4 text-center border border-dashed border-white/8 transition-all hover:border-white/16">
-                <p className="text-xs text-slate-600">Sponsor {school.school_name} coverage</p>
-                <p className="text-xs text-blue-400 mt-1 font-semibold">Learn more →</p>
+              <Link href="/advertise" className="block rounded-xl p-4 text-center border border-dashed border-white/8 transition-all hover:border-white/16">
+                <p className="text-xs text-slate-600">Sponsor {school.school_name} coverage</p><p className="text-xs text-blue-400 mt-1 font-semibold">Learn more →</p>
               </Link>
             )}
 
-            <Link href="/standings" className="block rounded-xl p-3 text-center border border-white/8 text-sm text-slate-300 hover:text-white transition-colors"
-              style={{ background: 'rgba(255,255,255,0.03)' }}>
-              📊 View Standings
-            </Link>
+            <Link href="/standings" className="block rounded-xl p-3 text-center border border-white/8 text-sm text-slate-300 hover:text-white transition-colors" style={{ background: 'rgba(255,255,255,0.03)' }}>📊 View Standings</Link>
+            <Link href="/scores" className="block rounded-xl p-3 text-center border border-white/8 text-sm text-slate-300 hover:text-white transition-colors" style={{ background: 'rgba(255,255,255,0.03)' }}>🗓️ All Scores & Schedules</Link>
           </div>
         </div>
       </div>
