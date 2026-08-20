@@ -151,7 +151,18 @@ export default async function SchoolPage({ params }: PageProps) {
   const sportDisplay = (team: any) => {
     const sport = team.sport
     if (!sport) return ''
-    return sport.gender === 'Boys' || sport.gender === 'Girls' ? `${sport.gender} ${sport.sport_name}` : sport.sport_name
+
+    const sportName = sport.sport_name || ''
+    const gender = sport.gender || ''
+
+    if (
+      (gender === 'Boys' || gender === 'Girls') &&
+      !sportName.toLowerCase().startsWith(gender.toLowerCase())
+    ) {
+      return `${gender} ${sportName}`
+    }
+
+    return sportName
   }
 
   const iconForTeam = (team: any) => SPORT_ICONS[sportDisplay(team)] || SPORT_ICONS[team.sport?.sport_name || ''] || '🏆'
