@@ -512,7 +512,7 @@ export default async function TeamPage({ params }: Props) {
             >
               <div className="px-4 py-3 border-b border-white/[0.05]">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {Object.entries(classCounts).map(([label, count]) => (
+                  {Object.entries(classCounts as Record<string, number>).map(([label, count]) => (
                     <span
                       key={label}
                       className="text-xs rounded-full px-2.5 py-1"
@@ -522,7 +522,7 @@ export default async function TeamPage({ params }: Props) {
                         border: '1px solid rgba(255,255,255,0.06)',
                       }}
                     >
-                      {count} {label}
+                      {Number(count)} {label}
                       {Number(count) !== 1 ? 's' : ''}
                     </span>
                   ))}
