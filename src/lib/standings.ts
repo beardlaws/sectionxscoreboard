@@ -1,45 +1,84 @@
 import type { StandingsRow } from '@/types'
 import { calculateBTM } from './btm'
 
+function normalizeJoinedRecord<T = any>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] || null
+  return value || null
+}
+
 export function calculateStandings(
   games: any[],
   teamSeasons?: any[],
   sportName?: string
 ): StandingsRow[] {
   const map = new Map<string, StandingsRow>()
-  const isGolf = !!(sportName?.toLowerCase().includes('golf'))
+  const isGolf = !!sportName?.toLowerCase().includes('golf')
 
-  const tsMap: Record<string, { division: string; class: string; btm_override?: number }> = {}
-  if (teamSeasons) {
-    for (const ts of teamSeasons) {
-      if (ts.team_id) {
-        tsMap[ts.team_id] = {
-          division: ts.division || '',
-          class: ts.class || '',
-          btm_override: ts.btm_override ?? undefined,
-        }
-      }
-    }
-  }
+  const tsMap: Record<string, { division: string; class: string; btm_override?: number; active_for_season?: boolean | null }> = {}
 
   const ensure = (
-    teamId: string, teamName: string, schoolName: string,
-    schoolSlug: string, teamSlug: string, primaryColor: string
+    teamId: string,
+    teamName: string,
+    schoolName: string,
+    schoolSlug: string,
+    teamSlug: string,
+    primaryColor: string
   ): StandingsRow => {
     if (!map.has(teamId)) {
       const ts = tsMap[teamId] || { division: '', class: '' }
       map.set(teamId, {
-        team_id: teamId, team_name: teamName, school_name: schoolName,
-        school_slug: schoolSlug, team_slug: teamSlug, slug: teamSlug,
+        team_id: teamId,
+        team_name: teamName,
+        school_name: schoolName,
+        school_slug: schoolSlug,
+        team_slug: teamSlug,
+        slug: teamSlug,
         primary_color: primaryColor,
-        wins: 0, losses: 0, ties: 0,
-        league_wins: 0, league_losses: 0, league_ties: 0,
-        points_for: 0, points_against: 0,
-        win_pct: 0, league_win_pct: 0, btm: 0,
-        class: ts.class, division: ts.division,
+        wins: 0,
+        losses: 0,
+        ties: 0,
+        league_wins: 0,
+        league_losses: 0,
+        league_ties: 0,
+        points_for: 0,
+        points_against: 0,
+        win_pct: 0,
+        league_win_pct: 0,
+        btm: 0,
+        class: ts.class,
+        division: ts.division,
       })
     }
     return map.get(teamId)!
+  }
+
+  if (teamSeasons) {
+    for (const ts of teamSeasons) {
+      if (!ts?.team_id) continue
+
+      tsMap[ts.team_id] = {
+        division: ts.division || '',
+        class: ts.class || '',
+        btm_override: ts.btm_override ?? undefined,
+        active_for_season: ts.active_for_season,
+      }
+
+      if (ts.active_for_season === false) continue
+
+      const team = normalizeJoinedRecord<any>(ts.team)
+      if (!team) continue
+
+      const school = normalizeJoinedRecord<any>(team.school)
+
+      ensure(
+        ts.team_id,
+        team.team_name || '',
+        school?.school_name || '',
+        school?.slug || '',
+        team.slug || '',
+        school?.primary_color || '#1e3a5f'
+      )
+    }
   }
 
   const didHomeWin = (hs: number, as_: number) => isGolf ? hs < as_ : hs > as_
@@ -49,21 +88,31 @@ export function calculateStandings(
     if (game.status !== 'Final') continue
     if (game.home_score == null || game.away_score == null) continue
 
-    const ht = game.home_team
-    const at = game.away_team
+    const ht = normalizeJoinedRecord<any>(game.home_team)
+    const at = normalizeJoinedRecord<any>(game.away_team)
+
     const hasHome = !!game.home_team_id && !!ht
     const hasAway = !!game.away_team_id && !!at
 
+    const homeSchool = normalizeJoinedRecord<any>(ht?.school)
+    const awaySchool = normalizeJoinedRecord<any>(at?.school)
+
     const homeRow = hasHome ? ensure(
-      game.home_team_id, ht.team_name,
-      ht.school?.school_name || '', ht.school?.slug || '',
-      ht.slug, ht.school?.primary_color || '#1e3a5f'
+      game.home_team_id,
+      ht.team_name,
+      homeSchool?.school_name || '',
+      homeSchool?.slug || '',
+      ht.slug,
+      homeSchool?.primary_color || '#1e3a5f'
     ) : null
 
     const awayRow = hasAway ? ensure(
-      game.away_team_id, at.team_name,
-      at.school?.school_name || '', at.school?.slug || '',
-      at.slug, at.school?.primary_color || '#1e3a5f'
+      game.away_team_id,
+      at.team_name,
+      awaySchool?.school_name || '',
+      awaySchool?.slug || '',
+      at.slug,
+      awaySchool?.primary_color || '#1e3a5f'
     ) : null
 
     if (!homeRow && !awayRow) continue
@@ -72,20 +121,15 @@ export function calculateStandings(
       homeRow.points_for += game.home_score
       homeRow.points_against += game.away_score
     }
+
     if (awayRow) {
       awayRow.points_for += game.away_score
       awayRow.points_against += game.home_score
     }
 
-    // SEEDING RECORD = both teams are Section X schools (regardless of division/class)
-    // External opponents (non-Section X) only count in overall record
-    // Golf exception: all games count as seeding games
-    const homeIsSectionX = hasHome && (ht.school?.is_section_x !== false)
-    const awayIsSectionX = hasAway && (at.school?.is_section_x !== false)
-    const bothExternal = !hasHome && !hasAway
-    const isSeeding = isGolf
-      ? true
-      : (homeIsSectionX && awayIsSectionX)
+    const homeIsSectionX = hasHome && homeSchool?.is_section_x !== false
+    const awayIsSectionX = hasAway && awaySchool?.is_section_x !== false
+    const isSeeding = isGolf ? true : (homeIsSectionX && awayIsSectionX)
 
     const hw = didHomeWin(game.home_score, game.away_score)
     const aw = didAwayWin(game.home_score, game.away_score)
@@ -107,17 +151,22 @@ export function calculateStandings(
   rows.forEach(r => {
     const total = r.wins + r.losses + r.ties
     r.win_pct = total > 0 ? r.wins / total : 0
+
     const lt = r.league_wins + r.league_losses + r.league_ties
     r.league_win_pct = lt > 0 ? r.league_wins / lt : 0
   })
 
-  // Bradley-Terry Model
   const teamIds = rows.map(r => r.team_id)
   const hasOverrides = rows.some(r => tsMap[r.team_id]?.btm_override != null)
 
   const btmGames = games
-    .filter(g => g.status === 'Final' && g.home_score != null && g.away_score != null
-      && g.home_team_id && g.away_team_id)
+    .filter(g =>
+      g.status === 'Final' &&
+      g.home_score != null &&
+      g.away_score != null &&
+      g.home_team_id &&
+      g.away_team_id
+    )
     .map(g => ({
       home_team_id: g.home_team_id,
       away_team_id: g.away_team_id,
@@ -134,14 +183,20 @@ export function calculateStandings(
   })
 
   const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South']
+
   return rows.sort((a, b) => {
     const aDivIdx = DIVISION_ORDER.indexOf(a.division || '')
     const bDivIdx = DIVISION_ORDER.indexOf(b.division || '')
+
     if (aDivIdx !== bDivIdx) {
       if (aDivIdx === -1) return 1
       if (bDivIdx === -1) return -1
       return aDivIdx - bDivIdx
     }
-    return b.btm - a.btm || b.wins - a.wins
+
+    const ranked = b.btm - a.btm || b.wins - a.wins || a.losses - b.losses
+    if (ranked !== 0) return ranked
+
+    return (a.school_name || a.team_name).localeCompare(b.school_name || b.team_name)
   })
 }
