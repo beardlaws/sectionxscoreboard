@@ -62,6 +62,36 @@ interface ArbiterSchoolTeam {
     raw: string
   }>
   arbiterText: string
+
+  scheduleError?: string | null
+
+  rosterFound: boolean
+  rosterCount: number
+  roster: Array<{
+    jerseyNumber: string
+    rawName: string
+    displayName: string
+    firstName: string
+    lastName: string
+    classYear: string
+    position: string
+    height: string
+    raw: string
+  }>
+  rosterError: string | null
+
+  coachesFound: boolean
+  coachCount: number
+  coaches: Array<{
+    rawName: string
+    displayName: string
+    firstName: string
+    lastName: string
+    title: string
+    raw: string
+  }>
+  coachesError: string | null
+
   error: string | null
 }
 
@@ -74,6 +104,10 @@ interface ArbiterSchoolSyncResponse {
   schedulesFetched: number
   schedulesFailed: number
   totalRows: number
+  teamsWithRosters: number
+  totalRosterEntries: number
+  teamsWithCoaches: number
+  totalCoaches: number
   sports: string[]
   seasons: string[]
   teams: ArbiterSchoolTeam[]
@@ -97,6 +131,14 @@ interface PreparedSchedule {
   internalSeasonName: string | null
 
   rows: ParsedGameRow[]
+
+  rosterFound: boolean
+  roster: ArbiterSchoolTeam['roster']
+  rosterError: string | null
+
+  coachesFound: boolean
+  coaches: ArbiterSchoolTeam['coaches']
+  coachesError: string | null
 
   selected: boolean
   ready: boolean
@@ -184,6 +226,8 @@ export default function ImportCenter({
     useState<{
       schedulesProcessed: number
       gamesProcessed: number
+      rosterImported: number
+      coachesImported: number
       skipped: number
       errors: string[]
       trackingErrors: string[]
@@ -472,6 +516,14 @@ export default function ImportCenter({
 
             rows: [],
 
+            rosterFound: team.rosterFound,
+            roster: team.roster || [],
+            rosterError: team.rosterError || null,
+
+            coachesFound: team.coachesFound,
+            coaches: team.coaches || [],
+            coachesError: team.coachesError || null,
+
             selected: false,
             ready: false,
             mappingError,
@@ -542,6 +594,14 @@ export default function ImportCenter({
             internalSeason.name,
 
           rows,
+
+          rosterFound: team.rosterFound,
+          roster: team.roster || [],
+          rosterError: team.rosterError || null,
+
+          coachesFound: team.coachesFound,
+          coaches: team.coaches || [],
+          coachesError: team.coachesError || null,
 
           selected: true,
           ready: true,
@@ -742,6 +802,8 @@ export default function ImportCenter({
       let skipped = 0
       const errors: string[] = []
       const trackingErrors: string[] = []
+      let rosterImported = 0
+      let coachesImported = 0
 
       try {
         /*
@@ -913,9 +975,63 @@ export default function ImportCenter({
           }
         }
 
+        const rosterPayload = schedules
+          .filter(
+            schedule =>
+              schedule.internalTeamId &&
+              schedule.internalSeasonId &&
+              (schedule.rosterFound || schedule.coachesFound)
+          )
+          .map(schedule => ({
+            team_id: schedule.internalTeamId,
+            season_id: schedule.internalSeasonId,
+            source_url: schedule.scheduleUrl,
+            roster_found: schedule.rosterFound,
+            coaches_found: schedule.coachesFound,
+            roster: schedule.roster,
+            coaches: schedule.coaches,
+          }))
+
+        if (rosterPayload.length > 0) {
+          const rosterResponse = await fetch(
+            '/api/admin/arbiter-rosters',
+            {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                teams: rosterPayload,
+              }),
+            }
+          )
+
+          const rosterResult = await rosterResponse.json()
+
+          if (!rosterResponse.ok) {
+            errors.push(
+              rosterResult.error ||
+                `Roster publish server error ${rosterResponse.status}`
+            )
+          } else {
+            rosterImported =
+              rosterResult.rosterImported || 0
+
+            coachesImported =
+              rosterResult.coachesImported || 0
+
+            if (Array.isArray(rosterResult.errors)) {
+              errors.push(...rosterResult.errors)
+            }
+          }
+        }
+
         setSyncDone({
           schedulesProcessed,
           gamesProcessed,
+          rosterImported,
+          coachesImported,
           skipped,
           errors,
           trackingErrors,
@@ -1217,8 +1333,8 @@ export default function ImportCenter({
         }}
       >
         Paste scores, import a single Arbiter schedule,
-        or sync every published varsity schedule from one
-        ArbiterLive school page.
+        or sync varsity schedules, rosters, and coaches from
+        one ArbiterLive school page.
       </p>
 
       {/* Tabs */}
@@ -1319,8 +1435,9 @@ export default function ImportCenter({
               Pick the Section X school, paste one public
               ArbiterLive school URL, and Section X Scoreboard
               will discover every published varsity team,
-              fetch all schedules, map sport/season/team, parse
-              every game, and preserve source confirmations.
+              fetch schedules, rosters, and coaches, map each
+              team to Section X, parse every game, and preserve
+              source confirmations.
             </p>
           </div>
 
@@ -1490,7 +1607,7 @@ export default function ImportCenter({
             !syncDone && (
               <>
                 <div
-                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"
+                  className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3"
                 >
                   {[
                     [
@@ -1504,27 +1621,27 @@ export default function ImportCenter({
                     ],
                     [
                       'Varsity Teams',
-                      String(
-                        syncRaw.varsityTeams
-                      ),
+                      String(syncRaw.varsityTeams),
                     ],
                     [
-                      'Fetched',
-                      String(
-                        syncRaw.schedulesFetched
-                      ),
+                      'Schedules',
+                      String(syncRaw.schedulesFetched),
                     ],
                     [
-                      'Rows',
-                      String(
-                        syncRaw.totalRows
-                      ),
+                      'Game Rows',
+                      String(syncRaw.totalRows),
                     ],
                     [
-                      'Failed',
-                      String(
-                        syncRaw.schedulesFailed
-                      ),
+                      'Roster Teams',
+                      String(syncRaw.teamsWithRosters || 0),
+                    ],
+                    [
+                      'Athletes',
+                      String(syncRaw.totalRosterEntries || 0),
+                    ],
+                    [
+                      'Coaches',
+                      String(syncRaw.totalCoaches || 0),
                     ],
                   ].map(
                     ([label, value]) => (
@@ -1602,8 +1719,8 @@ export default function ImportCenter({
                     }
                   >
                     {syncPublishing
-                      ? 'Publishing School Schedules...'
-                      : `Publish ${schoolSyncApprovedRows} High-Confidence Games`}
+                      ? 'Publishing Games, Rosters & Coaches...'
+                      : `Publish ${schoolSyncApprovedRows} Games + Rosters`}
                   </button>
                 </div>
 
@@ -1619,11 +1736,12 @@ export default function ImportCenter({
                   }}
                 >
                   High-confidence games are selected
-                  automatically. Low-confidence tournament,
-                  multi-team, or malformed rows stay out unless
-                  fixed later. Each schedule is published
-                  separately so Schedule Audit can confirm the
-                  same game from both schools.
+                  automatically. Published Arbiter rosters and
+                  coaches are also synced for selected, mapped
+                  teams. Missing rosters are ignored safely.
+                  Each schedule remains a separate source so
+                  Schedule Audit can confirm games from both
+                  schools.
                 </div>
 
                 <div className="space-y-3">
@@ -1750,6 +1868,24 @@ export default function ImportCenter({
                                     >
                                       {approved} selected
                                     </span>
+
+                                    {schedule.rosterFound && (
+                                      <span
+                                        className="font-bold"
+                                        style={{ color: '#60a5fa' }}
+                                      >
+                                        👥 {schedule.roster.length} roster
+                                      </span>
+                                    )}
+
+                                    {schedule.coachesFound && (
+                                      <span
+                                        className="font-bold"
+                                        style={{ color: '#c084fc' }}
+                                      >
+                                        🧢 {schedule.coaches.length} coaches
+                                      </span>
+                                    )}
                                   </div>
                                 ) : (
                                   <span className="confidence-low text-xs">
@@ -1800,6 +1936,96 @@ export default function ImportCenter({
                                       Reset to High Confidence
                                     </button>
                                   </div>
+
+                                  {(schedule.rosterFound || schedule.coachesFound) && (
+                                    <details className="mt-3">
+                                      <summary
+                                        className="cursor-pointer text-xs font-bold"
+                                        style={{ color: '#93c5fd' }}
+                                      >
+                                        Review roster & coaches
+                                      </summary>
+
+                                      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                        <div
+                                          className="rounded-lg p-3"
+                                          style={{
+                                            background: 'rgba(59,130,246,0.05)',
+                                            border: '1px solid rgba(59,130,246,0.16)',
+                                          }}
+                                        >
+                                          <div
+                                            className="text-xs font-black mb-2"
+                                            style={{ color: '#93c5fd' }}
+                                          >
+                                            ROSTER · {schedule.roster.length}
+                                          </div>
+
+                                          {schedule.roster.length > 0 ? (
+                                            <div className="space-y-1 max-h-64 overflow-y-auto">
+                                              {schedule.roster.map((player, index) => (
+                                                <div
+                                                  key={`${schedule.arbiterTeamId}-player-${index}`}
+                                                  className="grid grid-cols-[36px_1fr_auto] gap-2 text-xs py-1 border-b border-white/[0.04] last:border-0"
+                                                >
+                                                  <span style={{ color: 'var(--text-muted)' }}>
+                                                    {player.jerseyNumber || '—'}
+                                                  </span>
+                                                  <span style={{ color: 'var(--text-primary)' }}>
+                                                    {player.displayName}
+                                                  </span>
+                                                  <span style={{ color: 'var(--text-muted)' }}>
+                                                    {player.classYear || ''}
+                                                  </span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                              Roster table is published but currently empty.
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div
+                                          className="rounded-lg p-3"
+                                          style={{
+                                            background: 'rgba(168,85,247,0.05)',
+                                            border: '1px solid rgba(168,85,247,0.16)',
+                                          }}
+                                        >
+                                          <div
+                                            className="text-xs font-black mb-2"
+                                            style={{ color: '#c4b5fd' }}
+                                          >
+                                            COACHES · {schedule.coaches.length}
+                                          </div>
+
+                                          {schedule.coaches.length > 0 ? (
+                                            <div className="space-y-1">
+                                              {schedule.coaches.map((coach, index) => (
+                                                <div
+                                                  key={`${schedule.arbiterTeamId}-coach-${index}`}
+                                                  className="flex items-center justify-between gap-3 text-xs py-1 border-b border-white/[0.04] last:border-0"
+                                                >
+                                                  <span style={{ color: 'var(--text-primary)' }}>
+                                                    {coach.displayName}
+                                                  </span>
+                                                  <span style={{ color: 'var(--text-muted)' }}>
+                                                    {coach.title || ''}
+                                                  </span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                              Coach table is published but currently empty.
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </details>
+                                  )}
 
                                   <details className="mt-3">
                                     <summary
@@ -1979,7 +2205,11 @@ export default function ImportCenter({
                 {syncDone.schedulesProcessed}{' '}
                 schedules processed ·{' '}
                 {syncDone.gamesProcessed}{' '}
-                games processed
+                games processed ·{' '}
+                {syncDone.rosterImported}{' '}
+                roster entries ·{' '}
+                {syncDone.coachesImported}{' '}
+                coaches
                 {syncDone.skipped > 0
                   ? ` · ${syncDone.skipped} skipped`
                   : ''}
