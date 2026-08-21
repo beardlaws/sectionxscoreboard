@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { adminDb } from '@/lib/adminDb';
 import { Photo } from '@/types';
-import { Check, X, Star, Trash2, Eye } from 'lucide-react';
+import { Check, Star, Trash2, Eye } from 'lucide-react';
 
 export default function AdminPhotosPage() {
   const supabase = createClient();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'approved' | 'all'>('pending');
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPhotos();
@@ -36,9 +37,24 @@ export default function AdminPhotosPage() {
     fetchPhotos();
   }
 
-  async function rejectPhoto(id: string) {
-    await adminDb.delete('photos', { id });
-    fetchPhotos();
+  async function deletePhoto(id: string) {
+    if (!confirm('Permanently delete this photo and its stored image?')) return;
+    setDeleting(id);
+    try {
+      const res = await fetch('/api/admin/photos/delete', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId: id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      setPhotos(prev => prev.filter(photo => photo.id !== id));
+    } catch (e: any) {
+      alert(e.message || 'Delete failed');
+    } finally {
+      setDeleting(null);
+    }
   }
 
   async function featurePhoto(id: string, featured: boolean) {
@@ -48,8 +64,11 @@ export default function AdminPhotosPage() {
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold font-display text-white">Photo Queue</h1>
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold font-display text-white">Photo Queue</h1>
+          <p className="text-xs text-slate-500 mt-1">Delete removes both the database record and the actual stored image.</p>
+        </div>
         <div className="flex gap-2">
           {(['pending', 'approved', 'all'] as const).map(f => (
             <button
@@ -76,7 +95,6 @@ export default function AdminPhotosPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {photos.map(photo => (
             <div key={photo.id} className="card overflow-hidden">
-              {/* Photo */}
               <div className="relative aspect-video bg-white/5">
                 <img
                   src={photo.photo_url}
@@ -94,7 +112,6 @@ export default function AdminPhotosPage() {
                 )}
               </div>
 
-              {/* Info */}
               <div className="p-4">
                 {photo.caption && (
                   <p className="text-sm text-white mb-2 font-medium">{photo.caption}</p>
@@ -104,7 +121,6 @@ export default function AdminPhotosPage() {
                   {photo.submitter_email && <p>✉️ {photo.submitter_email}</p>}
                 </div>
 
-                {/* Actions */}
                 <div className="flex gap-2 flex-wrap">
                   {!photo.approved && (
                     <button
@@ -131,10 +147,11 @@ export default function AdminPhotosPage() {
                     <Eye size={12} /> View
                   </button>
                   <button
-                    onClick={() => rejectPhoto(photo.id)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded text-xs font-medium transition-colors ml-auto"
+                    onClick={() => deletePhoto(photo.id)}
+                    disabled={deleting === photo.id}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-400 rounded text-xs font-medium transition-colors ml-auto"
                   >
-                    <Trash2 size={12} /> Delete
+                    <Trash2 size={12} /> {deleting === photo.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
               </div>
