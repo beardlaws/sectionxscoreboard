@@ -1,4 +1,5 @@
 // src/app/admin/schedule-audit/page.tsx
+// Production deploy trigger for Schedule Audit command center.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
@@ -228,10 +229,6 @@ export default async function ScheduleAuditPage() {
     )
   }
 
-  /*
-    Supabase may type the joined school relation as an array.
-    Normalize it to one school or null.
-  */
   const teams = (rawTeams || []).map((team: any) => {
     const school = Array.isArray(team.school)
       ? team.school[0] || null
