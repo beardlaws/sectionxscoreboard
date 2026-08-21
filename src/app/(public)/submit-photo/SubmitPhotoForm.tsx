@@ -1,4 +1,5 @@
 // src/app/(public)/submit-photo/SubmitPhotoForm.tsx
+// Mobile photo flow v2: today-first picker, deep-link preselection, and connected cleanup.
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
