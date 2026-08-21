@@ -15,6 +15,14 @@ interface ScoresClientProps {
   datesWithGames: string[]
 }
 
+function sportDisplayName(name?: string, gender?: string) {
+  const cleanName = (name || 'Other').trim()
+  const cleanGender = (gender || '').trim()
+  if (cleanGender !== 'Boys' && cleanGender !== 'Girls') return cleanName
+  if (cleanName.toLowerCase().startsWith(`${cleanGender.toLowerCase()} `)) return cleanName
+  return `${cleanGender} ${cleanName}`
+}
+
 export default function ScoresClient({ games, sports, selectedDate, today, datesWithGames }: ScoresClientProps) {
   const router = useRouter()
   const [sportFilter, setSportFilter] = useState<string>('All')
@@ -44,24 +52,13 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         const awayDiv = (game.away_team as any)?.team_seasons?.[0]?.division
         key = homeDiv || awayDiv || 'Non-League'
       } else {
-        const g = game.sport?.gender
-        const n = game.sport?.sport_name || 'Other'
-        key = (g === 'Boys' || g === 'Girls') ? `${g} ${n}` : n
+        key = sportDisplayName(game.sport?.sport_name, game.sport?.gender)
       }
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(game)
     }
     return map
   }, [displayGames, viewMode])
-
-  const SPORT_ICONS: Record<string, string> = {
-    Baseball: '⚾', Softball: '🥎', Football: '🏈',
-    'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
-    'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
-    'Boys Hockey': '🏒', 'Girls Hockey': '🏒',
-    'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
-    Volleyball: '🏐', 'Boys Golf': '⛳',
-  }
 
   const handleDateChange = (date: string) => {
     router.push(`/scores?date=${date}`)
@@ -71,7 +68,6 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-white mb-1" style={{ fontFamily: 'var(--font-display)' }}>
           Scores
@@ -81,7 +77,6 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         </p>
       </div>
 
-      {/* Date picker row */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <input
           type="date"
@@ -95,9 +90,7 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
               key={date}
               onClick={() => handleDateChange(date)}
               className={`px-3 py-1.5 rounded text-xs font-medium flex-shrink-0 transition-colors ${
-                date === selectedDate
-                  ? 'text-white'
-                  : ''
+                date === selectedDate ? 'text-white' : ''
               }`}
               style={{
                 background: date === selectedDate ? 'var(--accent)' : 'var(--bg-card)',
@@ -113,7 +106,6 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex gap-2 flex-wrap mb-5">
         <select
           className="input w-auto text-sm"
@@ -139,7 +131,6 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         </select>
       </div>
 
-      {/* Date heading */}
       <h2
         className="text-xl font-semibold mb-4"
         style={{ fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}
@@ -150,7 +141,6 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         </span>
       </h2>
 
-      {/* Grouped by sport */}
       {grouped.size === 0 ? (
         <div className="card p-10 text-center">
           <div className="text-4xl mb-3">📅</div>
