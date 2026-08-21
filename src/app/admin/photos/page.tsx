@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { adminDb } from '@/lib/adminDb';
 import { Photo } from '@/types';
 import { Check, Star, Trash2, Eye } from 'lucide-react';
+import PhotoAthleteTagger from './PhotoAthleteTagger';
 
 export default function AdminPhotosPage() {
   const supabase = createClient();
@@ -67,7 +68,7 @@ export default function AdminPhotosPage() {
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold font-display text-white">Photo Queue</h1>
-          <p className="text-xs text-slate-500 mt-1">Delete removes both the database record and the actual stored image.</p>
+          <p className="text-xs text-slate-500 mt-1">Delete removes both the database record and the actual stored image. Game-linked photos can also be tagged to rostered athletes.</p>
         </div>
         <div className="flex gap-2">
           {(['pending', 'approved', 'all'] as const).map(f => (
@@ -154,6 +155,8 @@ export default function AdminPhotosPage() {
                     <Trash2 size={12} /> {deleting === photo.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
+
+                <PhotoAthleteTagger photoId={photo.id} gameId={(photo as any).game_id || null} />
               </div>
             </div>
           ))}
