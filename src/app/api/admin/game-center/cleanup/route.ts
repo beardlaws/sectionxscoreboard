@@ -1,3 +1,4 @@
+// Production trigger: verified Game Center cleanup
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -123,8 +124,6 @@ export async function POST(req: NextRequest) {
     const { error: shoutoutUpdateError } = await supabase.from('shoutouts').update({ game_id: null }).eq('game_id', gameId)
     if (shoutoutUpdateError) throw shoutoutUpdateError
 
-    // These are CASCADE today, but deleting explicitly makes cleanup deterministic
-    // and keeps the API safe if a foreign-key rule changes later.
     for (const table of ['game_period_scores', 'game_team_stats', 'game_athlete_stats', 'game_import_sources']) {
       const { error } = await supabase.from(table).delete().eq('game_id', gameId)
       if (error) throw error
