@@ -21,7 +21,7 @@ export default function ScheduleAudit({teams,sports,seasons,games,importSources,
  const [search,setSearch]=useState('')
  const sportMap=useMemo(()=>new Map(sports.map(s=>[s.id,`${s.sport_name}${s.gender?` (${s.gender})`:''}`])),[sports])
  const participation=useMemo(()=>new Map(teamSeasons.filter(r=>r.season_id===seasonId).map(r=>[r.team_id,r])),[teamSeasons,seasonId])
- const activeTeams=useMemo(()=>teams.filter(t=>isVarsityTeam(t)&&(!sportId||t.sport_id===sportId)&&((participation.get(t.id)?.active_for_season??t.active)!==false)).sort((a,b)=>(sportMap.get(a.sport_id)||'').localeCompare(sportMap.get(b.sport_id)||'')||(a.school?.school_name||a.team_name).localeCompare(b.school?.school_name||b.team_name)),[teams,sportId,participation,sportMap])
+ const activeTeams=useMemo(()=>teams.filter(t=>isVarsityTeam(t)&&(!sportId||t.sport_id===sportId)&&participation.get(t.id)?.active_for_season===true).sort((a,b)=>(sportMap.get(a.sport_id)||'').localeCompare(sportMap.get(b.sport_id)||'')||(a.school?.school_name||a.team_name).localeCompare(b.school?.school_name||b.team_name)),[teams,sportId,participation,sportMap])
  const activeIds=useMemo(()=>new Set(activeTeams.map(t=>t.id)),[activeTeams])
  const seasonGames=useMemo(()=>games.filter(g=>g.season_id===seasonId&&(!sportId||g.sport_id===sportId)&&((g.home_team_id&&activeIds.has(g.home_team_id))||(g.away_team_id&&activeIds.has(g.away_team_id)))),[games,seasonId,sportId,activeIds])
  const seasonImports=useMemo(()=>importSources.filter(s=>s.season_id===seasonId&&(!sportId||s.sport_id===sportId)&&activeIds.has(s.team_id)),[importSources,seasonId,sportId,activeIds])
