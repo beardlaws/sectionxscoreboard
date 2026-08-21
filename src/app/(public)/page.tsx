@@ -60,7 +60,11 @@ async function getHomepageData() {
           .eq('season_id', activeSeason.id).eq('status', 'Final')
       : Promise.resolve({ data: [] }),
     supabase.from('sponsors').select('*')
-      .eq('placement_type', 'homepage').eq('active', true).single(),
+      .eq('placement_type', 'homepage').eq('active', true)
+      .or(`start_date.is.null,start_date.lte.${today}`)
+      .or(`end_date.is.null,end_date.gte.${today}`)
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle(),
     supabase.from('schools').select('*').eq('active', true).order('school_name'),
     supabase.from('shoutouts').select('*').eq('approved', true)
       .order('created_at', { ascending: false }).limit(1).single(),
