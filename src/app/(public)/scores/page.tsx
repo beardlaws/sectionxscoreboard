@@ -20,21 +20,25 @@ export default async function ScoresPage({
   const today = format(new Date(), 'yyyy-MM-dd')
   const selectedDate = searchParams.date || today
 
-  // Fetch ALL seasons for the switcher
   const { data: allSeasons } = await supabase
     .from('seasons').select('id, name, is_active, season_type, year')
     .order('year', { ascending: false })
 
   const activeSeason = (allSeasons || []).find((s: any) => s.is_active)
-
-  // If season param passed use it, otherwise use active season
   const selectedSeasonId = searchParams.season || activeSeason?.id
 
-  // Fetch scores page sponsor
-  const { data: scoresSponsor } = await supabase
+  const { data: sponsorCandidates } = await supabase
     .from('sponsors').select('*')
-    .eq('placement_type', 'scores').eq('active', true)
-    .limit(1).maybeSingle()
+    .eq('active', true)
+    .or('placement_type.eq.scores,show_on_scores.eq.true')
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  const scoresSponsor = (sponsorCandidates || []).find((s: any) => {
+    if (s.start_date && s.start_date > today) return false
+    if (s.end_date && s.end_date < today) return false
+    return true
+  }) || null
 
   const { data: games } = await supabase
     .from('games')
@@ -69,7 +73,6 @@ export default async function ScoresPage({
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 pt-4">
-        {/* Season Switcher - correct active detection */}
         {(allSeasons || []).length > 1 && (
           <div className="flex items-center gap-2 flex-wrap mb-4">
             <span className="text-xs text-slate-500 flex-shrink-0"
@@ -77,10 +80,7 @@ export default async function ScoresPage({
               SEASON:
             </span>
             {(allSeasons || []).map((s: any) => {
-              // Selected = URL param match OR (no URL param AND this is active season)
-              const isSelected = searchParams.season
-                ? s.id === searchParams.season
-                : s.is_active
+              const isSelected = searchParams.season ? s.id === searchParams.season : s.is_active
               const c = SEASON_COLORS[s.season_type || 'Spring'] || SEASON_COLORS.Spring
               return (
                 <a key={s.id}
@@ -99,7 +99,6 @@ export default async function ScoresPage({
           </div>
         )}
 
-        {/* Scores Sponsor Banner */}
         {scoresSponsor && (
           <a href={(scoresSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-3 rounded-xl px-4 py-3 mb-4 transition-all hover:-translate-y-0.5"
