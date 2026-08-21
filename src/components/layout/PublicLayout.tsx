@@ -1,6 +1,7 @@
 // src/components/layout/PublicLayout.tsx
 'use client'
 import ScoreTicker from './ScoreTicker'
+import GlobalSponsorStrip from '@/components/GlobalSponsorStrip'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
@@ -47,7 +48,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header style={{ background: 'rgba(5,8,15,0.92)', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)' }} className="sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
@@ -146,10 +146,10 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         )}
       </header>
       <ScoreTicker />
+      <GlobalSponsorStrip />
 
       <main className="flex-1">{children}</main>
 
-      {/* Footer */}
       <footer style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border)' }} className="mt-12">
         <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
@@ -218,7 +218,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         </div>
       </footer>
 
-      {/* Mobile bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
         style={{ background: 'rgba(5,8,15,0.97)', borderTop: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(20px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex items-center justify-around px-2 py-2">

@@ -14,18 +14,24 @@ export default function HomeSponsorWrapper({ sponsor }: { sponsor: any }) {
 
     async function loadSponsors() {
       const supabase = createClient()
-      const today = new Date().toISOString().slice(0, 10)
       const { data } = await supabase
         .from('sponsors')
         .select('*')
         .eq('active', true)
         .eq('placement_type', 'homepage')
-        .or(`start_date.is.null,start_date.lte.${today}`)
-        .or(`end_date.is.null,end_date.gte.${today}`)
         .order('created_at', { ascending: false })
 
-      if (mounted && data?.length) {
-        setSponsors(data)
+      if (!mounted) return
+
+      const today = new Date().toISOString().slice(0, 10)
+      const eligible = (data || []).filter((item: any) => {
+        if (item.start_date && item.start_date > today) return false
+        if (item.end_date && item.end_date < today) return false
+        return true
+      })
+
+      if (eligible.length) {
+        setSponsors(eligible)
         setIndex(0)
       }
     }
@@ -58,7 +64,7 @@ export default function HomeSponsorWrapper({ sponsor }: { sponsor: any }) {
                 key={item.id}
                 type="button"
                 onClick={() => setIndex(i)}
-                aria-label={`Show sponsor ${i + 1}`}
+                aria-label={`Show ${item.business_name}`}
                 className="w-2 h-2 rounded-full"
                 style={{ background: i === index ? '#60a5fa' : 'rgba(148,163,184,0.25)' }}
               />
