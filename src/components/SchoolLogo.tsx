@@ -1,3 +1,5 @@
+'use client'
+
 // src/components/SchoolLogo.tsx
 // Universal school logo component - shows logo if available, falls back to colored initials
 
@@ -42,7 +44,6 @@ export default function SchoolLogo({ school, size = 'md', className = '' }: Prop
           className={`w-full h-full object-contain ${padding}`}
           loading="lazy"
           onError={(e) => {
-            // If logo fails to load, hide it and show initials
             const target = e.currentTarget
             target.style.display = 'none'
             const parent = target.parentElement
