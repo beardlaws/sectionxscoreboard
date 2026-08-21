@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import AdminLayout from '@/components/layout/AdminLayout'
 import { createClient } from '@/lib/supabase/server'
 import GameCenterEditor from './GameCenterEditor'
+import CleanupGameButton from './CleanupGameButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,6 +41,13 @@ export default async function AdminGameCenterPage({ params }: PageProps) {
       : Promise.resolve({ data: [] as any[] }),
   ])
 
+  const homeTeam: any = game.home_team
+  const awayTeam: any = game.away_team
+  const homeExternal: any = game.external_home
+  const awayExternal: any = game.external_away
+  const homeName = homeTeam?.school?.school_name || homeExternal?.name || 'Home'
+  const awayName = awayTeam?.school?.school_name || awayExternal?.name || 'Away'
+
   return (
     <AdminLayout>
       <GameCenterEditor
@@ -51,6 +59,15 @@ export default async function AdminGameCenterPage({ params }: PageProps) {
         homeRoster={(homeRosterRes.data || []) as any[]}
         awayRoster={(awayRosterRes.data || []) as any[]}
       />
+      <div className="max-w-7xl mx-auto px-4 md:px-6 pb-8">
+        <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div>
+            <div className="text-sm font-bold text-white">Danger Zone</div>
+            <div className="text-xs text-slate-500 mt-1">Use this for test games or true deletions. It removes the game, all Game Center stats/scoring, linked photo records, and the actual stored photo files.</div>
+          </div>
+          <CleanupGameButton gameId={game.id} label={`${awayName} at ${homeName}`} />
+        </div>
+      </div>
     </AdminLayout>
   )
 }
