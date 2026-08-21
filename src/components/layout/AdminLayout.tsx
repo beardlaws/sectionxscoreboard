@@ -46,6 +46,11 @@ const navSections = [
         icon: BarChart2,
       },
       {
+        href: '/admin/game-center',
+        label: 'Game Center',
+        icon: BarChart2,
+      },
+      {
         href: '/admin/games/recap',
         label: 'Game Recaps',
         icon: PlusCircle,
