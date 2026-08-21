@@ -71,6 +71,11 @@ const navSections = [
         icon: ClipboardCheck,
       },
       {
+        href: '/admin/roster-audit',
+        label: 'Roster Audit',
+        icon: ClipboardCheck,
+      },
+      {
         href: '/admin/submissions',
         label: 'Submission Queue',
         icon: CheckSquare,
