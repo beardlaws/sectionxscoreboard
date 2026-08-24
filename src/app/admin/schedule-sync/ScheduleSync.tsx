@@ -157,19 +157,29 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
 
   async function runScan(){if(!selectedTeam||!selectedSeason||!selectedSport||!arbiterUrl.trim())return;setLoading(true);setError(null);setApplyMessage(null);setMappingMessage(null);setResult(null);try{const output=await performScan(selectedTeam,selectedSeason,arbiterUrl);setParsedRows(output.rows);setScanMeta({teamName:output.arbiterTeamName,rowCount:output.rows.length,sourceUrl:output.resolvedUrl});setResult(output.comparison);setArbiterUrl(output.resolvedUrl);rememberDirectMapping(selectedTeam,output.resolvedUrl);const schoolUrl=schoolUrlFromScheduleUrl(output.resolvedUrl);if(schoolUrl&&selectedTeam.school?.id&&!schoolUrls[selectedTeam.school.id]){setDiscoveringSchool(true);try{const count=await discoverSchoolMappings(selectedTeam,schoolUrl);setMappingMessage(`Remembered ${count} published varsity Arbiter team link${count===1?'':'s'} for ${selectedTeam.school.school_name}.`)}catch(e:any){setMappingMessage(`This team URL was remembered. School-wide discovery can be retried later: ${e?.message||'unknown error'}`)}finally{setDiscoveringSchool(false)}}}catch(e:any){setError(e?.message||'Could not scan this schedule.')}finally{setLoading(false)}}
 
-  async function publishForTeam(sourceTeamId:string,games:any[]){const response=await fetch('/api/admin/games',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({games,import_team_id:sourceTeamId,import_source:'arbiter'})});const publish=await response.json();if(!response.ok)throw new Error(publish.error||`Sync apply failed (${response.status})`);return publish}
+  async function publishForTeam(sourceTeamId:string,games:any[]){const response=await fetch('/api/admin/games',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({games,import_team_id:sourceTeamId,import_source:'arbiter'})});const publish=await response.json();if(!response.ok||publish?.skipped>0||publish?.errors?.length)throw new Error(publish?.error||publish?.errors?.join('; ')||`Sync apply failed (${response.status})`);return publish}
   async function publishGames(games:any[],message:string){if(!selectedTeam)return;await publishForTeam(selectedTeam.id,games);setApplyMessage(message)}
+  async function applyVerifiedUpdates(updates:any[]){const response=await fetch('/api/admin/schedule-sync/apply-verified',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates})});const payload=await response.json();if(!response.ok||!payload?.success)throw new Error(payload?.error||`Verified update failed (${response.status})`);return payload}
 
   async function applySafeSync(){
     if(!result||!selectedTeam||!selectedSeason)return
     if(result.apply_allowed===false){setError('This scan is safety-blocked. Re-scan or review the warnings before applying anything.');return}
     const safe=result.diffs.filter(d=>d.safe&&d.incoming)
     if(!safe.length)return
-    const safeUpdates=safe.filter(d=>d.kind!=='unchanged')
-    const description=safeUpdates.length?`${safeUpdates.length} high-confidence time/status update${safeUpdates.length===1?'':'s'} plus source verification`:'source verification timestamps only'
+    const safeUpdates=safe.filter(d=>d.kind!=='unchanged'&&d.existing_game_id)
+    const description=safeUpdates.length?`${safeUpdates.length} high-confidence time/status update${safeUpdates.length===1?'':'s'}`:'source verification timestamps only'
     if(!window.confirm(`Apply ${description}?\n\nNew games, venue changes, reschedules, removals and conflicts will NOT be included.`))return
     setApplying(true);setError(null);setApplyMessage(null)
-    try{const games=safe.map(diff=>({...(diff.existing_game_id?{id:diff.existing_game_id}:{}),...diff.incoming,season_id:selectedSeason.id,sport_id:selectedTeam.sport_id,source:'arbiter',verification_status:'Reported'}));await publishGames(games,'Safe sync applied. Re-scan now to verify the schedule is clean.')}catch(e:any){setError(e?.message||'Could not apply schedule changes.')}finally{setApplying(false)}
+    try{
+      if(safeUpdates.length){
+        const updates=safeUpdates.map(diff=>({id:diff.existing_game_id,game_time:diff.incoming?.game_time??null,status:diff.incoming?.status??'Scheduled',source_team_id:selectedTeam.id,season_id:selectedSeason.id,sport_id:selectedTeam.sport_id}))
+        const verified=await applyVerifiedUpdates(updates)
+        setApplyMessage(`Verified ${verified.applied} update${verified.applied===1?'':'s'} by database read-back. Re-scan now to confirm the schedule is clean.`)
+      }else{
+        const games=safe.map(diff=>({...(diff.existing_game_id?{id:diff.existing_game_id}:{}),...diff.incoming,season_id:selectedSeason.id,sport_id:selectedTeam.sport_id,source:'arbiter',verification_status:'Reported'}))
+        await publishGames(games,'Source verification refreshed. Re-scan now to confirm the schedule is clean.')
+      }
+    }catch(e:any){setError(e?.message||'Could not apply schedule changes.')}finally{setApplying(false)}
   }
 
   async function applyOneDiff(diff:DiffRow){
@@ -242,7 +252,11 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     if(!unique.size)return
     if(!window.confirm(`Apply ${unique.size} verified time/status update${unique.size===1?'':'s'} across the season?\n\nThis will NOT add new games, change venues/dates, remove games, or resolve conflicts.`))return
     setBatchApplying(true);setBatchMessage(null);setError(null)
-    try{const grouped=new Map<string,any[]>();for(const item of unique.values()){const list=grouped.get(item.teamId)||[];list.push({id:item.diff.existing_game_id,...item.diff.incoming,season_id:selectedSeason.id,sport_id:item.sportId,source:'arbiter',verification_status:'Reported'});grouped.set(item.teamId,list)}for(const [sourceTeamId,games] of grouped){await publishForTeam(sourceTeamId,games)}setBatchMessage(`Applied ${unique.size} verified update${unique.size===1?'':'s'}. Run Scan All again to verify the season.`)}catch(e:any){setError(e?.message||'Could not apply verified season updates.')}finally{setBatchApplying(false)}
+    try{
+      const updates=[...unique.values()].map(item=>({id:item.diff.existing_game_id,game_time:item.diff.incoming?.game_time??null,status:item.diff.incoming?.status??'Scheduled',source_team_id:item.teamId,season_id:selectedSeason.id,sport_id:item.sportId}))
+      const verified=await applyVerifiedUpdates(updates)
+      setBatchMessage(`Applied and read-back verified ${verified.applied} update${verified.applied===1?'':'s'}. Run Scan All again; these updates should now disappear.`)
+    }catch(e:any){setError(e?.message||'Could not apply verified season updates.')}finally{setBatchApplying(false)}
   }
 
   async function addAllConfirmedNewGames(){
@@ -317,7 +331,7 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
           {diff.kind==='unchanged'&&<div className="text-xs mt-2" style={{color:'var(--text-muted)'}}>No material schedule fields changed. Time formatting, punctuation and known Arbiter venue-label noise are ignored.</div>}
         </div>
       })}</div>
-      <div className="rounded-lg p-4 mt-4 text-xs" style={{background:'rgba(59,130,246,.06)',border:'1px solid rgba(59,130,246,.15)',color:'var(--text-secondary)'}}><strong style={{color:'var(--text-primary)'}}>Safety rule:</strong> Scan All never writes data. Apply Verified Updates handles only exact-match time/status changes. Add Confirmed Games handles only unique internal matchups independently confirmed by both teams on the same date. Single-source games, venue/date changes, removals and source conflicts always require review.</div>
+      <div className="rounded-lg p-4 mt-4 text-xs" style={{background:'rgba(59,130,246,.06)',border:'1px solid rgba(59,130,246,.15)',color:'var(--text-secondary)'}}><strong style={{color:'var(--text-primary)'}}>Safety rule:</strong> Scan All never writes data. Apply Verified Updates handles only exact-match time/status changes and now verifies them by database read-back before reporting success. Add Confirmed Games handles only unique internal matchups independently confirmed by both teams on the same date. Single-source games, venue/date changes, removals and source conflicts always require review.</div>
     </>}
   </div>
 }
