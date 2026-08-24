@@ -43,24 +43,146 @@ type ExistingGame = {
   parser_confidence: string | null
 }
 
+type Change = {
+  field: string
+  before: string | number | boolean | null
+  after: string | number | boolean | null
+}
+
 function dayDiff(a: string, b: string) {
   const ta = new Date(`${a}T12:00:00`).getTime()
   const tb = new Date(`${b}T12:00:00`).getTime()
   return Math.abs(ta - tb) / 86400000
 }
 
-function internalPair(game: { home_team_id: string | null; away_team_id: string | null }) {
+function internalPair(game: {
+  home_team_id: string | null
+  away_team_id: string | null
+}) {
   if (!game.home_team_id || !game.away_team_id) return null
   return [game.home_team_id, game.away_team_id].sort().join('|')
 }
 
 function sameOrientation(a: IncomingGame, b: ExistingGame) {
-  return a.home_team_id === b.home_team_id && a.away_team_id === b.away_team_id
+  return (
+    a.home_team_id === b.home_team_id &&
+    a.away_team_id === b.away_team_id
+  )
 }
 
-function changesFor(incoming: IncomingGame, existing: ExistingGame) {
-  const changes: Array<{ field: string; before: string | number | boolean | null; after: string | number | boolean | null }> = []
-  const fields: Array<keyof IncomingGame> = [
+function normalizeDate(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (!match) return raw
+  return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
+}
+
+function normalizeTime(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+
+  const twelveHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i)
+  if (twelveHour) {
+    let hour = Number(twelveHour[1])
+    const minute = twelveHour[2]
+    const meridiem = twelveHour[3].toUpperCase()
+    if (meridiem === 'AM' && hour === 12) hour = 0
+    if (meridiem === 'PM' && hour !== 12) hour += 12
+    return `${String(hour).padStart(2, '0')}:${minute}`
+  }
+
+  const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/)
+  if (twentyFourHour) {
+    return `${String(Number(twentyFourHour[1])).padStart(2, '0')}:${twentyFourHour[2]}`
+  }
+
+  return raw.toLowerCase().replace(/\s+/g, ' ')
+}
+
+function dbTime(value: unknown): string | null {
+  const normalized = normalizeTime(value)
+  return /^\d{2}:\d{2}$/.test(normalized)
+    ? `${normalized}:00`
+    : normalized || null
+}
+
+function normalizeText(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[.,]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeStatus(value: unknown): string {
+  const raw = normalizeText(value)
+  if (!raw) return 'scheduled'
+  if (raw === 'ppd' || raw === 'postponed') return 'postponed'
+  if (raw === 'cancelled' || raw === 'canceled') return 'canceled'
+  if (raw === 'final') return 'final'
+  if (raw === 'live' || raw === 'in progress') return 'live'
+  return raw
+}
+
+function displayStatus(value: unknown): string | null {
+  const normalized = normalizeStatus(value)
+  if (normalized === 'postponed') return 'Postponed'
+  if (normalized === 'canceled') return 'Canceled'
+  if (normalized === 'final') return 'Final'
+  if (normalized === 'live') return 'Live'
+  if (normalized === 'scheduled') return 'Scheduled'
+  return String(value ?? '').trim() || null
+}
+
+function canonicalizeIncoming(game: IncomingGame): IncomingGame {
+  return {
+    ...game,
+    game_date: game.game_date ? normalizeDate(game.game_date) : null,
+    game_time: dbTime(game.game_time),
+    location: String(game.location ?? '').trim() || null,
+    status: displayStatus(game.status),
+    rescheduled_date: game.rescheduled_date
+      ? normalizeDate(game.rescheduled_date)
+      : null,
+    game_number:
+      game.game_number === null || game.game_number === undefined
+        ? null
+        : Number(game.game_number),
+    neutral_site: Boolean(game.neutral_site),
+    event_name: String(game.event_name ?? '').trim() || null,
+    notes: String(game.notes ?? '').trim() || null,
+  }
+}
+
+function equivalent(field: string, before: unknown, after: unknown) {
+  if (field === 'game_date' || field === 'rescheduled_date') {
+    return normalizeDate(before) === normalizeDate(after)
+  }
+  if (field === 'game_time') {
+    return normalizeTime(before) === normalizeTime(after)
+  }
+  if (field === 'location') {
+    return normalizeText(before) === normalizeText(after)
+  }
+  if (field === 'status') {
+    return normalizeStatus(before) === normalizeStatus(after)
+  }
+  if (field === 'game_number') {
+    const a = before === null || before === undefined || before === '' ? null : Number(before)
+    const b = after === null || after === undefined || after === '' ? null : Number(after)
+    return a === b
+  }
+  if (field === 'neutral_site') {
+    return Boolean(before) === Boolean(after)
+  }
+  return normalizeText(before) === normalizeText(after)
+}
+
+function changesFor(incoming: IncomingGame, existing: ExistingGame): Change[] {
+  const changes: Change[] = []
+  const fields = [
     'game_date',
     'game_time',
     'location',
@@ -68,14 +190,12 @@ function changesFor(incoming: IncomingGame, existing: ExistingGame) {
     'rescheduled_date',
     'game_number',
     'neutral_site',
-    'event_name',
-    'notes',
-  ]
+  ] as const
 
   for (const field of fields) {
     const before = (existing as any)[field] ?? null
     const after = (incoming as any)[field] ?? null
-    if (String(before ?? '') !== String(after ?? '')) {
+    if (!equivalent(field, before, after)) {
       changes.push({ field, before, after })
     }
   }
@@ -89,10 +209,16 @@ export async function POST(req: NextRequest) {
     const teamId = typeof body?.team_id === 'string' ? body.team_id : ''
     const seasonId = typeof body?.season_id === 'string' ? body.season_id : ''
     const sportId = typeof body?.sport_id === 'string' ? body.sport_id : ''
-    const incoming: IncomingGame[] = Array.isArray(body?.games) ? body.games : []
+    const rawIncoming: IncomingGame[] = Array.isArray(body?.games) ? body.games : []
+    const incoming = rawIncoming
+      .map(canonicalizeIncoming)
+      .filter(game => game.game_date)
 
     if (!teamId || !seasonId || !sportId) {
-      return NextResponse.json({ error: 'team_id, season_id and sport_id are required.' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'team_id, season_id and sport_id are required.' },
+        { status: 400 }
+      )
     }
 
     const supabase = getAdminClient()
@@ -128,70 +254,95 @@ export async function POST(req: NextRequest) {
       throw new Error(`Could not load source history: ${sourceError.message}`)
     }
 
-    const sourcedGameIds = new Set((sourceRows || []).map((r: any) => r.game_id))
+    const sourcedGameIds = new Set(
+      (sourceRows || []).map((row: any) => row.game_id)
+    )
     const matchedExisting = new Set<string>()
     const diffs: any[] = []
 
-    for (const game of incoming.filter(g => g.game_date)) {
+    for (const game of incoming) {
       const pair = internalPair(game)
-
       let match: ExistingGame | undefined
-      let matchReason: 'exact' | 'nearby' | 'orientation_conflict' | null = null
+      let matchReason:
+        | 'exact'
+        | 'nearby'
+        | 'orientation_conflict'
+        | 'external_exact'
+        | null = null
 
       if (pair) {
-        match = existing.find(e =>
-          !matchedExisting.has(e.id) &&
-          internalPair(e) === pair &&
-          sameOrientation(game, e) &&
-          e.game_date === game.game_date &&
-          (e.game_number ?? null) === (game.game_number ?? null)
+        match = existing.find(existingGame =>
+          !matchedExisting.has(existingGame.id) &&
+          internalPair(existingGame) === pair &&
+          sameOrientation(game, existingGame) &&
+          normalizeDate(existingGame.game_date) === normalizeDate(game.game_date) &&
+          (existingGame.game_number ?? null) === (game.game_number ?? null)
         )
         if (match) matchReason = 'exact'
 
         if (!match) {
           match = existing
-            .filter(e =>
-              !matchedExisting.has(e.id) &&
-              internalPair(e) === pair &&
-              sameOrientation(game, e) &&
-              dayDiff(e.game_date, game.game_date!) <= 7 &&
-              (e.game_number ?? null) === (game.game_number ?? null)
+            .filter(existingGame =>
+              !matchedExisting.has(existingGame.id) &&
+              internalPair(existingGame) === pair &&
+              sameOrientation(game, existingGame) &&
+              dayDiff(existingGame.game_date, game.game_date!) <= 7 &&
+              (existingGame.game_number ?? null) === (game.game_number ?? null)
             )
-            .sort((a, b) => dayDiff(a.game_date, game.game_date!) - dayDiff(b.game_date, game.game_date!))[0]
+            .sort(
+              (a, b) =>
+                dayDiff(a.game_date, game.game_date!) -
+                dayDiff(b.game_date, game.game_date!)
+            )[0]
           if (match) matchReason = 'nearby'
         }
 
         if (!match) {
           match = existing
-            .filter(e =>
-              !matchedExisting.has(e.id) &&
-              internalPair(e) === pair &&
-              dayDiff(e.game_date, game.game_date!) <= 7
+            .filter(existingGame =>
+              !matchedExisting.has(existingGame.id) &&
+              internalPair(existingGame) === pair &&
+              dayDiff(existingGame.game_date, game.game_date!) <= 7
             )
-            .sort((a, b) => dayDiff(a.game_date, game.game_date!) - dayDiff(b.game_date, game.game_date!))[0]
+            .sort(
+              (a, b) =>
+                dayDiff(a.game_date, game.game_date!) -
+                dayDiff(b.game_date, game.game_date!)
+            )[0]
           if (match) matchReason = 'orientation_conflict'
         }
       } else {
-        // External opponents cannot be safely fuzzy-matched without resolving the
-        // external opponent first. Exact-date team participation is still useful.
-        match = existing.find(e =>
-          !matchedExisting.has(e.id) &&
-          e.game_date === game.game_date &&
-          (e.home_team_id === teamId || e.away_team_id === teamId) &&
-          (e.game_number ?? null) === (game.game_number ?? null)
+        match = existing.find(existingGame =>
+          !matchedExisting.has(existingGame.id) &&
+          normalizeDate(existingGame.game_date) === normalizeDate(game.game_date) &&
+          (existingGame.game_number ?? null) === (game.game_number ?? null) &&
+          (
+            (game.home_team_id === teamId &&
+              existingGame.home_team_id === teamId &&
+              !!existingGame.external_away_opponent_id) ||
+            (game.away_team_id === teamId &&
+              existingGame.away_team_id === teamId &&
+              !!existingGame.external_home_opponent_id)
+          )
         )
-        if (match) matchReason = 'exact'
+        if (match) matchReason = 'external_exact'
       }
 
       if (!match) {
+        const hasExternal =
+          !!game.external_home_name || !!game.external_away_name
+
         diffs.push({
-          key: `new-${diffs.length}`,
-          kind: 'new',
-          safe: true,
+          key: `${hasExternal ? 'external' : 'new'}-${diffs.length}`,
+          kind: hasExternal ? 'external_review' : 'new',
+          safe: !hasExternal,
           incoming: game,
           existing: null,
           existing_game_id: null,
           changes: [],
+          note: hasExternal
+            ? 'Fresh external matchup has no confidently matched Section X record. Review once before adding it.'
+            : undefined,
         })
         continue
       }
@@ -208,7 +359,8 @@ export async function POST(req: NextRequest) {
           existing: match,
           existing_game_id: match.id,
           changes,
-          note: 'Same two teams found nearby, but home/away orientation differs. Review manually.',
+          note:
+            'Same two teams found nearby, but home/away orientation differs. Review manually.',
         })
       } else if (matchReason === 'nearby') {
         diffs.push({
@@ -231,14 +383,16 @@ export async function POST(req: NextRequest) {
           changes: [],
         })
       } else {
-        const changedFields = new Set(changes.map(c => c.field))
+        const changedFields = new Set(changes.map(change => change.field))
         const primaryKind = changedFields.has('game_time')
           ? 'time_changed'
           : changedFields.has('location')
             ? 'location_changed'
             : changedFields.has('status')
               ? 'status_changed'
-              : 'details_changed'
+              : changedFields.has('game_date')
+                ? 'date_changed'
+                : 'details_changed'
 
         diffs.push({
           key: match.id,
@@ -264,7 +418,8 @@ export async function POST(req: NextRequest) {
         existing: game,
         existing_game_id: game.id,
         changes: [],
-        note: 'This game was previously imported from this team but was not found in the fresh Arbiter scan. Do not delete automatically.',
+        note:
+          'This game was previously imported from this team but was not found in the fresh Arbiter scan. Do not delete automatically.',
       })
     }
 
@@ -273,18 +428,56 @@ export async function POST(req: NextRequest) {
       return acc
     }, {})
 
+    const unchangedCount = counts.unchanged || 0
+    const meaningfulSafeCount = diffs.filter(
+      diff => diff.safe && diff.kind !== 'unchanged'
+    ).length
+    const safetyReasons: string[] = []
+
+    if (
+      existing.length >= 5 &&
+      incoming.length >= 5 &&
+      unchangedCount === 0 &&
+      meaningfulSafeCount >= Math.min(5, Math.ceil(incoming.length * 0.6))
+    ) {
+      safetyReasons.push(
+        'No unchanged games were found even though this team already has a full schedule. This usually indicates a parser or formatting mismatch, so applying is blocked.'
+      )
+    }
+
+    const changeRatio =
+      incoming.length > 0 ? meaningfulSafeCount / incoming.length : 0
+
+    if (
+      existing.length >= 8 &&
+      incoming.length >= 8 &&
+      changeRatio >= 0.85 &&
+      unchangedCount <= 1
+    ) {
+      safetyReasons.push(
+        'More than 85% of the schedule appears changed. Review the scan before any database update.'
+      )
+    }
+
     return NextResponse.json({
       success: true,
       scanned_at: new Date().toISOString(),
       existing_count: existing.length,
       incoming_count: incoming.length,
-      safe_count: diffs.filter(d => d.safe).length,
-      review_count: diffs.filter(d => !d.safe).length,
+      safe_count: diffs.filter(diff => diff.safe).length,
+      detected_change_count: meaningfulSafeCount,
+      review_count: diffs.filter(diff => !diff.safe).length,
       counts,
+      apply_allowed: safetyReasons.length === 0,
+      safety_reasons: safetyReasons,
+      normalization: 'v2',
       diffs,
     })
   } catch (error: any) {
     console.error('Schedule sync preview error:', error)
-    return NextResponse.json({ error: error?.message || 'Could not compare the schedule.' }, { status: 500 })
+    return NextResponse.json(
+      { error: error?.message || 'Could not compare the schedule.' },
+      { status: 500 }
+    )
   }
 }
