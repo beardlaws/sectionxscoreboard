@@ -116,6 +116,17 @@ function normalizeText(value: unknown): string {
     .trim()
 }
 
+function cleanLocation(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\s+normal\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeLocation(value: unknown): string {
+  return normalizeText(cleanLocation(value))
+}
+
 function normalizeStatus(value: unknown): string {
   const raw = normalizeText(value)
   if (!raw) return 'scheduled'
@@ -141,7 +152,7 @@ function canonicalizeIncoming(game: IncomingGame): IncomingGame {
     ...game,
     game_date: game.game_date ? normalizeDate(game.game_date) : null,
     game_time: dbTime(game.game_time),
-    location: String(game.location ?? '').trim() || null,
+    location: cleanLocation(game.location) || null,
     status: displayStatus(game.status),
     rescheduled_date: game.rescheduled_date
       ? normalizeDate(game.rescheduled_date)
@@ -164,7 +175,7 @@ function equivalent(field: string, before: unknown, after: unknown) {
     return normalizeTime(before) === normalizeTime(after)
   }
   if (field === 'location') {
-    return normalizeText(before) === normalizeText(after)
+    return normalizeLocation(before) === normalizeLocation(after)
   }
   if (field === 'status') {
     return normalizeStatus(before) === normalizeStatus(after)
@@ -470,7 +481,7 @@ export async function POST(req: NextRequest) {
       counts,
       apply_allowed: safetyReasons.length === 0,
       safety_reasons: safetyReasons,
-      normalization: 'v2',
+      normalization: 'v3-location-clean',
       diffs,
     })
   } catch (error: any) {
