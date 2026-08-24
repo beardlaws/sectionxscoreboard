@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { arbiterLocationsEquivalent, cleanArbiterLocation } from '@/lib/arbiter-location'
 
 function getAdminClient() {
   return createClient(
@@ -116,59 +117,6 @@ function normalizeText(value: unknown): string {
     .trim()
 }
 
-/**
- * Arbiter mixes venue labels with display-only tokens and sometimes event-detail
- * text. Keep storage cleanup conservative, but make the comparison fingerprint
- * aggressive enough to ignore known presentation noise.
- */
-function cleanLocation(value: unknown): string {
-  return String(value ?? '')
-    .replace(/^\s*i\s+(?=[a-z0-9])/i, '')
-    .replace(/^\s*school\s+/i, '')
-    .replace(/^\s*stl\.?(?=\s)/i, 'St. ')
-    .replace(/\s+normal(?:\s+[a-z])?\s*$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function locationFingerprint(value: unknown): string {
-  let raw = cleanLocation(value)
-    .replace(/\bshow\s+details\b.*$/i, '')
-    .replace(/\bnone\s+[a-z]?\s*$/i, '')
-    .replace(/\s+normal(?:\s+[a-z])?\b/gi, ' ')
-    .replace(/^\s*i\s+(?=[a-z0-9])/i, '')
-    .replace(/^\s*school\s+/i, '')
-    .replace(/^\s*stl\.?(?=\s)/i, 'St. ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  const scheduleNoise = raw.search(/\s+(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i)
-  if (scheduleNoise >= 0) raw = raw.slice(0, scheduleNoise).trim()
-
-  return normalizeText(raw)
-    .replace(/^stl\s+/, 'st ')
-    .replace(/\bhigh school\b/g, 'hs')
-    .replace(/\bcentral school\b/g, 'central')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function locationsEquivalent(before: unknown, after: unknown) {
-  const a = locationFingerprint(before)
-  const b = locationFingerprint(after)
-  if (a === b) return true
-  if (!a || !b) return a === b
-
-  const shorter = a.length <= b.length ? a : b
-  const longer = a.length > b.length ? a : b
-  if (shorter.length >= 18 && longer.startsWith(shorter)) {
-    const extra = longer.slice(shorter.length).trim()
-    if (!extra) return true
-    if (/^(?:normal|show details|tournament|none|t\b|mon\b|tue\b|wed\b|thu\b|fri\b|sat\b|sun\b)/i.test(extra)) return true
-  }
-  return false
-}
-
 function normalizeStatus(value: unknown): string {
   const raw = normalizeText(value)
   if (!raw) return 'scheduled'
@@ -194,7 +142,7 @@ function canonicalizeIncoming(game: IncomingGame): IncomingGame {
     ...game,
     game_date: game.game_date ? normalizeDate(game.game_date) : null,
     game_time: dbTime(game.game_time),
-    location: cleanLocation(game.location) || null,
+    location: cleanArbiterLocation(game.location) || null,
     status: displayStatus(game.status),
     rescheduled_date: game.rescheduled_date ? normalizeDate(game.rescheduled_date) : null,
     game_number: game.game_number === null || game.game_number === undefined ? null : Number(game.game_number),
@@ -207,7 +155,7 @@ function canonicalizeIncoming(game: IncomingGame): IncomingGame {
 function equivalent(field: string, before: unknown, after: unknown) {
   if (field === 'game_date' || field === 'rescheduled_date') return normalizeDate(before) === normalizeDate(after)
   if (field === 'game_time') return normalizeTime(before) === normalizeTime(after)
-  if (field === 'location') return locationsEquivalent(before, after)
+  if (field === 'location') return arbiterLocationsEquivalent(before, after)
   if (field === 'status') return normalizeStatus(before) === normalizeStatus(after)
   if (field === 'game_number') {
     const a = before === null || before === undefined || before === '' ? null : Number(before)
@@ -466,7 +414,7 @@ export async function POST(req: NextRequest) {
       counts,
       apply_allowed: safetyReasons.length === 0,
       safety_reasons: safetyReasons,
-      normalization: 'v5-cross-source-ready',
+      normalization: 'v6-final-polish',
       diffs,
     })
   } catch (error: any) {
