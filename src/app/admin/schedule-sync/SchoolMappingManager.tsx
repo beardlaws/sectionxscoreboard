@@ -11,7 +11,6 @@ type Team={id:string;team_name:string;sport_id:string;level:string|null;active:b
 type Sport={id:string;sport_name:string;gender?:string|null}
 type Mapping={team_id:string;school_id:string|null;schedule_url:string}
 type Props={schools:School[];teams:Team[];sports:Sport[];teamMappings:Mapping[]}
-
 type SchoolState={schoolId:string;status:'idle'|'running'|'done'|'failed';mapped:number;published:number;message?:string}
 
 function normalize(v:string|null|undefined){return String(v||'').toLowerCase().replace(/\([^)]*\)/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()}
@@ -28,7 +27,6 @@ export default function SchoolMappingManager({schools,teams,sports,teamMappings}
  const sportMap=useMemo(()=>new Map(sports.map(s=>[s.id,s])),[sports])
  const activeSchools=useMemo(()=>schools.filter(s=>s.active!==false&&s.is_section_x!==false&&!!s.arbiter_school_url).sort((a,b)=>a.school_name.localeCompare(b.school_name)),[schools])
  const varsityTeams=useMemo(()=>teams.filter(t=>t.active!==false&&(!t.level||t.level.toLowerCase().trim()==='varsity')),[teams])
- const mappedSet=useMemo(()=>new Set(teamMappings.map(m=>m.team_id)),[teamMappings])
  const schoolsWithDirect=useMemo(()=>new Set(teamMappings.map(m=>m.school_id).filter(Boolean)),[teamMappings])
 
  async function discoverOne(school:School){
@@ -57,7 +55,7 @@ export default function SchoolMappingManager({schools,teams,sports,teamMappings}
    for(let i=0;i<activeSchools.length;i++){
      const school=activeSchools[i];setProgress({current:i+1,total:activeSchools.length})
      try{const r=await discoverOne(school);mapped+=r.mapped}catch(e:any){failed++;setStates(prev=>({...prev,[school.id]:{schoolId:school.id,status:'failed',mapped:0,published:0,message:e?.message||'Discovery failed'}}))}
-     await new Promise(r=>setTimeout(r,250))
+     await new Promise(resolve=>setTimeout(resolve,250))
    }
    setRunning(false);setMessage(`School discovery finished: ${activeSchools.length-failed} schools checked, ${mapped} direct varsity mappings saved${failed?`, ${failed} school${failed===1?'':'s'} need review`:''}. Refresh once to load the permanent coverage into Scan All.`)
  }
@@ -70,7 +68,7 @@ export default function SchoolMappingManager({schools,teams,sports,teamMappings}
    {open&&<div className="px-4 md:px-5 pb-5">
      <div className="rounded-lg p-4 mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3" style={{background:'rgba(0,0,0,.18)',border:'1px solid rgba(255,255,255,.06)'}}>
        <div><div className="font-semibold">Build permanent team map</div><div className="text-xs mt-1" style={{color:'var(--text-secondary)'}}>Safe operation: reads Arbiter team pages and saves URLs only. It does not add, edit or delete games.</div>{running&&<div className="text-xs mt-2" style={{color:'#60a5fa'}}>Checking school {progress.current} of {progress.total}…</div>}</div>
-       <button onClick={discoverAll} disabled={running||!activeSchools.length} className="px-4 py-3 rounded-lg text-xs font-bold" style={{background:running?'rgba(59,130,246,.25)':'#3156df',color:'white',opacity:running?.65:1}}>{running?'DISCOVERING…':'DISCOVER ALL SCHOOL TEAMS'}</button>
+       <button onClick={discoverAll} disabled={running||!activeSchools.length} className="px-4 py-3 rounded-lg text-xs font-bold" style={{background:running?'rgba(59,130,246,.25)':'#3156df',color:'white',opacity:running?0.65:1}}>{running?'DISCOVERING…':'DISCOVER ALL SCHOOL TEAMS'}</button>
      </div>
      {message&&<div className="rounded-lg p-3 mb-4 text-sm" style={{color:'#4ade80',background:'rgba(74,222,128,.07)',border:'1px solid rgba(74,222,128,.18)'}}>{message}</div>}
      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[430px] overflow-y-auto pr-1">
