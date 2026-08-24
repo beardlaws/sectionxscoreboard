@@ -88,7 +88,6 @@ function normalizeDate(value: unknown): string {
 function normalizeTime(value: unknown): string {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
-
   const twelveHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i)
   if (twelveHour) {
     let hour = Number(twelveHour[1])
@@ -98,12 +97,8 @@ function normalizeTime(value: unknown): string {
     if (meridiem === 'PM' && hour !== 12) hour += 12
     return `${String(hour).padStart(2, '0')}:${minute}`
   }
-
   const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/)
-  if (twentyFourHour) {
-    return `${String(Number(twentyFourHour[1])).padStart(2, '0')}:${twentyFourHour[2]}`
-  }
-
+  if (twentyFourHour) return `${String(Number(twentyFourHour[1])).padStart(2, '0')}:${twentyFourHour[2]}`
   return raw.toLowerCase().replace(/\s+/g, ' ')
 }
 
@@ -122,22 +117,56 @@ function normalizeText(value: unknown): string {
 }
 
 /**
- * Arbiter venue labels are surprisingly noisy. These transforms are deliberately
- * conservative: only known presentation cruft is removed. Field numbers and
- * genuinely different school/venue names remain meaningful.
+ * Arbiter mixes venue labels with display-only tokens and sometimes event-detail
+ * text. Keep storage cleanup conservative, but make the comparison fingerprint
+ * aggressive enough to ignore known presentation noise.
  */
 function cleanLocation(value: unknown): string {
   return String(value ?? '')
+    .replace(/^\s*i\s+(?=[a-z0-9])/i, '')
     .replace(/^\s*school\s+/i, '')
-    .replace(/\s+normal\s*$/i, '')
     .replace(/^\s*stl\.?(?=\s)/i, 'St. ')
+    .replace(/\s+normal(?:\s+[a-z])?\s*$/i, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-function normalizeLocation(value: unknown): string {
-  return normalizeText(cleanLocation(value))
+function locationFingerprint(value: unknown): string {
+  let raw = cleanLocation(value)
+    .replace(/\bshow\s+details\b.*$/i, '')
+    .replace(/\bnone\s+[a-z]?\s*$/i, '')
+    .replace(/\s+normal(?:\s+[a-z])?\b/gi, ' ')
+    .replace(/^\s*i\s+(?=[a-z0-9])/i, '')
+    .replace(/^\s*school\s+/i, '')
+    .replace(/^\s*stl\.?(?=\s)/i, 'St. ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const scheduleNoise = raw.search(/\s+(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i)
+  if (scheduleNoise >= 0) raw = raw.slice(0, scheduleNoise).trim()
+
+  return normalizeText(raw)
     .replace(/^stl\s+/, 'st ')
+    .replace(/\bhigh school\b/g, 'hs')
+    .replace(/\bcentral school\b/g, 'central')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function locationsEquivalent(before: unknown, after: unknown) {
+  const a = locationFingerprint(before)
+  const b = locationFingerprint(after)
+  if (a === b) return true
+  if (!a || !b) return a === b
+
+  const shorter = a.length <= b.length ? a : b
+  const longer = a.length > b.length ? a : b
+  if (shorter.length >= 18 && longer.startsWith(shorter)) {
+    const extra = longer.slice(shorter.length).trim()
+    if (!extra) return true
+    if (/^(?:normal|show details|tournament|none|t\b|mon\b|tue\b|wed\b|thu\b|fri\b|sat\b|sun\b)/i.test(extra)) return true
+  }
+  return false
 }
 
 function normalizeStatus(value: unknown): string {
@@ -178,7 +207,7 @@ function canonicalizeIncoming(game: IncomingGame): IncomingGame {
 function equivalent(field: string, before: unknown, after: unknown) {
   if (field === 'game_date' || field === 'rescheduled_date') return normalizeDate(before) === normalizeDate(after)
   if (field === 'game_time') return normalizeTime(before) === normalizeTime(after)
-  if (field === 'location') return normalizeLocation(before) === normalizeLocation(after)
+  if (field === 'location') return locationsEquivalent(before, after)
   if (field === 'status') return normalizeStatus(before) === normalizeStatus(after)
   if (field === 'game_number') {
     const a = before === null || before === undefined || before === '' ? null : Number(before)
@@ -203,8 +232,6 @@ function changesFor(incoming: IncomingGame, existing: ExistingGame): Change[] {
 function isSafeExactUpdate(changes: Change[]) {
   if (!changes.length) return true
   const fields = new Set(changes.map(change => change.field))
-  // Time/status changes on an exact-date, exact-home/away matchup are safe.
-  // Venue/date/neutral/game-number changes remain explicit-review actions.
   return [...fields].every(field => field === 'game_time' || field === 'status')
 }
 
@@ -250,9 +277,6 @@ export async function POST(req: NextRequest) {
     const work: WorkingIncoming[] = incoming.map((game, index) => ({ index, game }))
     const matchedExisting = new Set<string>()
 
-    // PASS 1: exact internal matches. This is intentionally completed for the
-    // whole schedule before any nearby matching so an incoming 9/12 game can
-    // never steal an existing 9/18 record from another incoming 9/18 game.
     for (const item of work) {
       const pair = internalPair(item.game)
       if (!pair) continue
@@ -270,7 +294,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // PASS 2: exact-date external matches.
     for (const item of work) {
       if (item.match || internalPair(item.game)) continue
       const game = item.game
@@ -288,8 +311,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // PASS 3: nearby same-orientation candidates, after exact games are reserved.
-    // A nearby match is NEVER bulk-safe; it is surfaced as a reschedule review.
     for (const item of work) {
       if (item.match) continue
       const pair = internalPair(item.game)
@@ -299,11 +320,10 @@ export async function POST(req: NextRequest) {
           !matchedExisting.has(existingGame.id) &&
           internalPair(existingGame) === pair &&
           sameOrientation(item.game, existingGame) &&
-          dayDiff(existingGame.game_date, item.game.game_date!) <= 7 &&
+          dayDiff(existingGame.game_date, item.game.game_date!) <= 3 &&
           (existingGame.game_number ?? null) === (item.game.game_number ?? null)
         )
         .sort((a, b) => dayDiff(a.game_date, item.game.game_date!) - dayDiff(b.game_date, item.game.game_date!))
-
       if (candidates.length === 1) {
         item.match = candidates[0]
         item.matchReason = 'nearby'
@@ -311,8 +331,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // PASS 4: exact/nearby opposite orientation is a conflict only after all
-    // same-orientation matches have been reserved.
     for (const item of work) {
       if (item.match) continue
       const pair = internalPair(item.game)
@@ -321,7 +339,7 @@ export async function POST(req: NextRequest) {
         .filter(existingGame =>
           !matchedExisting.has(existingGame.id) &&
           internalPair(existingGame) === pair &&
-          dayDiff(existingGame.game_date, item.game.game_date!) <= 7
+          dayDiff(existingGame.game_date, item.game.game_date!) <= 3
         )
         .sort((a, b) => dayDiff(a.game_date, item.game.game_date!) - dayDiff(b.game_date, item.game.game_date!))
       if (candidates.length === 1) {
@@ -348,9 +366,10 @@ export async function POST(req: NextRequest) {
           existing: null,
           existing_game_id: null,
           changes: [],
+          new_confidence: hasExternal ? 'external' : 'single_source',
           note: hasExternal
             ? 'Fresh external matchup has no confidently matched Section X record. Review the full matchup before adding it.'
-            : 'Fresh game has no existing Section X record. Add it explicitly after reviewing opponent, time and location.',
+            : 'Fresh game has no existing Section X record. Scan All will cross-check the opponent schedule before this is treated as confirmed.',
         })
         continue
       }
@@ -429,7 +448,6 @@ export async function POST(req: NextRequest) {
     if (existing.length >= 5 && incoming.length >= 5 && unchangedCount === 0 && (bulkSafeChanges + reviewCount) >= Math.min(5, Math.ceil(incoming.length * 0.6))) {
       safetyReasons.push('No unchanged games were found even though this team already has a full schedule. This usually indicates a parser or matching problem.')
     }
-
     const suspiciousRatio = incoming.length > 0 ? (bulkSafeChanges + reviewCount) / incoming.length : 0
     if (existing.length >= 8 && incoming.length >= 8 && suspiciousRatio >= 0.85 && unchangedCount <= 1) {
       safetyReasons.push('More than 85% of the schedule appears different. Review the scan before any database update.')
@@ -448,7 +466,7 @@ export async function POST(req: NextRequest) {
       counts,
       apply_allowed: safetyReasons.length === 0,
       safety_reasons: safetyReasons,
-      normalization: 'v4-safe-match',
+      normalization: 'v5-cross-source-ready',
       diffs,
     })
   } catch (error: any) {
