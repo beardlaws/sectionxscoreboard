@@ -71,6 +71,11 @@ const navSections = [
         icon: Upload,
       },
       {
+        href: '/admin/schedule-sync',
+        label: 'Schedule Sync',
+        icon: Calendar,
+      },
+      {
         href: '/admin/schedule-audit',
         label: 'Schedule Audit',
         icon: ClipboardCheck,
