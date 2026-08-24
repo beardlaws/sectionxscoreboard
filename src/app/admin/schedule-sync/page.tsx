@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import AdminLayout from '@/components/layout/AdminLayout'
 import ScheduleSync from './ScheduleSync'
 import PersistentArbiterMappings from './PersistentArbiterMappings'
+import SchoolMappingManager from './SchoolMappingManager'
 
 export const revalidate = 0
 
@@ -24,6 +25,7 @@ export default async function ScheduleSyncPage() {
     teamSeasonsResult,
     teamMappingsResult,
     schoolMappingsResult,
+    schoolsResult,
   ] = await Promise.all([
     supabase
       .from('teams')
@@ -63,6 +65,13 @@ export default async function ScheduleSyncPage() {
     adminSupabase
       .from('arbiter_school_mappings')
       .select('school_id, school_url'),
+
+    adminSupabase
+      .from('schools')
+      .select('id, school_name, arbiter_school_url, arbiter_entity_id, active, is_section_x')
+      .eq('active', true)
+      .eq('is_section_x', true)
+      .order('school_name'),
   ])
 
   if (teamsResult.error) throw new Error(teamsResult.error.message)
@@ -71,6 +80,7 @@ export default async function ScheduleSyncPage() {
   if (teamSeasonsResult.error) throw new Error(teamSeasonsResult.error.message)
   if (teamMappingsResult.error) throw new Error(teamMappingsResult.error.message)
   if (schoolMappingsResult.error) throw new Error(schoolMappingsResult.error.message)
+  if (schoolsResult.error) throw new Error(schoolsResult.error.message)
 
   const teams = (teamsResult.data || []).map((team: any) => ({
     ...team,
@@ -89,6 +99,12 @@ export default async function ScheduleSyncPage() {
         teamMappings={teamMappingsResult.data || []}
         schoolMappings={schoolMappingsResult.data || []}
         teamSchoolMap={teamSchoolMap}
+      />
+      <SchoolMappingManager
+        schools={schoolsResult.data || []}
+        teams={teams}
+        sports={sportsResult.data || []}
+        teamMappings={teamMappingsResult.data || []}
       />
       <ScheduleSync
         teams={teams}
