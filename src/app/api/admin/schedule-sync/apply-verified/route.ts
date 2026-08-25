@@ -39,6 +39,7 @@ type VerifiedUpdate = {
   game_time?: string | null
   status?: string | null
   source_team_id?: string | null
+  source_team_ids?: string[] | null
   season_id?: string | null
   sport_id?: string | null
 }
@@ -85,22 +86,28 @@ export async function POST(req: NextRequest) {
       const expectedStatus = Object.prototype.hasOwnProperty.call(patch, 'status') ? normalizeStatus(patch.status) : normalizeStatus(updated.status)
       const actualStatus = normalizeStatus(updated.status)
       const verified = expectedTime === actualTime && expectedStatus === actualStatus
+      const sourceIds = [...new Set([...(item.source_team_ids || []), ...(item.source_team_id ? [item.source_team_id] : [])].filter(Boolean))]
 
-      if (verified && item.source_team_id && item.season_id && item.sport_id) {
-        const { error: sourceError } = await supabase
-          .from('game_import_sources')
-          .upsert({
-            game_id: item.id,
-            team_id: item.source_team_id,
-            season_id: item.season_id,
-            sport_id: item.sport_id,
-            source: 'arbiter',
-            imported_at: new Date().toISOString(),
-          }, { onConflict: 'game_id,team_id,season_id,sport_id' })
-        if (sourceError) {
-          results.push({ id: item.id, ok: false, error: `Game updated but source tracking failed: ${sourceError.message}` })
-          continue
+      if (verified && item.season_id && item.sport_id && sourceIds.length) {
+        let sourceTrackingFailed = false
+        for (const sourceTeamId of sourceIds) {
+          const { error: sourceError } = await supabase
+            .from('game_import_sources')
+            .upsert({
+              game_id: item.id,
+              team_id: sourceTeamId,
+              season_id: item.season_id,
+              sport_id: item.sport_id,
+              source: 'arbiter',
+              imported_at: new Date().toISOString(),
+            }, { onConflict: 'game_id,team_id,season_id,sport_id' })
+          if (sourceError) {
+            results.push({ id: item.id, ok: false, error: `Game updated but source tracking failed for ${sourceTeamId}: ${sourceError.message}` })
+            sourceTrackingFailed = true
+            break
+          }
         }
+        if (sourceTrackingFailed) continue
       }
 
       results.push({
@@ -108,6 +115,7 @@ export async function POST(req: NextRequest) {
         ok: verified,
         expected: { game_time: expectedTime, status: expectedStatus },
         actual: { game_time: actualTime, status: actualStatus },
+        sources_recorded: sourceIds.length,
         error: verified ? undefined : 'Database read-back did not match the requested verified update.',
       })
     }
