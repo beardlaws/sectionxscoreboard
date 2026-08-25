@@ -181,20 +181,18 @@ function isTimeStatusOnly(changes: Change[]) {
 
 function isSafeExactUpdate(changes: Change[], incoming: IncomingGame) {
   if (!isTimeStatusOnly(changes)) return false
-
-  // A Section X-vs-Section X game has two independent team sources. One team's
-  // time/status observation must never overwrite the other team's observation.
-  // Scan All can surface agreement/disagreement; a canonical provider event can
-  // later become the authoritative write source when Arbiter API access arrives.
   if (incoming.home_team_id && incoming.away_team_id) return false
-
-  // External-opponent games only have one Section X source, so exact time/status
-  // changes retain the existing safe-write behavior.
   return true
 }
 
+function orientationScheduleAgrees(incoming: IncomingGame, existing: ExistingGame) {
+  return normalizeDate(incoming.game_date) === normalizeDate(existing.game_date) &&
+    normalizeTime(incoming.game_time) === normalizeTime(existing.game_time) &&
+    normalizeStatus(incoming.status) === normalizeStatus(existing.status) &&
+    (incoming.game_number ?? null) === (existing.game_number ?? null)
+}
+
 export async function POST(req: NextRequest) {
-  // Middleware authenticates the admin session before this service-role comparison executes.
   try {
     const body = await req.json()
     const teamId = typeof body?.team_id === 'string' ? body.team_id : ''
@@ -334,15 +332,18 @@ export async function POST(req: NextRequest) {
       const changes = changesFor(game, match)
 
       if (matchReason === 'orientation_conflict') {
+        const scheduleAgrees = orientationScheduleAgrees(game, match)
         diffs.push({
           key: match.id,
-          kind: 'conflict',
+          kind: scheduleAgrees ? 'details_changed' : 'conflict',
           safe: false,
           incoming: game,
           existing: match,
           existing_game_id: match.id,
           changes,
-          note: 'Same two teams found nearby, but home/away orientation differs. Never auto-apply this matchup.',
+          note: scheduleAgrees
+            ? 'Orientation review only: both records agree on teams, date, time and status, but home/away orientation differs. This is not a time/status source conflict; review home/away before changing anything.'
+            : 'Same two teams found nearby, but home/away orientation differs and schedule fields also disagree. Treat as a true source conflict; never auto-apply this matchup.',
         })
       } else if (matchReason === 'nearby') {
         diffs.push({
@@ -394,7 +395,7 @@ export async function POST(req: NextRequest) {
         existing: game,
         existing_game_id: game.id,
         changes: [],
-        note: 'Previously imported from this team but missing from the fresh Arbiter scan. Never delete automatically.',
+        note: 'Previously imported from this team but missing from this one fresh Arbiter source. This is evidence of absence, not proof of deletion. Never delete automatically; use the opponent source or canonical provider event to confirm.',
       })
     }
 
@@ -429,7 +430,7 @@ export async function POST(req: NextRequest) {
       counts,
       apply_allowed: safetyReasons.length === 0,
       safety_reasons: safetyReasons,
-      normalization: 'v7-reconciliation-guard',
+      normalization: 'v8-smart-noise-reduction',
       diffs,
     })
   } catch (error: any) {

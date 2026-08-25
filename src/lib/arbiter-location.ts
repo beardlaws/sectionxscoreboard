@@ -22,6 +22,29 @@ export function cleanArbiterLocation(value: unknown): string {
     .trim()
 }
 
+function semanticVenueFingerprint(value: unknown): string {
+  return normalizeText(value)
+    .replace(/\bjunior senior high school\b/g, 'jr sr hs')
+    .replace(/\bjunior-senior high school\b/g, 'jr sr hs')
+    .replace(/\bjunior high school\b/g, 'jhs')
+    .replace(/\bmiddle school\b/g, 'ms')
+    .replace(/\belementary school\b/g, 'elem')
+    .replace(/\bhigh school\b/g, 'hs')
+    .replace(/\bcentral school district\b/g, 'central')
+    .replace(/\bcentral school\b/g, 'central')
+    .replace(/\bgymnasium\b/g, 'gym')
+    .replace(/\bathletic field\b/g, 'field')
+    .replace(/\bathletic fields\b/g, 'fields')
+    .replace(/\bsoccer pitch\b/g, 'soccer field')
+    .replace(/\bfootball stadium\b/g, 'football field')
+    .replace(/\bbaseball diamond\b/g, 'baseball field')
+    .replace(/\bsoftball diamond\b/g, 'softball field')
+    .replace(/\bice arena\b/g, 'arena')
+    .replace(/\bice rink\b/g, 'rink')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function arbiterLocationFingerprint(value: unknown): string {
   let raw = stripLeadingArbiterMarker(cleanArbiterLocation(value))
     .replace(/\bshow\s+details\b.*$/i, '')
@@ -35,12 +58,14 @@ export function arbiterLocationFingerprint(value: unknown): string {
   const scheduleNoise = raw.search(/\s+(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i)
   if (scheduleNoise >= 0) raw = raw.slice(0, scheduleNoise).trim()
 
-  return normalizeText(raw)
+  return semanticVenueFingerprint(raw)
     .replace(/^stl\s+/, 'st ')
-    .replace(/\bhigh school\b/g, 'hs')
-    .replace(/\bcentral school\b/g, 'central')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function genericVenueSuffix(extra: string): boolean {
+  return /^(?:main\s+)?(?:gym|field|fields|court|stadium|arena|rink|pool|track|complex|campus)(?:\s+(?:field|fields|court|stadium|arena|rink|pool|track|complex))?$/.test(extra)
 }
 
 export function arbiterLocationsEquivalent(before: unknown, after: unknown): boolean {
@@ -51,10 +76,12 @@ export function arbiterLocationsEquivalent(before: unknown, after: unknown): boo
 
   const shorter = a.length <= b.length ? a : b
   const longer = a.length > b.length ? a : b
-  if (shorter.length >= 18 && longer.startsWith(shorter)) {
+  if (shorter.length >= 8 && longer.startsWith(`${shorter} `)) {
     const extra = longer.slice(shorter.length).trim()
     if (!extra) return true
     if (/^(?:normal|show details|tournament|none|t\b|mon\b|tue\b|wed\b|thu\b|fri\b|sat\b|sun\b)/i.test(extra)) return true
+    if (genericVenueSuffix(extra)) return true
   }
+
   return false
 }
