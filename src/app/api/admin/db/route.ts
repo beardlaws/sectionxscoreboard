@@ -8,18 +8,10 @@ function getAdminClient() {
   )
 }
 
-function checkAuth(req: NextRequest) {
-  const cookieHeader = req.cookies.get('admin_auth')?.value
-  return cookieHeader === 'SectionXScoreboardTheRightWay!'
-}
-
 // POST /api/admin/db
+// Middleware authenticates the admin session before this privileged service-role route can execute.
 // Body: { action: 'insert'|'update'|'upsert'|'delete', table: string, data?: any, match?: any, onConflict?: string }
 export async function POST(req: NextRequest) {
-  if (!checkAuth(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
   const body = await req.json()
   const { action, table, data, match, onConflict } = body
 

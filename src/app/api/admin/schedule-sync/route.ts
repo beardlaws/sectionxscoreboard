@@ -9,10 +9,6 @@ function getAdminClient() {
   )
 }
 
-function checkAuth(req: NextRequest) {
-  return req.cookies.get('admin_auth')?.value === 'SectionXScoreboardTheRightWay!'
-}
-
 type IncomingGame = {
   game_date: string | null
   game_time: string | null
@@ -177,15 +173,28 @@ function changesFor(incoming: IncomingGame, existing: ExistingGame): Change[] {
   return changes
 }
 
-function isSafeExactUpdate(changes: Change[]) {
+function isTimeStatusOnly(changes: Change[]) {
   if (!changes.length) return true
   const fields = new Set(changes.map(change => change.field))
   return [...fields].every(field => field === 'game_time' || field === 'status')
 }
 
-export async function POST(req: NextRequest) {
-  if (!checkAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+function isSafeExactUpdate(changes: Change[], incoming: IncomingGame) {
+  if (!isTimeStatusOnly(changes)) return false
 
+  // A Section X-vs-Section X game has two independent team sources. One team's
+  // time/status observation must never overwrite the other team's observation.
+  // Scan All can surface agreement/disagreement; a canonical provider event can
+  // later become the authoritative write source when Arbiter API access arrives.
+  if (incoming.home_team_id && incoming.away_team_id) return false
+
+  // External-opponent games only have one Section X source, so exact time/status
+  // changes retain the existing safe-write behavior.
+  return true
+}
+
+export async function POST(req: NextRequest) {
+  // Middleware authenticates the admin session before this service-role comparison executes.
   try {
     const body = await req.json()
     const teamId = typeof body?.team_id === 'string' ? body.team_id : ''
@@ -355,7 +364,8 @@ export async function POST(req: NextRequest) {
           : changedFields.has('location') ? 'location_changed'
           : changedFields.has('status') ? 'status_changed'
           : 'details_changed'
-        const safe = isSafeExactUpdate(changes)
+        const safe = isSafeExactUpdate(changes, game)
+        const needsCrossSource = Boolean(game.home_team_id && game.away_team_id && isTimeStatusOnly(changes))
         diffs.push({
           key: match.id,
           kind: primaryKind,
@@ -364,7 +374,12 @@ export async function POST(req: NextRequest) {
           existing: match,
           existing_game_id: match.id,
           changes,
-          note: safe ? undefined : 'Exact matchup found, but this field change requires an explicit review before updating the game.',
+          note: safe
+            ? undefined
+            : needsCrossSource
+              ? 'Section X vs Section X time/status changes require agreement from both fresh team sources. No database write is allowed from one side alone.'
+              : 'Exact matchup found, but this field change requires an explicit review before updating the game.',
+          reconciliation_required: needsCrossSource,
         })
       }
     }
@@ -414,7 +429,7 @@ export async function POST(req: NextRequest) {
       counts,
       apply_allowed: safetyReasons.length === 0,
       safety_reasons: safetyReasons,
-      normalization: 'v6-final-polish',
+      normalization: 'v7-reconciliation-guard',
       diffs,
     })
   } catch (error: any) {

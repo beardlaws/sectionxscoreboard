@@ -9,10 +9,6 @@ function getAdminClient() {
   )
 }
 
-function isAuthorized(req: NextRequest) {
-  return req.cookies.get('admin_auth')?.value === 'SectionXScoreboardTheRightWay!'
-}
-
 function storagePathFromPublicUrl(url: string | null) {
   if (!url) return null
   const marker = '/storage/v1/object/public/photos/'
@@ -83,10 +79,7 @@ async function getPreview(supabase: any, gameId: string) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+  // Middleware authenticates the admin session before this destructive service-role route executes.
   const { gameId, action = 'delete' } = await req.json()
   if (!gameId) return NextResponse.json({ error: 'gameId required' }, { status: 400 })
 

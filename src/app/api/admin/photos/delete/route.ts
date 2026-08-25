@@ -8,10 +8,6 @@ function getAdminClient() {
   )
 }
 
-function isAuthorized(req: NextRequest) {
-  return req.cookies.get('admin_auth')?.value === 'SectionXScoreboardTheRightWay!'
-}
-
 function storagePathFromPublicUrl(url: string | null) {
   if (!url) return null
   const marker = '/storage/v1/object/public/photos/'
@@ -21,10 +17,7 @@ function storagePathFromPublicUrl(url: string | null) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+  // Middleware authenticates the admin session before this privileged route executes.
   const { photoId } = await req.json()
   if (!photoId) return NextResponse.json({ error: 'photoId required' }, { status: 400 })
 

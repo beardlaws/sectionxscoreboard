@@ -8,10 +8,6 @@ function getAdminClient() {
   )
 }
 
-function checkAuth(req: NextRequest) {
-  return req.cookies.get('admin_auth')?.value === 'SectionXScoreboardTheRightWay!'
-}
-
 function normalizeTime(value: unknown): string | null {
   const raw = String(value ?? '').trim()
   if (!raw) return null
@@ -48,8 +44,7 @@ type VerifiedUpdate = {
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+  // Middleware authenticates the admin session before this service-role writer executes.
   try {
     const body = await req.json()
     const updates: VerifiedUpdate[] = Array.isArray(body?.updates) ? body.updates : []
