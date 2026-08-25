@@ -67,6 +67,19 @@ type BatchRow = {
   message?:string
   output?:ScanOutput
 }
+type DiffSummary = {
+  unchanged:number
+  verifiedUpdates:number
+  confirmedNew:number
+  singleSourceNew:number
+  sourceConflicts:number
+  waitingSecondSource:number
+  dateReschedule:number
+  venue:number
+  possibleRemoved:number
+  matchDetails:number
+  otherReview:number
+}
 interface Props { teams:TeamRecord[]; sports:Sport[]; seasons:Season[]; teamSeasons:TeamSeasonRecord[] }
 
 const TEAM_URLS_KEY='sectionx.schedule-sync.team-urls.v2'
@@ -82,6 +95,33 @@ function observationSignature(game:any){return `${normalizeObservedTime(game?.ga
 function pairKey(game:any,sportId:string){if(!game?.home_team_id||!game?.away_team_id)return null;return `${sportId}|${[game.home_team_id,game.away_team_id].sort().join('|')}`}
 function datedPairKey(game:any,sportId:string){const pair=pairKey(game,sportId);return pair&&game?.game_date?`${pair}|${game.game_date}`:null}
 function isTimeStatusOnlyDiff(diff:DiffRow){return diff.kind==='unchanged'||(diff.changes.length>0&&diff.changes.every(change=>change.field==='game_time'||change.field==='status'))}
+function issueKey(diff:DiffRow,fallback:string){return diff.existing_game_id||`${fallback}|${diff.kind}|${diff.incoming?.game_date||diff.existing?.game_date||diff.key}`}
+function summarizeDiffs(diffs:DiffRow[]):DiffSummary{
+  const verified=new Set(diffs.filter(d=>d.safe&&d.kind!=='unchanged'&&d.existing_game_id).map(d=>d.existing_game_id as string))
+  const unchanged=diffs.filter(d=>d.kind==='unchanged'&&d.reconciliation_status!=='source_conflict'&&d.safe).length
+  const confirmedNew=diffs.filter(d=>d.kind==='new'&&d.new_confidence==='confirmed').length
+  const singleSourceNew=diffs.filter(d=>(d.kind==='new'&&d.new_confidence!=='confirmed'&&d.new_confidence!=='cross_source_conflict')||d.kind==='external_review').length
+  const sourceConflicts=diffs.filter(d=>d.kind==='conflict'||d.new_confidence==='cross_source_conflict'||d.reconciliation_status==='source_conflict').length
+  const waitingSecondSource=diffs.filter(d=>!d.safe&&d.reconciliation_status==='single_source'&&d.kind!=='new'&&d.kind!=='external_review').length
+  const dateReschedule=diffs.filter(d=>!d.safe&&d.kind==='date_changed'&&d.reconciliation_status!=='source_conflict'&&d.reconciliation_status!=='single_source').length
+  const venue=diffs.filter(d=>!d.safe&&d.kind==='location_changed'&&d.reconciliation_status!=='source_conflict'&&d.reconciliation_status!=='single_source').length
+  const possibleRemoved=diffs.filter(d=>!d.safe&&d.kind==='possible_removed').length
+  const explicitlyCounted=new Set<DiffRow>()
+  for(const d of diffs){
+    if(d.kind==='new'||d.kind==='external_review'||d.kind==='possible_removed'||d.kind==='date_changed'||d.kind==='location_changed'||d.reconciliation_status==='source_conflict'||d.reconciliation_status==='single_source') explicitlyCounted.add(d)
+  }
+  const matchDetails=diffs.filter(d=>!d.safe&&!explicitlyCounted.has(d)&&d.kind!=='unchanged').length
+  const otherReview=waitingSecondSource+dateReschedule+venue+possibleRemoved+matchDetails
+  return {unchanged,verifiedUpdates:verified.size,confirmedNew,singleSourceNew,sourceConflicts,waitingSecondSource,dateReschedule,venue,possibleRemoved,matchDetails,otherReview}
+}
+function syncComparisonCounts(comparison:CompareResult){
+  const summary=summarizeDiffs(comparison.diffs)
+  comparison.safe_count=comparison.diffs.filter(d=>d.safe).length
+  comparison.bulk_safe_change_count=summary.verifiedUpdates
+  comparison.review_count=comparison.diffs.filter(d=>!d.safe).length
+  comparison.counts={...comparison.counts,unchanged:summary.unchanged}
+  return summary
+}
 function diffLabel(diff:DiffRow){
   if(diff.reconciliation_status==='source_conflict')return 'SOURCE DISAGREEMENT'
   if(diff.reconciliation_status==='two_source_agree'&&diff.kind!=='unchanged')return '2-SOURCE CONFIRMED UPDATE'
@@ -91,7 +131,7 @@ function diffLabel(diff:DiffRow){
     if(diff.new_confidence==='cross_source_conflict')return 'NEW GAME SOURCE CONFLICT'
     return 'SINGLE-SOURCE NEW GAME'
   }
-  return ({unchanged:'UNCHANGED',date_changed:'DATE / RESCHEDULE REVIEW',time_changed:'TIME CHANGED',location_changed:'VENUE CHANGE REVIEW',status_changed:'STATUS CHANGED',details_changed:'DETAILS REVIEW',possible_removed:'POSSIBLE REMOVED',external_review:'EXTERNAL GAME REVIEW',conflict:'CONFLICT'} as Record<string,string>)[diff.kind]||diff.kind.toUpperCase()
+  return ({unchanged:'UNCHANGED',date_changed:'DATE / RESCHEDULE REVIEW',time_changed:'TIME CHANGED',location_changed:'VENUE CHANGE REVIEW',status_changed:'STATUS CHANGED',details_changed:'MATCH / DETAILS REVIEW',possible_removed:'POSSIBLE REMOVED',external_review:'EXTERNAL GAME REVIEW',conflict:'MATCH / ORIENTATION CONFLICT'} as Record<string,string>)[diff.kind]||diff.kind.toUpperCase()
 }
 function diffColor(diff:DiffRow){if(diff.reconciliation_status==='source_conflict')return '#f87171';if(diff.reconciliation_status==='two_source_agree')return '#4ade80';if(diff.reconciliation_status==='single_source')return '#60a5fa';if(diff.kind==='unchanged')return '#4ade80';if(diff.kind==='new'&&diff.new_confidence==='confirmed')return '#4ade80';if(diff.kind==='new'&&diff.new_confidence==='single_source')return '#60a5fa';if(['possible_removed','external_review','conflict'].includes(diff.kind)||diff.new_confidence==='cross_source_conflict')return '#f87171';return '#fbbf24'}
 function statusColor(status:BatchStatus){if(status==='clean'||status==='confirmed')return '#4ade80';if(status==='updated')return '#fbbf24';if(status==='new')return '#60a5fa';return '#f87171'}
@@ -164,6 +204,7 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     const games=comparableRows.map(row=>({season_id:season.id,sport_id:row.sport_id||team.sport_id,game_date:row.game_date,game_time:row.game_time,location:row.location||null,home_team_id:row.home_team_id||null,away_team_id:row.away_team_id||null,external_home_name:row.external_home_name||null,external_away_name:row.external_away_name||null,home_score:row.home_score,away_score:row.away_score,status:row.status,rescheduled_date:row.rescheduled_date,game_number:row.game_number,neutral_site:row.neutral_site,event_name:row.event_name,notes:row.notes||null,parser_confidence:row.confidence,source:'arbiter',verification_status:'Reported'}))
     const compareResponse=await fetch('/api/admin/schedule-sync',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({team_id:team.id,season_id:season.id,sport_id:team.sport_id,games})})
     const comparison=await compareResponse.json();if(!compareResponse.ok||!comparison.success)throw new Error(comparison.error||`Comparison failed (${compareResponse.status})`)
+    syncComparisonCounts(comparison)
     return {comparison,rows,resolvedUrl,arbiterTeamName:arbiter.teamName}
   }
 
@@ -176,21 +217,14 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
   async function applySafeSync(){
     if(!result||!selectedTeam||!selectedSeason)return
     if(result.apply_allowed===false){setError('This scan is safety-blocked. Re-scan or review the warnings before applying anything.');return}
-    const safe=result.diffs.filter(d=>d.safe&&d.incoming)
-    if(!safe.length)return
-    const safeUpdates=safe.filter(d=>d.kind!=='unchanged'&&d.existing_game_id)
-    const description=safeUpdates.length?`${safeUpdates.length} verified time/status update${safeUpdates.length===1?'':'s'}`:'source verification timestamps only'
-    if(!window.confirm(`Apply ${description}?\n\nNew games, venue changes, reschedules, removals and conflicts will NOT be included.`))return
+    const safeUpdates=result.diffs.filter(d=>d.safe&&d.kind!=='unchanged'&&d.incoming&&d.existing_game_id)
+    if(!safeUpdates.length)return
+    if(!window.confirm(`Apply ${safeUpdates.length} verified time/status update${safeUpdates.length===1?'':'s'}?\n\nNew games, venue changes, reschedules, removals and conflicts will NOT be included.`))return
     setApplying(true);setError(null);setApplyMessage(null)
     try{
-      if(safeUpdates.length){
-        const updates=safeUpdates.map(diff=>({id:diff.existing_game_id,game_time:diff.incoming?.game_time??null,status:diff.incoming?.status??'Scheduled',source_team_id:selectedTeam.id,source_team_ids:diff.cross_source_team_ids?.length?diff.cross_source_team_ids:[selectedTeam.id],season_id:selectedSeason.id,sport_id:selectedTeam.sport_id}))
-        const verified=await applyVerifiedUpdates(updates)
-        setApplyMessage(`Verified ${verified.applied} update${verified.applied===1?'':'s'} by database read-back. Re-scan now to confirm the schedule is clean.`)
-      }else{
-        const games=safe.map(diff=>({...(diff.existing_game_id?{id:diff.existing_game_id}:{}),...diff.incoming,season_id:selectedSeason.id,sport_id:selectedTeam.sport_id,source:'arbiter',verification_status:'Reported'}))
-        await publishGames(games,'Source verification refreshed. Re-scan now to confirm the schedule is clean.')
-      }
+      const updates=safeUpdates.map(diff=>({id:diff.existing_game_id,game_time:diff.incoming?.game_time??null,status:diff.incoming?.status??'Scheduled',source_team_id:selectedTeam.id,source_team_ids:diff.cross_source_team_ids?.length?diff.cross_source_team_ids:[selectedTeam.id],season_id:selectedSeason.id,sport_id:selectedTeam.sport_id}))
+      const verified=await applyVerifiedUpdates(updates)
+      setApplyMessage(`Verified ${verified.applied} update${verified.applied===1?'':'s'} by database read-back. Re-scan now to confirm the schedule is clean.`)
     }catch(e:any){setError(e?.message||'Could not apply schedule changes.')}finally{setApplying(false)}
   }
 
@@ -281,18 +315,10 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     return rows.map(row=>{
       const c=row.output?.comparison
       if(!c)return row
-      const diffs=c.diffs
-      c.safe_count=diffs.filter(d=>d.safe).length
-      c.bulk_safe_change_count=diffs.filter(d=>d.safe&&d.kind!=='unchanged').length
-      c.review_count=diffs.filter(d=>!d.safe).length
-      const confirmedNew=diffs.filter(d=>d.kind==='new'&&d.new_confidence==='confirmed').length
-      const conflicts=diffs.filter(d=>d.kind==='conflict'||d.new_confidence==='cross_source_conflict'||d.reconciliation_status==='source_conflict').length
-      const singleSourceNew=diffs.filter(d=>(d.kind==='new'&&(!d.new_confidence||d.new_confidence==='single_source'))||d.kind==='external_review').length
-      const updates=diffs.filter(d=>d.safe&&d.kind!=='unchanged').length
-      const otherReview=diffs.filter(d=>!d.safe&&d.kind!=='new'&&d.kind!=='external_review'&&d.kind!=='conflict'&&d.reconciliation_status!=='source_conflict').length
+      const summary=syncComparisonCounts(c)
       const blocked=c.apply_allowed===false
-      const status:BatchStatus=blocked?'blocked':conflicts>0?'conflict':otherReview>0?'review':singleSourceNew>0?'new':confirmedNew>0?'confirmed':updates>0?'updated':'clean'
-      return {...row,status,updates,confirmedNew,singleSourceNew,conflicts,review:otherReview}
+      const status:BatchStatus=blocked?'blocked':summary.sourceConflicts>0?'conflict':summary.otherReview>0?'review':summary.singleSourceNew>0?'new':summary.confirmedNew>0?'confirmed':summary.verifiedUpdates>0?'updated':'clean'
+      return {...row,status,unchanged:summary.unchanged,updates:summary.verifiedUpdates,confirmedNew:summary.confirmedNew,singleSourceNew:summary.singleSourceNew,conflicts:summary.sourceConflicts,review:summary.otherReview}
     })
   }
 
@@ -302,7 +328,7 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     const collected:BatchRow[]=[]
     for(let i=0;i<knownTeamsForSeason.length;i+=1){
       const team=knownTeamsForSeason[i];const sport=sportMap.get(team.sport_id);const rawUrl=teamUrls[team.id]||(team.school?.id?schoolUrls[team.school.id]:'')||'';setBatchProgress({current:i+1,total:knownTeamsForSeason.length})
-      try{const output=await performScan(team,selectedSeason,rawUrl);rememberDirectMapping(team,output.resolvedUrl);const c=output.comparison;collected.push({teamId:team.id,teamName:team.school?.school_name||team.team_name,sportName:sport?.sport_name||team.team_name,status:c.apply_allowed===false?'blocked':'clean',unchanged:c.counts?.unchanged||0,updates:c.diffs.filter(d=>d.safe&&d.kind!=='unchanged').length,confirmedNew:0,singleSourceNew:c.diffs.filter(d=>d.kind==='new'||d.kind==='external_review').length,conflicts:c.diffs.filter(d=>d.kind==='conflict').length,review:c.diffs.filter(d=>!d.safe&&!['new','external_review','conflict'].includes(d.kind)).length,message:c.apply_allowed===false?(c.safety_reasons||[]).join(' '):undefined,output})}catch(e:any){collected.push({teamId:team.id,teamName:team.school?.school_name||team.team_name,sportName:sport?.sport_name||team.team_name,status:'failed',unchanged:0,updates:0,confirmedNew:0,singleSourceNew:0,conflicts:0,review:0,message:e?.message||'Scan failed'})}
+      try{const output=await performScan(team,selectedSeason,rawUrl);rememberDirectMapping(team,output.resolvedUrl);const summary=summarizeDiffs(output.comparison.diffs);collected.push({teamId:team.id,teamName:team.school?.school_name||team.team_name,sportName:sport?.sport_name||team.team_name,status:output.comparison.apply_allowed===false?'blocked':'clean',unchanged:summary.unchanged,updates:summary.verifiedUpdates,confirmedNew:summary.confirmedNew,singleSourceNew:summary.singleSourceNew,conflicts:summary.sourceConflicts,review:summary.otherReview,message:output.comparison.apply_allowed===false?(output.comparison.safety_reasons||[]).join(' '):undefined,output})}catch(e:any){collected.push({teamId:team.id,teamName:team.school?.school_name||team.team_name,sportName:sport?.sport_name||team.team_name,status:'failed',unchanged:0,updates:0,confirmedNew:0,singleSourceNew:0,conflicts:0,review:0,message:e?.message||'Scan failed'})}
       setBatchRows([...collected]);await wait(250)
     }
     const reconciled=applyCrossSourceEvidence(collected)
@@ -341,23 +367,51 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     }catch(e:any){setError(e?.message||'Could not add all confirmed games. Re-scan before retrying.')}finally{setBatchAddingConfirmed(false)}
   }
 
-  function openBatchReview(row:BatchRow){if(!row.output)return;const team=seasonTeams.find(t=>t.id===row.teamId);setTeamId(row.teamId);setArbiterUrl(row.output.resolvedUrl);setResult({...row.output.comparison,diffs:[...row.output.comparison.diffs]});setParsedRows(row.output.rows);setScanMeta({teamName:row.output.arbiterTeamName,rowCount:row.output.rows.length,sourceUrl:row.output.resolvedUrl});setError(null);setApplyMessage(null);setMappingMessage(team?`Opened ${row.teamName} ${row.sportName} from the season scan. Fresh evidence from both teams is included below when available.`:null);setTimeout(()=>detailRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),50)}
+  function openBatchReview(row:BatchRow){
+    if(!row.output)return
+    const team=seasonTeams.find(t=>t.id===row.teamId)
+    const comparison={...row.output.comparison,diffs:row.output.comparison.diffs.map(diff=>({...diff,changes:[...diff.changes],source_observations:diff.source_observations?[...diff.source_observations]:undefined}))}
+    syncComparisonCounts(comparison)
+    setTeamId(row.teamId);setArbiterUrl(row.output.resolvedUrl);setResult(comparison);setParsedRows(row.output.rows);setScanMeta({teamName:row.output.arbiterTeamName,rowCount:row.output.rows.length,sourceUrl:row.output.resolvedUrl});setError(null);setApplyMessage(null);setMappingMessage(team?`Opened ${row.teamName} ${row.sportName} from the season scan. The detail counts below are the same post-reconciliation counts used by the command table.`:null);setTimeout(()=>detailRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),50)
+  }
 
   function teamLabel(id:string|null|undefined){if(!id)return null;const team=teamMap.get(id);return team?.school?.school_name||team?.team_name||'Section X team'}
   function gameDetails(game:any){if(!game)return null;const home=teamLabel(game.home_team_id)||game.external_home_name||'TBD';const away=teamLabel(game.away_team_id)||game.external_away_name||'TBD';return {home,away,time:formatTime(game.game_time),location:game.location||'TBD',status:game.status||'Scheduled'}}
 
-  const safeUpdateCount=result?result.diffs.filter(d=>d.safe&&d.kind!=='unchanged').length:0
-  const confirmedNewCount=result?result.diffs.filter(d=>d.kind==='new'&&d.new_confidence==='confirmed').length:0
-  const singleSourceNewCount=result?result.diffs.filter(d=>(d.kind==='new'&&d.new_confidence!=='confirmed'&&d.new_confidence!=='cross_source_conflict')||d.kind==='external_review').length:0
-  const crossConflictCount=result?result.diffs.filter(d=>d.kind==='conflict'||d.new_confidence==='cross_source_conflict'||d.reconciliation_status==='source_conflict').length:0
+  const resultSummary=result?summarizeDiffs(result.diffs):null
+  const safeUpdateCount=resultSummary?.verifiedUpdates||0
+  const confirmedNewCount=resultSummary?.confirmedNew||0
+  const singleSourceNewCount=resultSummary?.singleSourceNew||0
+  const crossConflictCount=resultSummary?.sourceConflicts||0
+  const waitingSecondSourceCount=resultSummary?.waitingSecondSource||0
+  const dateRescheduleCount=resultSummary?.dateReschedule||0
+  const venueReviewCount=resultSummary?.venue||0
+  const possibleRemovedCount=resultSummary?.possibleRemoved||0
+  const matchDetailsCount=resultSummary?.matchDetails||0
   const twoSourceUpdateCount=result?new Set(result.diffs.filter(d=>d.reconciliation_status==='two_source_agree'&&d.safe&&d.kind!=='unchanged'&&d.existing_game_id).map(d=>d.existing_game_id)).size:0
-  const unchangedCount=result?.counts?.unchanged||0
-  const manualReviewCount=result?result.diffs.filter(d=>!d.safe&&!['new','external_review','conflict'].includes(d.kind)&&d.reconciliation_status!=='source_conflict').length:0
+  const unchangedCount=resultSummary?.unchanged||0
+  const manualReviewCount=resultSummary?.otherReview||0
   const applyAllowed=result?.apply_allowed!==false
 
   const confirmedKeys=new Set<string>(), singleKeys=new Set<string>(), conflictKeys=new Set<string>(), verifiedUpdateKeys=new Set<string>()
-  for(const row of batchRows){const team=teamMap.get(row.teamId);if(!team||!row.output)continue;for(const diff of row.output.comparison.diffs){if(diff.safe&&diff.kind!=='unchanged'&&diff.existing_game_id)verifiedUpdateKeys.add(diff.existing_game_id);if(diff.kind==='new'&&diff.incoming){const exact=datedPairKey(diff.incoming,team.sport_id);const pair=pairKey(diff.incoming,team.sport_id);if(diff.new_confidence==='confirmed'&&exact)confirmedKeys.add(exact);else if(diff.new_confidence==='cross_source_conflict'&&pair)conflictKeys.add(pair);else if(exact)singleKeys.add(exact)}else if(diff.kind==='external_review')singleKeys.add(`${row.teamId}|external|${diff.incoming?.game_date}|${diff.key}`);else if(diff.kind==='conflict'||diff.reconciliation_status==='source_conflict')conflictKeys.add(diff.existing_game_id||`${row.teamId}|${diff.key}`)}}
-  const batchTotals=batchRows.reduce((acc,row)=>{if(row.status==='clean')acc.cleanTeams+=1;if(row.status==='blocked')acc.blocked+=1;if(row.status==='failed')acc.failed+=1;acc.review+=row.review;return acc},{cleanTeams:0,review:0,blocked:0,failed:0})
+  const waitingKeys=new Set<string>(), dateKeys=new Set<string>(), venueKeys=new Set<string>(), removalKeys=new Set<string>(), detailsKeys=new Set<string>()
+  for(const row of batchRows){
+    const team=teamMap.get(row.teamId);if(!team||!row.output)continue
+    for(const diff of row.output.comparison.diffs){
+      const key=issueKey(diff,row.teamId)
+      if(diff.safe&&diff.kind!=='unchanged'&&diff.existing_game_id)verifiedUpdateKeys.add(diff.existing_game_id)
+      if(diff.kind==='new'&&diff.incoming){const exact=datedPairKey(diff.incoming,team.sport_id);const pair=pairKey(diff.incoming,team.sport_id);if(diff.new_confidence==='confirmed'&&exact)confirmedKeys.add(exact);else if(diff.new_confidence==='cross_source_conflict'&&pair)conflictKeys.add(pair);else if(exact)singleKeys.add(exact)}
+      else if(diff.kind==='external_review')singleKeys.add(`${row.teamId}|external|${diff.incoming?.game_date}|${diff.key}`)
+      if(diff.kind==='conflict'||diff.reconciliation_status==='source_conflict')conflictKeys.add(key)
+      if(!diff.safe&&diff.reconciliation_status==='single_source'&&diff.kind!=='new'&&diff.kind!=='external_review')waitingKeys.add(key)
+      else if(!diff.safe&&diff.kind==='date_changed'&&diff.reconciliation_status!=='source_conflict')dateKeys.add(key)
+      else if(!diff.safe&&diff.kind==='location_changed'&&diff.reconciliation_status!=='source_conflict')venueKeys.add(key)
+      else if(!diff.safe&&diff.kind==='possible_removed')removalKeys.add(key)
+      else if(!diff.safe&&!['new','external_review','unchanged','date_changed','location_changed','possible_removed'].includes(diff.kind)&&diff.reconciliation_status!=='source_conflict')detailsKeys.add(key)
+    }
+  }
+  const batchTotals=batchRows.reduce((acc,row)=>{if(row.status==='clean')acc.cleanTeams+=1;if(row.status==='blocked')acc.blocked+=1;if(row.status==='failed')acc.failed+=1;return acc},{cleanTeams:0,blocked:0,failed:0})
+  const uniqueReviewTotal=waitingKeys.size+dateKeys.size+venueKeys.size+removalKeys.size+detailsKeys.size
   const batchBusy=batchRunning||batchApplying||batchAddingConfirmed
 
   return <div className="p-4 md:p-6 max-w-7xl mx-auto">
@@ -367,7 +421,12 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     <div className="rounded-xl p-4 mb-5" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}>
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><div className="font-bold" style={{fontFamily:'var(--font-display)'}}>Season-wide command scan</div><div className="text-xs mt-1" style={{color:'var(--text-secondary)'}}>{knownTeamsForSeason.length} of {seasonTeams.length} active {selectedSeason?.name||'season'} varsity teams have an Arbiter route.</div></div><div className="flex gap-2 flex-wrap"><button className="btn-primary whitespace-nowrap" onClick={scanAllKnown} disabled={batchBusy||knownTeamsForSeason.length===0}>{batchRunning?`Scanning ${batchProgress.current}/${batchProgress.total}...`:`Scan All Active Teams (${knownTeamsForSeason.length})`}</button>{batchRows.length>0&&verifiedUpdateKeys.size>0&&<button className="btn-primary whitespace-nowrap" onClick={applyAllVerifiedUpdates} disabled={batchBusy}>{batchApplying?'Applying...':`Apply Verified Updates (${verifiedUpdateKeys.size})`}</button>}{batchRows.length>0&&confirmedKeys.size>0&&<button className="whitespace-nowrap px-4 py-2 rounded-lg text-xs font-black uppercase" onClick={addAllConfirmedNewGames} disabled={batchBusy} style={{background:'#16834a',color:'white',opacity:batchBusy?0.6:1}}>{batchAddingConfirmed?'Adding Confirmed...':`Add Confirmed Games (${confirmedKeys.size})`}</button>}</div></div>
       {batchMessage&&<div className="mt-3 text-xs rounded-lg p-3" style={{color:'#4ade80',background:'rgba(74,222,128,.06)',border:'1px solid rgba(74,222,128,.16)'}}>{batchMessage}</div>}
-      {batchRows.length>0&&<div className="mt-4"><div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 mb-3"><Metric label="Clean Teams" value={batchTotals.cleanTeams} good/><Metric label="Verified Updates" value={verifiedUpdateKeys.size} good={verifiedUpdateKeys.size>0}/><Metric label="Confirmed New" value={confirmedKeys.size} good={confirmedKeys.size>0}/><Metric label="Single Source" value={singleKeys.size} warn={singleKeys.size>0}/><Metric label="Source Conflicts" value={conflictKeys.size} danger={conflictKeys.size>0}/><Metric label="Other Review" value={batchTotals.review} danger={batchTotals.review>0}/><Metric label="Blocked" value={batchTotals.blocked} danger={batchTotals.blocked>0}/><Metric label="Failed" value={batchTotals.failed} danger={batchTotals.failed>0}/></div><div className="text-[11px] mb-3" style={{color:'var(--text-muted)'}}>Verified Updates are unique existing games eligible for a read-back-verified write: internal matchups require two fresh Section X sources to agree; exact external-opponent updates may rely on the single Section X source. Source Conflicts are hard-blocked.</div><div className="space-y-1 max-h-96 overflow-y-auto">{batchRows.map(row=><div key={row.teamId} className="grid grid-cols-1 md:grid-cols-[1fr_95px_68px_68px_68px_68px_68px_92px] gap-2 rounded-lg px-3 py-2 text-xs items-center" style={{background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.05)'}}><div className="font-semibold">{row.teamName} · {row.sportName}</div><div style={{color:statusColor(row.status)}} className="font-bold uppercase">{row.status}</div><div style={{color:'var(--text-muted)'}}>{row.unchanged} same</div><div style={{color:row.updates?'#4ade80':'var(--text-muted)'}}>{row.updates} verified</div><div style={{color:'#4ade80'}}>{row.confirmedNew} new</div><div style={{color:'#60a5fa'}}>{row.singleSourceNew} single</div><div style={{color:row.conflicts?'#f87171':'var(--text-muted)'}}>{row.conflicts+row.review} review</div><div>{row.output&&row.status!=='clean'?<button onClick={()=>openBatchReview(row)} className="px-2 py-1.5 rounded-md text-[10px] font-bold uppercase" style={{color:'#93c5fd',border:'1px solid rgba(96,165,250,.25)',background:'rgba(59,130,246,.08)'}}>Review →</button>:<span style={{color:'var(--text-muted)'}}>—</span>}</div>{row.message&&<div className="md:col-span-8" style={{color:'#fca5a5'}}>{row.message}</div>}</div>)}</div></div>}
+      {batchRows.length>0&&<div className="mt-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 mb-3"><Metric label="Clean Teams" value={batchTotals.cleanTeams} good/><Metric label="Verified Updates" value={verifiedUpdateKeys.size} good={verifiedUpdateKeys.size>0}/><Metric label="Confirmed New" value={confirmedKeys.size} good={confirmedKeys.size>0}/><Metric label="Single Source" value={singleKeys.size} warn={singleKeys.size>0}/><Metric label="Source Conflicts" value={conflictKeys.size} danger={conflictKeys.size>0}/><Metric label="Review Queue" value={uniqueReviewTotal} danger={uniqueReviewTotal>0}/><Metric label="Blocked" value={batchTotals.blocked} danger={batchTotals.blocked>0}/><Metric label="Failed" value={batchTotals.failed} danger={batchTotals.failed>0}/></div>
+        <div className="rounded-lg p-3 mb-3" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.055)'}}><div className="text-[10px] font-black uppercase tracking-[.16em] mb-2" style={{color:'#93c5fd'}}>Review queue breakdown · unique games</div><div className="grid grid-cols-2 md:grid-cols-5 gap-2"><MiniMetric label="Waiting 2nd Source" value={waitingKeys.size}/><MiniMetric label="Date / Reschedule" value={dateKeys.size}/><MiniMetric label="Venue" value={venueKeys.size}/><MiniMetric label="Possible Removed" value={removalKeys.size}/><MiniMetric label="Match / Details" value={detailsKeys.size}/></div></div>
+        <div className="text-[11px] mb-3" style={{color:'var(--text-muted)'}}>All headline review counts are post-reconciliation. The same reconciled math is used when you open a team below, so the command table and detail pane cannot disagree about whether a game is clean.</div>
+        <div className="space-y-1 max-h-96 overflow-y-auto">{batchRows.map(row=><div key={row.teamId} className="grid grid-cols-1 md:grid-cols-[1fr_95px_68px_68px_68px_68px_68px_92px] gap-2 rounded-lg px-3 py-2 text-xs items-center" style={{background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.05)'}}><div className="font-semibold">{row.teamName} · {row.sportName}</div><div style={{color:statusColor(row.status)}} className="font-bold uppercase">{row.status}</div><div style={{color:'var(--text-muted)'}}>{row.unchanged} clean</div><div style={{color:row.updates?'#4ade80':'var(--text-muted)'}}>{row.updates} verified</div><div style={{color:'#4ade80'}}>{row.confirmedNew} new</div><div style={{color:'#60a5fa'}}>{row.singleSourceNew} single</div><div style={{color:row.conflicts?'#f87171':row.review?'#fbbf24':'var(--text-muted)'}}>{row.conflicts+row.review} review</div><div>{row.output&&row.status!=='clean'?<button onClick={()=>openBatchReview(row)} className="px-2 py-1.5 rounded-md text-[10px] font-bold uppercase" style={{color:'#93c5fd',border:'1px solid rgba(96,165,250,.25)',background:'rgba(59,130,246,.08)'}}>Review →</button>:<span style={{color:'var(--text-muted)'}}>—</span>}</div>{row.message&&<div className="md:col-span-8" style={{color:'#fca5a5'}}>{row.message}</div>}</div>)}</div>
+      </div>}
     </div>
 
     <div ref={detailRef} className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4 scroll-mt-4"><div><label className="label">Varsity Team</label><select className="input w-full" value={teamId} onChange={e=>{const id=e.target.value;setTeamId(id);const team=seasonTeams.find(t=>t.id===id);setArbiterUrl(teamUrls[id]||(team?.school?.id?schoolUrls[team.school.id]:'')||'');resetResults()}}><option value="">Select active team</option>{seasonTeams.map(team=><option key={team.id} value={team.id}>{team.school?.school_name||team.team_name} — {sportMap.get(team.sport_id)?.sport_name||team.team_name}</option>)}</select></div><div><label className="label">Season</label><select className="input w-full" value={seasonId} onChange={e=>{setSeasonId(e.target.value);setTeamId('');setArbiterUrl('');setBatchRows([]);setBatchMessage(null);resetResults()}}>{seasons.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div><div><label className="label">Detected Sport</label><div className="input w-full flex items-center" style={{color:selectedSport?'var(--text-primary)':'var(--text-muted)'}}>{selectedSport?.sport_name||'Select a team first'}</div></div></div>
@@ -378,9 +437,10 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
     {applyMessage&&<Notice color="#4ade80">{applyMessage}</Notice>}
 
     {result&&<>
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-4"><Metric label="Fresh Games" value={result.incoming_count}/><Metric label="Unchanged" value={unchangedCount} good/><Metric label="Verified Updates" value={safeUpdateCount} good={safeUpdateCount>0}/><Metric label="2-Source Updates" value={twoSourceUpdateCount} good={twoSourceUpdateCount>0}/><Metric label="Confirmed New" value={confirmedNewCount} good={confirmedNewCount>0}/><Metric label="Single Source" value={singleSourceNewCount} warn={singleSourceNewCount>0}/><Metric label="Source Conflict" value={crossConflictCount} danger={crossConflictCount>0}/><Metric label="Other Review" value={manualReviewCount} danger={manualReviewCount>0}/></div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3"><Metric label="Fresh Games" value={result.incoming_count}/><Metric label="Clean / Unchanged" value={unchangedCount} good/><Metric label="Verified Updates" value={safeUpdateCount} good={safeUpdateCount>0}/><Metric label="Confirmed New" value={confirmedNewCount} good={confirmedNewCount>0}/><Metric label="Source Conflict" value={crossConflictCount} danger={crossConflictCount>0}/></div>
+      <div className="rounded-lg p-3 mb-4" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.055)'}}><div className="text-[10px] font-black uppercase tracking-[.16em] mb-2" style={{color:'#93c5fd'}}>This team's review breakdown</div><div className="grid grid-cols-2 md:grid-cols-5 gap-2"><MiniMetric label="Waiting 2nd Source" value={waitingSecondSourceCount}/><MiniMetric label="Date / Reschedule" value={dateRescheduleCount}/><MiniMetric label="Venue" value={venueReviewCount}/><MiniMetric label="Possible Removed" value={possibleRemovedCount}/><MiniMetric label="Match / Details" value={matchDetailsCount}/></div></div>
       {!applyAllowed&&<div className="rounded-xl p-4 mb-4" style={{color:'#fca5a5',background:'rgba(248,113,113,.08)',border:'1px solid rgba(248,113,113,.28)'}}><div className="font-black text-sm">SYNC SAFETY LOCK ACTIVE</div><div className="text-xs mt-1">Nothing can be bulk-applied from this scan.</div>{(result.safety_reasons||[]).map(reason=><div key={reason} className="text-xs mt-2">• {reason}</div>)}</div>}
-      <div className="rounded-xl p-4 mb-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3" style={{background:(manualReviewCount||singleSourceNewCount||crossConflictCount)?'rgba(251,191,36,.055)':'rgba(74,222,128,.055)',border:`1px solid ${(manualReviewCount||singleSourceNewCount||crossConflictCount)?'rgba(251,191,36,.2)':'rgba(74,222,128,.2)'}`}}><div><div className="font-bold text-sm" style={{color:(manualReviewCount||singleSourceNewCount||crossConflictCount)?'#fbbf24':'#4ade80'}}>{twoSourceUpdateCount} two-source update · {confirmedNewCount} confirmed new · {crossConflictCount+manualReviewCount} review</div><div className="text-xs mt-1" style={{color:'var(--text-secondary)'}}>Scan source: {scanMeta?.teamName||selectedTeam?.school?.school_name||selectedTeam?.team_name} · {new Date(result.scanned_at).toLocaleString()} · normalization {result.normalization||'v1'}</div></div><button className="btn-primary" onClick={applySafeSync} disabled={applying||result.safe_count===0||!applyAllowed}>{applying?'Applying Verified Sync...':safeUpdateCount>0?`Apply Verified Updates (${safeUpdateCount})`:`Refresh Source Verification (${result.safe_count})`}</button></div>
+      <div className="rounded-xl p-4 mb-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3" style={{background:(manualReviewCount||singleSourceNewCount||crossConflictCount)?'rgba(251,191,36,.055)':'rgba(74,222,128,.055)',border:`1px solid ${(manualReviewCount||singleSourceNewCount||crossConflictCount)?'rgba(251,191,36,.2)':'rgba(74,222,128,.2)'}`}}><div><div className="font-bold text-sm" style={{color:(manualReviewCount||singleSourceNewCount||crossConflictCount)?'#fbbf24':'#4ade80'}}>{twoSourceUpdateCount} two-source update · {confirmedNewCount} confirmed new · {crossConflictCount+manualReviewCount} review</div><div className="text-xs mt-1" style={{color:'var(--text-secondary)'}}>Scan source: {scanMeta?.teamName||selectedTeam?.school?.school_name||selectedTeam?.team_name} · {new Date(result.scanned_at).toLocaleString()} · normalization {result.normalization||'v1'}</div></div>{safeUpdateCount>0?<button className="btn-primary" onClick={applySafeSync} disabled={applying||!applyAllowed}>{applying?'Applying Verified Sync...':`Apply Verified Updates (${safeUpdateCount})`}</button>:<div className="text-[10px] font-black uppercase px-3 py-2 rounded-lg" style={{color:(manualReviewCount||singleSourceNewCount||crossConflictCount)?'#fbbf24':'#86efac',background:(manualReviewCount||singleSourceNewCount||crossConflictCount)?'rgba(251,191,36,.08)':'rgba(74,222,128,.08)',border:`1px solid ${(manualReviewCount||singleSourceNewCount||crossConflictCount)?'rgba(251,191,36,.18)':'rgba(74,222,128,.18)'}`}}>{manualReviewCount||singleSourceNewCount||crossConflictCount?'Review required · no write available':'Clean · no write needed'}</div>}</div>
 
       <div className="space-y-3">{result.diffs.slice().sort((a,b)=>Number(a.safe)-Number(b.safe)||a.kind.localeCompare(b.kind)).map(diff=>{
         const details=gameDetails(diff.incoming)
@@ -407,4 +467,5 @@ export default function ScheduleSync({teams,sports,seasons,teamSeasons}:Props){
 
 function Notice({children,color}:{children:React.ReactNode;color:string}){return <div className="rounded-lg p-3 mb-4 text-sm" style={{color,background:'rgba(59,130,246,.06)',border:'1px solid rgba(96,165,250,.16)'}}>{children}</div>}
 function Metric({label,value,good=false,warn=false,danger=false}:{label:string;value:number;good?:boolean;warn?:boolean;danger?:boolean}){const color=danger?'#f87171':warn?'#fbbf24':good?'#4ade80':'var(--text-primary)';return <div className="rounded-lg p-3" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}><div className="text-xs mb-1" style={{color:'var(--text-muted)'}}>{label}</div><div className="text-2xl font-bold" style={{fontFamily:'var(--font-display)',color}}>{value}</div></div>}
+function MiniMetric({label,value}:{label:string;value:number}){const active=value>0;return <div className="rounded-md px-3 py-2" style={{background:active?'rgba(251,191,36,.055)':'rgba(255,255,255,.018)',border:`1px solid ${active?'rgba(251,191,36,.14)':'rgba(255,255,255,.045)'}`}}><div className="text-[10px]" style={{color:'var(--text-muted)'}}>{label}</div><div className="text-lg font-black" style={{color:active?'#fbbf24':'var(--text-secondary)'}}>{value}</div></div>}
 function Detail({label,value}:{label:string;value:string}){return <div className="rounded-lg p-2 text-xs" style={{background:'rgba(96,165,250,.045)',border:'1px solid rgba(96,165,250,.12)'}}><div className="font-bold uppercase tracking-wide mb-1" style={{color:'#93c5fd'}}>{label}</div><div style={{color:'#e2e8f0'}}>{value}</div></div>}
