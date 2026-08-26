@@ -18,6 +18,7 @@ type IncomingGame = {
   external_home_name?: string | null
   external_away_name?: string | null
   status?: string | null
+  contest_type?: 'Game' | 'Scrimmage' | string | null
   rescheduled_date?: string | null
   game_number?: number | null
   neutral_site?: boolean
@@ -36,6 +37,7 @@ type ExistingGame = {
   external_home_opponent_id: string | null
   external_away_opponent_id: string | null
   status: string
+  contest_type: string | null
   rescheduled_date: string | null
   game_number: number | null
   neutral_site: boolean | null
@@ -43,6 +45,9 @@ type ExistingGame = {
   notes: string | null
   parser_confidence: string | null
 }
+
+type SchoolRef = { id: string; school_name: string; alias: string | null; city: string | null }
+type TeamSchoolRef = { id: string; school_id: string | null }
 
 type Change = {
   field: string
@@ -109,6 +114,7 @@ function normalizeText(value: unknown): string {
     .toLowerCase()
     .replace(/[’']/g, "'")
     .replace(/[.,]/g, '')
+    .replace(/[^a-z0-9' ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -133,13 +139,24 @@ function displayStatus(value: unknown): string | null {
   return String(value ?? '').trim() || null
 }
 
+function normalizeContestType(value: unknown, notes?: unknown): 'Game' | 'Scrimmage' {
+  const explicit = normalizeText(value)
+  const noteText = normalizeText(notes)
+  if (explicit === 'scrimmage' || /\barbiter type scrimmage\b/.test(noteText) || /\btype scrimmage\b/.test(noteText)) return 'Scrimmage'
+  return 'Game'
+}
+
 function canonicalizeIncoming(game: IncomingGame): IncomingGame {
+  const contestType = normalizeContestType(game.contest_type, game.notes)
+  let status = displayStatus(game.status)
+  if (contestType === 'Scrimmage' && status && ['Final', 'Live'].includes(status)) status = 'Scheduled'
   return {
     ...game,
     game_date: game.game_date ? normalizeDate(game.game_date) : null,
     game_time: dbTime(game.game_time),
     location: cleanArbiterLocation(game.location) || null,
-    status: displayStatus(game.status),
+    status,
+    contest_type: contestType,
     rescheduled_date: game.rescheduled_date ? normalizeDate(game.rescheduled_date) : null,
     game_number: game.game_number === null || game.game_number === undefined ? null : Number(game.game_number),
     neutral_site: Boolean(game.neutral_site),
@@ -153,6 +170,7 @@ function equivalent(field: string, before: unknown, after: unknown) {
   if (field === 'game_time') return normalizeTime(before) === normalizeTime(after)
   if (field === 'location') return arbiterLocationsEquivalent(before, after)
   if (field === 'status') return normalizeStatus(before) === normalizeStatus(after)
+  if (field === 'contest_type') return normalizeContestType(before) === normalizeContestType(after)
   if (field === 'game_number') {
     const a = before === null || before === undefined || before === '' ? null : Number(before)
     const b = after === null || after === undefined || after === '' ? null : Number(after)
@@ -164,7 +182,7 @@ function equivalent(field: string, before: unknown, after: unknown) {
 
 function changesFor(incoming: IncomingGame, existing: ExistingGame): Change[] {
   const changes: Change[] = []
-  const fields = ['game_date','game_time','location','status','rescheduled_date','game_number','neutral_site'] as const
+  const fields = ['game_date','game_time','location','status','contest_type','rescheduled_date','game_number','neutral_site'] as const
   for (const field of fields) {
     const before = (existing as any)[field] ?? null
     const after = (incoming as any)[field] ?? null
@@ -182,6 +200,7 @@ function isTimeStatusOnly(changes: Change[]) {
 function isSafeExactUpdate(changes: Change[], incoming: IncomingGame) {
   if (!isTimeStatusOnly(changes)) return false
   if (incoming.home_team_id && incoming.away_team_id) return false
+  if (normalizeContestType(incoming.contest_type, incoming.notes) === 'Scrimmage') return false
   return true
 }
 
@@ -189,7 +208,55 @@ function orientationScheduleAgrees(incoming: IncomingGame, existing: ExistingGam
   return normalizeDate(incoming.game_date) === normalizeDate(existing.game_date) &&
     normalizeTime(incoming.game_time) === normalizeTime(existing.game_time) &&
     normalizeStatus(incoming.status) === normalizeStatus(existing.status) &&
+    normalizeContestType(incoming.contest_type, incoming.notes) === normalizeContestType(existing.contest_type, existing.notes) &&
     (incoming.game_number ?? null) === (existing.game_number ?? null)
+}
+
+function schoolTokens(school: SchoolRef): string[] {
+  const values = [school.school_name, school.alias, school.city].filter(Boolean).map(normalizeText).filter(Boolean)
+  const expanded = values.flatMap(value => {
+    const trimmed = value
+      .replace(/\bcentral school\b/g, '')
+      .replace(/\bcentral high school\b/g, '')
+      .replace(/\bhigh school\b/g, '')
+      .replace(/\bfree academy\b/g, 'free academy')
+      .trim()
+    return trimmed && trimmed !== value ? [value, trimmed] : [value]
+  })
+  return [...new Set(expanded.filter(value => value.length >= 4))]
+}
+
+function venueMentionsSchool(location: string | null | undefined, school: SchoolRef): boolean {
+  const venue = normalizeText(location)
+  if (!venue) return false
+  return schoolTokens(school).some(token => venue.includes(token))
+}
+
+function findForeignVenueSchool(
+  location: string | null | undefined,
+  game: IncomingGame,
+  teamSchoolById: Map<string, string | null>,
+  schools: SchoolRef[]
+): SchoolRef | null {
+  if (!location || game.neutral_site) return null
+  const participantSchoolIds = new Set<string>()
+  for (const teamId of [game.home_team_id, game.away_team_id]) {
+    if (!teamId) continue
+    const schoolId = teamSchoolById.get(teamId)
+    if (schoolId) participantSchoolIds.add(schoolId)
+  }
+  for (const school of schools) {
+    if (participantSchoolIds.has(school.id)) continue
+    if (venueMentionsSchool(location, school)) return school
+  }
+  return null
+}
+
+function isAuthoritativeExternalNew(game: IncomingGame, teamId: string) {
+  const hasExternal = !!game.external_home_name || !!game.external_away_name
+  const sourceParticipates = game.home_team_id === teamId || game.away_team_id === teamId
+  const confidence = normalizeText(game.parser_confidence)
+  return hasExternal && sourceParticipates && confidence !== 'low'
 }
 
 export async function POST(req: NextRequest) {
@@ -206,18 +273,27 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getAdminClient()
-    const { data: existingRows, error: existingError } = await supabase
-      .from('games')
-      .select(`id, game_date, game_time, location, home_team_id, away_team_id,
-        external_home_opponent_id, external_away_opponent_id, status, rescheduled_date,
-        game_number, neutral_site, event_name, notes, parser_confidence`)
-      .eq('season_id', seasonId)
-      .eq('sport_id', sportId)
-      .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
-      .order('game_date', { ascending: true })
+    const [{ data: existingRows, error: existingError }, { data: schoolRows, error: schoolError }, { data: teamRows, error: teamError }] = await Promise.all([
+      supabase
+        .from('games')
+        .select(`id, game_date, game_time, location, home_team_id, away_team_id,
+          external_home_opponent_id, external_away_opponent_id, status, contest_type, rescheduled_date,
+          game_number, neutral_site, event_name, notes, parser_confidence`)
+        .eq('season_id', seasonId)
+        .eq('sport_id', sportId)
+        .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+        .order('game_date', { ascending: true }),
+      supabase.from('schools').select('id, school_name, alias, city').eq('active', true).eq('is_section_x', true),
+      supabase.from('teams').select('id, school_id').eq('sport_id', sportId),
+    ])
 
     if (existingError) throw new Error(`Could not load existing games: ${existingError.message}`)
+    if (schoolError) throw new Error(`Could not load Section X schools: ${schoolError.message}`)
+    if (teamError) throw new Error(`Could not load team-school map: ${teamError.message}`)
+
     const existing = (existingRows || []) as ExistingGame[]
+    const schools = (schoolRows || []) as SchoolRef[]
+    const teamSchoolById = new Map((teamRows || []).map((row: TeamSchoolRef) => [row.id, row.school_id]))
 
     const { data: sourceRows, error: sourceError } = await supabase
       .from('game_import_sources')
@@ -310,26 +386,47 @@ export async function POST(req: NextRequest) {
       const game = item.game
       const match = item.match
       const matchReason = item.matchReason
+      const contestType = normalizeContestType(game.contest_type, game.notes)
 
       if (!match) {
         const hasExternal = !!game.external_home_name || !!game.external_away_name
+        const authoritativeExternal = isAuthoritativeExternalNew(game, teamId)
         diffs.push({
           key: `${hasExternal ? 'external' : 'new'}-${item.index}`,
-          kind: hasExternal ? 'external_review' : 'new',
+          kind: authoritativeExternal ? 'new' : hasExternal ? 'external_review' : 'new',
           safe: false,
           incoming: game,
           existing: null,
           existing_game_id: null,
           changes: [],
-          new_confidence: hasExternal ? 'external' : 'single_source',
-          note: hasExternal
-            ? 'Fresh external matchup has no confidently matched Section X record. Review the full matchup before adding it.'
-            : 'Fresh game has no existing Section X record. Scan All will cross-check the opponent schedule before this is treated as confirmed.',
+          new_confidence: authoritativeExternal ? 'confirmed' : hasExternal ? 'external' : 'single_source',
+          note: authoritativeExternal
+            ? `${contestType === 'Scrimmage' ? 'Scrimmage' : 'External-opponent game'} is published on this Section X team's fresh Arbiter schedule. Because the opponent is outside Section X, a second Section X source does not exist; this source is authoritative for the matchup and may be added after explicit confirmation.`
+            : hasExternal
+              ? 'Fresh external matchup could not be safely tied to this Section X team source. Review the full matchup before adding it.'
+              : 'Fresh internal game has no existing Section X record. Scan All will cross-check the opponent schedule before this is treated as confirmed.',
         })
         continue
       }
 
       const changes = changesFor(game, match)
+      const foreignVenue = changes.some(change => change.field === 'location')
+        ? findForeignVenueSchool(game.location, game, teamSchoolById, schools)
+        : null
+
+      if (foreignVenue) {
+        diffs.push({
+          key: match.id,
+          kind: 'conflict',
+          safe: false,
+          incoming: game,
+          existing: match,
+          existing_game_id: match.id,
+          changes,
+          note: `Venue safety guard: the fresh venue references ${foreignVenue.school_name}, which is not a participant in this matchup. This is likely parser/event leakage or a neutral-site event missing its neutral-site flag. Never auto-apply this venue; review the Arbiter event directly.`,
+        })
+        continue
+      }
 
       if (matchReason === 'orientation_conflict') {
         const scheduleAgrees = orientationScheduleAgrees(game, match)
@@ -342,10 +439,11 @@ export async function POST(req: NextRequest) {
           existing_game_id: match.id,
           changes,
           note: scheduleAgrees
-            ? 'Orientation review only: both records agree on teams, date, time and status, but home/away orientation differs. This is not a time/status source conflict; review home/away before changing anything.'
-            : 'Same two teams found nearby, but home/away orientation differs and schedule fields also disagree. Treat as a true source conflict; never auto-apply this matchup.',
+            ? 'Orientation review only: both records agree on teams, date, time, status and contest type, but home/away orientation differs. Review home/away before changing anything.'
+            : 'Same two teams found nearby, but home/away orientation or schedule fields disagree. Treat as a true source conflict; never auto-apply this matchup.',
         })
       } else if (matchReason === 'nearby') {
+        const difference = Math.round(dayDiff(match.game_date, game.game_date!))
         diffs.push({
           key: match.id,
           kind: 'date_changed',
@@ -354,7 +452,7 @@ export async function POST(req: NextRequest) {
           existing: match,
           existing_game_id: match.id,
           changes,
-          note: `Possible reschedule detected (${Math.round(dayDiff(match.game_date, game.game_date!))} day difference). Review before applying.`,
+          note: `Possible reschedule detected (${difference} day difference). Date changes are never auto-written. A one-day difference is specifically held for human review so a parsing/date-boundary issue cannot silently move a game.`,
         })
       } else if (changes.length === 0) {
         diffs.push({ key: match.id, kind: 'unchanged', safe: true, incoming: game, existing: match, existing_game_id: match.id, changes: [] })
@@ -367,26 +465,32 @@ export async function POST(req: NextRequest) {
           : 'details_changed'
         const safe = isSafeExactUpdate(changes, game)
         const needsCrossSource = Boolean(game.home_team_id && game.away_team_id && isTimeStatusOnly(changes))
+        const contestTypeChanged = changedFields.has('contest_type')
         diffs.push({
           key: match.id,
           kind: primaryKind,
-          safe,
+          safe: contestTypeChanged ? false : safe,
           incoming: game,
           existing: match,
           existing_game_id: match.id,
           changes,
-          note: safe
-            ? undefined
-            : needsCrossSource
-              ? 'Section X vs Section X time/status changes require agreement from both fresh team sources. No database write is allowed from one side alone.'
-              : 'Exact matchup found, but this field change requires an explicit review before updating the game.',
-          reconciliation_required: needsCrossSource,
+          note: contestTypeChanged
+            ? `Contest type changed to ${contestType}. Scrimmage/game classification is never auto-written by Schedule Intelligence; review this event type explicitly.`
+            : safe
+              ? undefined
+              : needsCrossSource
+                ? 'Section X vs Section X time/status changes require agreement from both fresh team sources. No database write is allowed from one side alone.'
+                : primaryKind === 'location_changed'
+                  ? 'Venue differs after normalization. This venue does not reference an unrelated Section X school, but still requires explicit review before updating the game.'
+                  : 'Exact matchup found, but this field change requires an explicit review before updating the game.',
+          reconciliation_required: contestTypeChanged ? false : needsCrossSource,
         })
       }
     }
 
     for (const game of existing) {
       if (matchedExisting.has(game.id) || !sourcedGameIds.has(game.id)) continue
+      const isScrimmage = normalizeContestType(game.contest_type, game.notes) === 'Scrimmage'
       diffs.push({
         key: `removed-${game.id}`,
         kind: 'possible_removed',
@@ -395,7 +499,9 @@ export async function POST(req: NextRequest) {
         existing: game,
         existing_game_id: game.id,
         changes: [],
-        note: 'Previously imported from this team but missing from this one fresh Arbiter source. This is evidence of absence, not proof of deletion. Never delete automatically; use the opponent source or canonical provider event to confirm.',
+        note: isScrimmage
+          ? 'Previously imported scrimmage is missing from this fresh Arbiter source. Scrimmages can change frequently; treat this only as evidence of absence. Never delete automatically.'
+          : 'Previously imported from this team but missing from this one fresh Arbiter source. This is evidence of absence, not proof of deletion. Never delete automatically; use the opponent source or canonical provider event to confirm.',
       })
     }
 
@@ -430,7 +536,7 @@ export async function POST(req: NextRequest) {
       counts,
       apply_allowed: safetyReasons.length === 0,
       safety_reasons: safetyReasons,
-      normalization: 'v8-smart-noise-reduction',
+      normalization: 'v9-scrimmage-external-venue-guard',
       diffs,
     })
   } catch (error: any) {

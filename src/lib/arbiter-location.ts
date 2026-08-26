@@ -121,6 +121,19 @@ function facilitiesCompatible(a: VenueProfile, b: VenueProfile): boolean {
   return true
 }
 
+function anchorsCompatible(a: VenueProfile, b: VenueProfile): boolean {
+  if (!a.anchor || !b.anchor) return false
+  if (a.anchor === b.anchor) return true
+  const shorter = a.anchor.length <= b.anchor.length ? a.anchor : b.anchor
+  const longer = a.anchor.length > b.anchor.length ? a.anchor : b.anchor
+  // Arbiter often expands a school venue with an honorific facility name
+  // (example: "Ogdensburg Free Academy Turf Field" ->
+  // "Ogdensburg Free Academy Ronald N. Johnson Turf Field"). Treat those
+  // as the same facility only when the school anchor is preserved and the
+  // facility type also matches.
+  return shorter.length >= 6 && longer.startsWith(`${shorter} `)
+}
+
 export function arbiterLocationsEquivalent(before: unknown, after: unknown): boolean {
   const a = arbiterLocationFingerprint(before)
   const b = arbiterLocationFingerprint(after)
@@ -138,7 +151,7 @@ export function arbiterLocationsEquivalent(before: unknown, after: unknown): boo
 
   const pa = venueProfile(a)
   const pb = venueProfile(b)
-  if (pa.anchor && pb.anchor && pa.anchor === pb.anchor && levelsCompatible(pa.level, pb.level) && facilitiesCompatible(pa, pb)) {
+  if (anchorsCompatible(pa, pb) && levelsCompatible(pa.level, pb.level) && facilitiesCompatible(pa, pb)) {
     return true
   }
 
