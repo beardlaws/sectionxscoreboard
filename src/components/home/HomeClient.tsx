@@ -1,633 +1,279 @@
 'use client'
 
-import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { format, isToday, isYesterday } from 'date-fns'
-import ScoreCard from '@/components/scores/ScoreCard'
-import type { Season, School, GameWithTeams } from '@/types'
-import { isCloseGame } from '@/lib/constants'
-import HomeSponsorWrapper from '@/components/HomeSponsorWrapper'
-import { createClient } from '@/lib/supabase/client'
+import { useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
 
-function formatTime(t: string) {
-  try {
-    const [h, m] = t.split(':').map(Number)
-    const isPM = h < 8 || h >= 12
-    const h12 = h % 12 || 12
-    return `${h12}:${String(m).padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`
-  } catch { return t }
+type DayKey = 'yesterday' | 'today' | 'tomorrow'
+type Props = {
+  activeSeason:any|null
+  yesterdayGames:any[]
+  todayGames:any[]
+  tomorrowGames:any[]
+  recentGames:any[]
+  featuredGame:any|null
+  homepageSponsor:any|null
+  schools:any[]
+  today:string
+  featuredSpotlight:any|null
+  featuredAthlete:any|null
+  allSpotlights:any[]
 }
 
-interface HomeClientProps {
-  activeSeason: Season | null
-  todayGames: GameWithTeams[]
-  recentGames: GameWithTeams[]
-  featuredGame: GameWithTeams | null
-  featuredPhoto: any | null
-  allStandingsGames: any[]
-  homepageSponsor: any | null
-  schools: School[]
-  today: string
-  latestShoutout?: any | null
-  featuredSpotlight?: any | null
-  featuredAthlete?: any | null
-  springGames?: GameWithTeams[]
-  allSpotlights?: any[]
+function sportName(game:any) {
+  const sport = game?.sport
+  if (!sport) return 'Section X'
+  const name = String(sport.sport_name || 'Sport')
+  const gender = String(sport.gender || '')
+  return gender && !name.toLowerCase().startsWith(gender.toLowerCase()) ? `${gender} ${name}` : name
 }
 
-const SPORT_ICONS: Record<string, string> = {
-  'Baseball': '⚾', 'Softball': '🥎', 'Boys Lacrosse': '🥍', 'Girls Lacrosse': '🥍',
-  'Football': '🏈', 'Boys Basketball': '🏀', 'Girls Basketball': '🏀',
-  'Boys Hockey': '🏒', 'Girls Hockey': '🏒', 'Boys Soccer': '⚽', 'Girls Soccer': '⚽',
-  'Volleyball': '🏐', 'Boys Golf': '⛳', 'Girls Swimming': '🏊',
-  'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
-  'Boys Track': '🏃', 'Girls Track': '🏃',
+function formatGameTime(value:any) {
+  const raw = String(value || '').trim()
+  if (!raw) return 'TBD'
+  const match = raw.match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return raw
+  let hour = Number(match[1])
+  const minute = match[2]
+  const suffix = hour >= 12 ? 'PM' : 'AM'
+  hour = hour % 12 || 12
+  return `${hour}:${minute} ${suffix}`
 }
 
-function dateLabel(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  if (isToday(d)) return 'Today'
-  if (isYesterday(d)) return 'Yesterday'
-  return format(d, 'EEEE, MMMM d')
+function schoolFor(game:any, side:'home'|'away') {
+  return game?.[`${side}_team`]?.school || null
 }
 
-function getSportKey(game: GameWithTeams): string {
-  const g = game.sport?.gender
-  const n = game.sport?.sport_name || 'Other'
-  return (g === 'Boys' || g === 'Girls') ? `${g} ${n}` : n
+function teamName(game:any, side:'home'|'away') {
+  const school = schoolFor(game, side)
+  if (school?.school_name) return school.school_name
+  const external = game?.[`external_${side}`]
+  return external?.name || external?.opponent_name || 'TBD'
 }
 
-function TeamDot({ color, logo }: { color: string; logo?: string | null }) {
-  if (logo) {
-    return (
-      <div className="w-4 h-4 rounded flex-shrink-0 overflow-hidden border border-white/10" style={{ background: color }}>
-        <img src={logo} alt="" className="w-full h-full object-contain" />
-      </div>
-    )
-  }
-  return <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
+function score(game:any, side:'home'|'away') {
+  const value = game?.[`${side}_score`]
+  return value === null || value === undefined ? null : value
 }
 
-function ScoreAlertForm() {
-  const [email, setEmail] = useState('')
-  const [done, setDone] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const supabase = createClient()
+function isLive(game:any) {
+  const s = String(game?.status || '').toLowerCase()
+  return s === 'live' || s === 'in progress'
+}
 
-  async function subscribe() {
-    if (!email.includes('@')) return
-    setLoading(true)
-    await supabase.from('score_alert_subscriptions').insert({
-      email: email.toLowerCase().trim(),
-      school_id: null,
-      all_section_x: true,
-      confirmed: true,
-    })
-    setDone(true)
-    setLoading(false)
-  }
+function isFinal(game:any) {
+  return String(game?.status || '').toLowerCase() === 'final'
+}
 
-  if (done) return (
-    <p className="text-xs text-green-400 font-bold" style={{ fontFamily: 'var(--font-display)' }}>✓ You're signed up!</p>
-  )
+function statusLabel(game:any) {
+  if (isLive(game)) return game?.period_detail || game?.clock || 'LIVE'
+  if (isFinal(game)) return 'FINAL'
+  const s = String(game?.status || '')
+  if (s && s.toLowerCase() !== 'scheduled') return s.toUpperCase()
+  return formatGameTime(game?.game_time)
+}
 
-  return (
-    <div className="flex gap-1.5 mt-2">
-      <input type="email" value={email} placeholder="your@email.com"
-        onChange={e => setEmail(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && subscribe()}
-        className="input flex-1 text-xs py-1.5" />
-      <button onClick={subscribe} disabled={loading}
-        className="text-xs px-3 py-1.5 rounded-lg font-black flex-shrink-0"
-        style={{ background: 'rgba(37,99,235,0.3)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.4)', fontFamily: 'var(--font-display)' }}>
-        {loading ? '...' : 'GO'}
-      </button>
+function SchoolMark({ school, size='md' }:{school:any;size?:'sm'|'md'|'lg'}) {
+  const px = size === 'lg' ? 'h-14 w-14' : size === 'sm' ? 'h-8 w-8' : 'h-10 w-10'
+  const initials = String(school?.school_name || '?').split(/\s+/).filter(Boolean).slice(0,2).map((x:string)=>x[0]).join('').toUpperCase()
+  return <div className={`${px} rounded-xl flex items-center justify-center overflow-hidden shrink-0`} style={{background:'linear-gradient(145deg,rgba(255,255,255,.1),rgba(255,255,255,.025))',border:'1px solid rgba(255,255,255,.10)',boxShadow:'0 10px 30px rgba(0,0,0,.22)'}}>
+    {school?.logo_url ? <img src={school.logo_url} alt="" className="w-[82%] h-[82%] object-contain"/> : <span className="font-black text-[10px] text-white/70">{initials}</span>}
+  </div>
+}
+
+function ScoreRailCard({game}:{game:any}) {
+  const home = schoolFor(game,'home')
+  const away = schoolFor(game,'away')
+  const hs = score(game,'home')
+  const as = score(game,'away')
+  const live = isLive(game)
+  const final = isFinal(game)
+  return <Link href={`/game-center/${game.id}`} className="group min-w-[278px] sm:min-w-[310px] rounded-2xl p-4 transition-all duration-300 hover:-translate-y-1" style={{background:'linear-gradient(145deg,rgba(18,24,38,.98),rgba(8,12,20,.98))',border:live?'1px solid rgba(250,204,21,.55)':'1px solid rgba(255,255,255,.08)',boxShadow:live?'0 16px 50px rgba(250,204,21,.10)':'0 16px 45px rgba(0,0,0,.28)'}}>
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="text-[10px] font-black uppercase tracking-[.16em] text-white/45 truncate">{sportName(game)}</div>
+      <div className={`text-[10px] font-black uppercase tracking-[.12em] ${live?'text-yellow-300':final?'text-emerald-400':'text-blue-300'}`}>{statusLabel(game)}</div>
     </div>
-  )
+    <div className="space-y-2.5">
+      <TeamLine school={away} name={teamName(game,'away')} value={as} winner={final&&as!==null&&hs!==null&&as>hs}/>
+      <TeamLine school={home} name={teamName(game,'home')} value={hs} winner={final&&as!==null&&hs!==null&&hs>as}/>
+    </div>
+    <div className="mt-3 pt-3 flex items-center justify-between text-[10px]" style={{borderTop:'1px solid rgba(255,255,255,.06)',color:'rgba(255,255,255,.38)'}}>
+      <span className="truncate max-w-[210px]">{game?.location || (home?.school_name ? `at ${home.school_name}` : 'Section X')}</span>
+      <span className="text-white/45 group-hover:text-yellow-300 transition-colors">GAME CENTER →</span>
+    </div>
+  </Link>
 }
 
-function OffSeasonState({ activeSeason, allSpotlights, springGames }: {
-  activeSeason: Season | null
-  allSpotlights: any[]
-  springGames: GameWithTeams[]
-}) {
-  const isFallSeason = activeSeason?.name?.includes('Fall')
-  const isWinterSeason = activeSeason?.name?.includes('Winter')
+function TeamLine({school,name,value,winner}:{school:any;name:string;value:any;winner:boolean}) {
+  return <div className="flex items-center gap-2.5 min-w-0">
+    <SchoolMark school={school} size="sm"/>
+    <div className={`flex-1 text-sm truncate ${winner?'font-black text-white':'font-semibold text-white/82'}`}>{name}</div>
+    <div className={`text-xl tabular-nums ${winner?'font-black text-white':'font-bold text-white/70'}`}>{value===null||value===undefined?'—':value}</div>
+  </div>
+}
 
-  return (
-    <div className="space-y-6">
-      <div className="rounded-2xl p-6 border border-white/8 relative overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.15) 0%, rgba(8,12,20,0.95) 60%)' }}>
-        <div className="relative">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-black text-blue-400 uppercase tracking-widest"
-              style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.12em' }}>
-              {activeSeason?.name || 'Upcoming Season'}
-            </span>
+function SectionTitle({eyebrow,title,action,href}:{eyebrow?:string;title:string;action?:string;href?:string}) {
+  return <div className="flex items-end justify-between gap-4 mb-4">
+    <div>
+      {eyebrow&&<div className="text-[10px] font-black uppercase tracking-[.20em] text-yellow-300/70 mb-1.5">{eyebrow}</div>}
+      <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{title}</h2>
+    </div>
+    {action&&href&&<Link href={href} className="text-[11px] font-black text-blue-300 hover:text-yellow-300 transition-colors whitespace-nowrap">{action} →</Link>}
+  </div>
+}
+
+function EmptyRail({label}:{label:string}) {
+  return <div className="rounded-2xl px-5 py-8 text-center min-w-full" style={{background:'rgba(255,255,255,.025)',border:'1px dashed rgba(255,255,255,.10)'}}>
+    <div className="text-sm font-bold text-white/60">No {label.toLowerCase()} games on the board yet.</div>
+    <div className="text-xs text-white/30 mt-1">Schedules update as schools publish changes.</div>
+  </div>
+}
+
+function MiniFinal({game}:{game:any}) {
+  const away = teamName(game,'away'), home = teamName(game,'home')
+  const as = score(game,'away'), hs = score(game,'home')
+  return <Link href={`/game-center/${game.id}`} className="flex items-center gap-3 rounded-xl p-3 transition-all hover:bg-white/[.045]" style={{border:'1px solid rgba(255,255,255,.055)'}}>
+    <div className="w-16 shrink-0">
+      <div className="text-[9px] uppercase tracking-[.10em] text-white/30">{sportName(game)}</div>
+      <div className="text-[10px] font-black text-emerald-400 mt-0.5">FINAL</div>
+    </div>
+    <div className="flex-1 min-w-0 text-xs">
+      <div className={`truncate ${as!==null&&hs!==null&&as>hs?'font-black text-white':'text-white/65'}`}>{away}</div>
+      <div className={`truncate mt-1 ${as!==null&&hs!==null&&hs>as?'font-black text-white':'text-white/65'}`}>{home}</div>
+    </div>
+    <div className="text-right tabular-nums text-sm font-black text-white">
+      <div>{as ?? '—'}</div><div className="mt-0.5">{hs ?? '—'}</div>
+    </div>
+  </Link>
+}
+
+export default function HomeClient({activeSeason,yesterdayGames,todayGames,tomorrowGames,recentGames,featuredGame,homepageSponsor,schools,today,featuredSpotlight,featuredAthlete,allSpotlights}:Props) {
+  const [day,setDay] = useState<DayKey>('today')
+  const [sport,setSport] = useState('All')
+  const railRef = useRef<HTMLDivElement|null>(null)
+
+  const dayGames = day==='yesterday'?yesterdayGames:day==='tomorrow'?tomorrowGames:todayGames
+  const sportOptions = useMemo(()=>{
+    const set = new Set<string>()
+    ;[...yesterdayGames,...todayGames,...tomorrowGames].forEach(g=>set.add(sportName(g)))
+    return ['All',...Array.from(set).sort()]
+  },[yesterdayGames,todayGames,tomorrowGames])
+  const visibleGames = useMemo(()=>dayGames.filter(g=>sport==='All'||sportName(g)===sport),[dayGames,sport])
+  const liveNow = todayGames.filter(isLive)
+  const todayFinals = todayGames.filter(isFinal)
+  const upcomingToday = todayGames.filter(g=>!isLive(g)&&!isFinal(g))
+  const latestFinals = recentGames.filter(isFinal).slice(0,8)
+  const headline = liveNow.length ? `${liveNow.length} game${liveNow.length===1?'':'s'} live right now` : todayGames.length ? `${todayGames.length} game${todayGames.length===1?'':'s'} on today's board` : `${activeSeason?.name || 'Section X'} is live`
+
+  function nudge(direction:number){railRef.current?.scrollBy({left:direction*330,behavior:'smooth'})}
+
+  return <div className="min-h-screen pb-24 md:pb-10" style={{background:'radial-gradient(circle at 50% -180px, rgba(250,204,21,.09), transparent 34%), #060910'}}>
+    <section className="relative overflow-hidden border-b border-white/[.06]">
+      <div className="absolute inset-0 pointer-events-none" style={{background:'linear-gradient(115deg,rgba(250,204,21,.055),transparent 37%,rgba(37,99,235,.055))'}}/>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-7 sm:pt-10 pb-6 relative">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 mb-4" style={{background:'rgba(250,204,21,.08)',border:'1px solid rgba(250,204,21,.17)'}}>
+              <span className={`h-1.5 w-1.5 rounded-full ${liveNow.length?'animate-pulse':'opacity-60'}`} style={{background:'#facc15'}}/>
+              <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-[.18em] text-yellow-200">Section X Live</span>
+            </div>
+            <h1 className="text-[2.45rem] sm:text-6xl lg:text-7xl font-black leading-[.92] text-white tracking-[-.045em]">North Country sports.<br/><span className="text-transparent bg-clip-text" style={{backgroundImage:'linear-gradient(90deg,#fde047,#facc15 45%,#60a5fa)'}}>Right now.</span></h1>
+            <p className="mt-4 text-sm sm:text-base text-white/45 max-w-2xl">Scores, schedules, standings, schools and stories from across Section X, built for the people who actually follow it.</p>
           </div>
-          <h2 className="text-2xl font-black text-white mb-2"
-            style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
-            {isFallSeason ? '🏈 Fall Sports Are Coming' : isWinterSeason ? '🏀 Winter Sports Are Coming' : '⚾ Season Preview'}
-          </h2>
-          <p className="text-slate-400 text-sm mb-4">
-            {isFallSeason
-              ? 'Football, Soccer, and Volleyball kick off in August. Follow your favorite Section X teams all season long.'
-              : isWinterSeason
-              ? 'Basketball, Hockey, and Wrestling tip off in December.'
-              : 'The season is coming. Follow your favorite Section X teams right here.'}
-          </p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:w-[360px]">
+            <HeroStat label="Live" value={liveNow.length} tone="yellow"/>
+            <HeroStat label="Final" value={todayFinals.length} tone="green"/>
+            <HeroStat label="Next" value={upcomingToday.length} tone="blue"/>
+          </div>
+        </div>
+        <div className="mt-6 flex items-center justify-between gap-4 rounded-2xl px-4 py-3" style={{background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.06)'}}>
+          <div className="text-sm font-black text-white/85">{headline}</div>
+          <Link href="/scores" className="text-[10px] sm:text-xs font-black uppercase tracking-[.10em] text-yellow-300 whitespace-nowrap">Full scoreboard →</Link>
+        </div>
+      </div>
+    </section>
+
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-10">
+      <section id="scores">
+        <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 mb-4">
+          <SectionTitle eyebrow="Scoreboard" title="What’s happening"/>
           <div className="flex flex-wrap gap-2">
-            {isFallSeason && (
-              <>
-                <Link href="/sports/football" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', fontFamily: 'var(--font-display)' }}>🏈 Football</Link>
-                <Link href="/sports/boys-soccer" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontFamily: 'var(--font-display)' }}>⚽ Boys Soccer</Link>
-                <Link href="/sports/girls-soccer" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontFamily: 'var(--font-display)' }}>⚽ Girls Soccer</Link>
-                <Link href="/sports/volleyball" className="text-xs font-black px-3 py-1.5 rounded-lg transition-all hover:-translate-y-0.5" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)', fontFamily: 'var(--font-display)' }}>🏐 Volleyball</Link>
-              </>
-            )}
-            {isWinterSeason && (
-              <>
-                <Link href="/sports/boys-basketball" className="text-xs font-black px-3 py-1.5 rounded-lg" style={{ background: 'rgba(234,88,12,0.15)', color: '#fb923c', border: '1px solid rgba(234,88,12,0.25)', fontFamily: 'var(--font-display)' }}>🏀 Boys Basketball</Link>
-                <Link href="/sports/girls-basketball" className="text-xs font-black px-3 py-1.5 rounded-lg" style={{ background: 'rgba(219,39,119,0.15)', color: '#f472b6', border: '1px solid rgba(219,39,119,0.25)', fontFamily: 'var(--font-display)' }}>🏀 Girls Basketball</Link>
-              </>
-            )}
+            {(['yesterday','today','tomorrow'] as DayKey[]).map(key=><button key={key} onClick={()=>setDay(key)} className="rounded-full px-3.5 py-2 text-[10px] font-black uppercase tracking-[.09em] transition-all" style={{background:day===key?'#facc15':'rgba(255,255,255,.04)',color:day===key?'#080b12':'rgba(255,255,255,.50)',border:day===key?'1px solid #fde047':'1px solid rgba(255,255,255,.07)'}}>{key}</button>)}
           </div>
         </div>
+        <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+          {sportOptions.map(name=><button key={name} onClick={()=>setSport(name)} className="shrink-0 rounded-lg px-3 py-2 text-[10px] font-bold transition-all" style={{background:sport===name?'rgba(59,130,246,.18)':'rgba(255,255,255,.025)',color:sport===name?'#93c5fd':'rgba(255,255,255,.40)',border:sport===name?'1px solid rgba(96,165,250,.35)':'1px solid rgba(255,255,255,.055)'}}>{name}</button>)}
+        </div>
+        <div className="relative mt-1">
+          <div ref={railRef} className="flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide">{visibleGames.length?visibleGames.map(game=><div key={game.id} className="snap-start"><ScoreRailCard game={game}/></div>):<EmptyRail label={day}/>}</div>
+          {visibleGames.length>2&&<div className="hidden lg:flex gap-2 absolute -top-12 right-0"><button onClick={()=>nudge(-1)} className="h-8 w-8 rounded-lg text-white/45 hover:text-white" style={{border:'1px solid rgba(255,255,255,.08)'}}>←</button><button onClick={()=>nudge(1)} className="h-8 w-8 rounded-lg text-white/45 hover:text-white" style={{border:'1px solid rgba(255,255,255,.08)'}}>→</button></div>}
+        </div>
+      </section>
+
+      <section id="schools">
+        <SectionTitle eyebrow="24 member schools" title="Your school. Your teams." action="View all schools" href="/schools"/>
+        <div className="flex gap-3 overflow-x-auto pb-4 snap-x scrollbar-hide">
+          {schools.map(school=><Link key={school.id} href={`/schools/${school.slug}`} className="group min-w-[118px] sm:min-w-[138px] snap-start rounded-2xl p-4 text-center transition-all duration-300 hover:-translate-y-1" style={{background:'linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.015))',border:'1px solid rgba(255,255,255,.065)'}}>
+            <div className="mx-auto w-fit group-hover:scale-105 transition-transform"><SchoolMark school={school} size="lg"/></div>
+            <div className="mt-3 text-xs font-black leading-tight text-white/78 line-clamp-2">{school.school_name?.replace(' Central School','').replace(' Central High School','')}</div>
+            {school.mascot&&<div className="mt-1 text-[9px] uppercase tracking-[.10em] text-white/28">{school.mascot}</div>}
+          </Link>)}
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-[1.45fr_.8fr] gap-5">
+        <div className="rounded-3xl p-4 sm:p-5" style={{background:'linear-gradient(145deg,rgba(18,24,38,.90),rgba(8,12,20,.96))',border:'1px solid rgba(255,255,255,.07)'}}>
+          <SectionTitle eyebrow="Latest results" title="Final scores" action="All scores" href="/scores"/>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{latestFinals.length?latestFinals.map(game=><MiniFinal key={game.id} game={game}/>):<div className="text-sm text-white/35 py-8">Final scores will appear here as games finish.</div>}</div>
+        </div>
+        <div className="space-y-5">
+          {featuredGame&&<FeatureGame game={featuredGame}/>} 
+          <QuickLinks/>
+        </div>
+      </section>
+
+      <section id="stories" className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 rounded-3xl overflow-hidden relative min-h-[330px]" style={{background:'linear-gradient(135deg,rgba(250,204,21,.12),rgba(13,18,29,.96) 48%,rgba(37,99,235,.12))',border:'1px solid rgba(255,255,255,.07)'}}>
+          <div className="p-6 sm:p-8 flex flex-col h-full min-h-[330px] justify-end">
+            <div className="text-[10px] font-black uppercase tracking-[.20em] text-yellow-300/75">Section X Spotlight</div>
+            <h2 className="text-2xl sm:text-4xl font-black text-white max-w-2xl mt-2 leading-tight">{featuredSpotlight?.title || allSpotlights?.[0]?.title || 'The stories behind Section X sports.'}</h2>
+            <p className="text-sm text-white/42 mt-3 max-w-2xl line-clamp-3">{featuredSpotlight?.body || allSpotlights?.[0]?.body || 'History, teams, athletes and the moments people around the North Country still talk about.'}</p>
+            <Link href={featuredSpotlight?.id?`/spotlight/${featuredSpotlight.id}`:'/spotlight'} className="mt-5 w-fit rounded-xl px-4 py-2.5 text-xs font-black bg-yellow-300 text-black">READ THE STORY →</Link>
+          </div>
+        </div>
+        <div className="rounded-3xl p-5 sm:p-6" style={{background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.065)'}}>
+          <div className="text-[10px] font-black uppercase tracking-[.20em] text-blue-300/75">Athlete of the Week</div>
+          {featuredAthlete?<>
+            <div className="mt-5 flex items-center gap-4"><SchoolMark school={featuredAthlete.school} size="lg"/><div><div className="text-xl font-black text-white">{featuredAthlete.athlete_name || featuredAthlete.name}</div><div className="text-xs text-white/38 mt-1">{featuredAthlete.school?.school_name}</div></div></div>
+            {featuredAthlete.sport&&<div className="mt-5 text-xs font-bold text-yellow-300">{featuredAthlete.sport}</div>}
+            {featuredAthlete.description&&<p className="mt-3 text-sm leading-relaxed text-white/45 line-clamp-5">{featuredAthlete.description}</p>}
+            <Link href="/athlete-of-week" className="inline-block mt-5 text-xs font-black text-blue-300">MEET THIS WEEK'S ATHLETE →</Link>
+          </>:<div className="mt-5 text-sm text-white/35">The next Section X Athlete of the Week will appear here.</div>}
+        </div>
+      </section>
+
+      {homepageSponsor&&<section className="rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.055)'}}><div><div className="text-[9px] uppercase tracking-[.16em] text-white/24">Section X Scoreboard partner</div><div className="text-sm font-bold text-white/65 mt-1">{homepageSponsor.name || homepageSponsor.sponsor_name}</div></div>{homepageSponsor.website_url&&<a href={homepageSponsor.website_url} target="_blank" rel="noreferrer" className="text-[10px] font-black text-blue-300">VISIT PARTNER →</a>}</section>}
+    </main>
+
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]" style={{background:'rgba(6,9,16,.94)',backdropFilter:'blur(18px)',borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      <div className="grid grid-cols-4 gap-1">
+        <MobileNav href="/scores" label="Scores"/><MobileNav href="/schools" label="Schools"/><MobileNav href="/standings" label="Standings"/><MobileNav href="/playoffs" label="Playoffs"/>
       </div>
-
-      {springGames && springGames.length > 0 && (
-        <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(8,12,20,0.7)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>📋 Spring 2026 Results</p>
-            <Link href="/scores?season=a1000000-0000-0000-0000-000000000001" className="text-xs text-blue-400 font-bold hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>View All →</Link>
-          </div>
-          <div className="space-y-1">
-            {springGames.slice(0, 5).map((game: any) => {
-              const homeName = game.home_team?.school?.school_name || game.external_home?.name || 'TBD'
-              const awayName = game.away_team?.school?.school_name || game.external_away?.name || 'TBD'
-              const homeWins = (game.home_score ?? 0) > (game.away_score ?? 0)
-              const awayWins = (game.away_score ?? 0) > (game.home_score ?? 0)
-              return (
-                <Link key={game.id} href={`/games/${game.id}`} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
-                  <span className="text-xs" style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a' }}>{game.sport?.sport_name}</span>
-                  <span className="flex-1 text-xs text-slate-300 truncate">
-                    <span style={{ fontWeight: awayWins ? 700 : 400 }}>{awayName}</span>
-                    <span className="text-slate-600 mx-1">at</span>
-                    <span style={{ fontWeight: homeWins ? 700 : 400 }}>{homeName}</span>
-                  </span>
-                  <span className="text-xs font-mono text-white flex-shrink-0">{game.away_score}–{game.home_score}</span>
-                </Link>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {allSpotlights && allSpotlights.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>📰 Latest Stories</p>
-            <Link href="/spotlight" className="text-xs text-blue-400 font-bold hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>All Stories →</Link>
-          </div>
-          <div className="space-y-2">
-            {allSpotlights.map((story: any) => (
-              <Link key={story.id} href={`/spotlight/${story.id}`}
-                className="block rounded-xl p-4 border border-white/6 hover:border-white/12 transition-all hover:-translate-y-0.5"
-                style={{ background: 'rgba(8,12,20,0.7)' }}>
-                <p className="font-black text-white text-sm mb-1" style={{ fontFamily: 'var(--font-display)' }}>{story.title}</p>
-                <p className="text-xs text-slate-500 line-clamp-2">{story.body}</p>
-                <p className="text-xs text-slate-600 mt-1">{format(new Date(story.created_at), 'MMMM d, yyyy')}</p>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-2xl p-5 border border-white/6 text-center" style={{ background: 'rgba(8,12,20,0.5)' }}>
-        <p className="text-slate-400 text-sm mb-3">Browse all 24 Section X schools and their teams</p>
-        <Link href="/schools" className="btn-primary inline-flex">View All Schools →</Link>
-      </div>
-    </div>
-  )
+    </nav>
+  </div>
 }
 
-export default function HomeClient({
-  activeSeason, todayGames, recentGames, featuredGame,
-  featuredPhoto, homepageSponsor, latestShoutout, schools, today,
-  featuredSpotlight, featuredAthlete, springGames = [], allSpotlights = [],
-}: HomeClientProps) {
-  const [schoolSearch, setSchoolSearch] = useState('')
-  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
-  const [compact, setCompact] = useState(false)
-
-  const allGames = useMemo(() => {
-    const seen = new Set<string>()
-    return [...todayGames, ...recentGames].filter(g => {
-      if (seen.has(g.id)) return false
-      seen.add(g.id); return true
-    }).sort((a, b) => b.game_date > a.game_date ? 1 : b.game_date < a.game_date ? -1 : 0)
-  }, [todayGames, recentGames])
-
-  const finalGamesOnly = useMemo(() => allGames.filter(g => g.status === 'Final'), [allGames])
-
-  const byDate = useMemo(() => {
-    const map = new Map<string, GameWithTeams[]>()
-    for (const g of finalGamesOnly) {
-      const d = g.game_date || today
-      if (!map.has(d)) map.set(d, [])
-      map.get(d)!.push(g)
-    }
-    return map
-  }, [finalGamesOnly, today])
-
-  const dates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a))
-
-  function groupBySport(games: GameWithTeams[]) {
-    const map = new Map<string, GameWithTeams[]>()
-    for (const g of games) {
-      const key = getSportKey(g)
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(g)
-    }
-    return map
-  }
-
-  const filteredSchools = useMemo(() => {
-    if (!schoolSearch || schoolSearch.length < 2) return []
-    const q = schoolSearch.toLowerCase()
-    return schools.filter(s =>
-      s.school_name.toLowerCase().includes(q) ||
-      s.city?.toLowerCase().includes(q) ||
-      s.mascot?.toLowerCase().includes(q)
-    ).slice(0, 6)
-  }, [schoolSearch, schools])
-
-  const todayLive = todayGames.filter(g => g.status === 'Live')
-  const closeCount = allGames.filter(g => isCloseGame(g.home_score, g.away_score) && g.status === 'Final').length
-  const isOffSeason = finalGamesOnly.length === 0
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* ── MAIN COLUMN ── */}
-        <div className="lg:col-span-2 space-y-6">
-          <div>
-            {activeSeason && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold mb-2 uppercase tracking-widest"
-                style={{ background: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.25)', fontFamily: 'var(--font-display)' }}>
-                {activeSeason.name}
-              </span>
-            )}
-            <div className="flex items-end justify-between gap-3 flex-wrap">
-              <div>
-                <h1 className="text-4xl md:text-5xl font-black text-white leading-none tracking-tight"
-                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
-                  {isOffSeason ? 'Section X Sports' : 'Latest Results'}
-                </h1>
-                <p className="text-slate-500 text-sm mt-1.5">
-                  {isOffSeason
-                    ? `${activeSeason?.name || ''} · Season preview`
-                    : finalGamesOnly.length > 0
-                    ? `${finalGamesOnly.length} final score${finalGamesOnly.length !== 1 ? 's' : ''} · ${format(new Date(today + 'T12:00:00'), 'MMMM d, yyyy')}`
-                    : format(new Date(today + 'T12:00:00'), 'EEEE, MMMM d, yyyy')
-                  }
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {todayLive.length > 0 && (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-red-400 border border-red-500/30 bg-red-500/10">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />{todayLive.length} Live
-                  </span>
-                )}
-                {closeCount > 0 && (
-                  <span className="px-3 py-1.5 rounded-full text-xs font-bold text-amber-300 border border-amber-500/30 bg-amber-500/12">
-                    🔥 {closeCount} close
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {featuredGame && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-yellow-400 text-sm">⭐</span>
-                <span className="text-xs font-black text-yellow-400 tracking-widest uppercase" style={{ fontFamily: 'var(--font-display)' }}>Game of the Night</span>
-                {homepageSponsor && <span className="text-xs text-slate-500">· Presented by {homepageSponsor.business_name}</span>}
-              </div>
-              <ScoreCard game={featuredGame} featured />
-            </div>
-          )}
-
-          {isOffSeason ? (
-            <OffSeasonState activeSeason={activeSeason} allSpotlights={allSpotlights} springGames={springGames as GameWithTeams[]} />
-          ) : (
-            dates.map((date, dateIdx) => {
-              const dateGames = byDate.get(date)!
-              const sportGroups = groupBySport(dateGames)
-              const sportKeys = Array.from(sportGroups.keys()).sort()
-              const label = dateLabel(date)
-              const isExpanded = dateIdx === 0 || expandedDates.has(date)
-              const isTodayDate = dateIdx === 0
-
-              return (
-                <div key={date} className={dateIdx > 0 ? 'mt-2' : ''}>
-                  <button
-                    onClick={() => {
-                      if (isTodayDate) return
-                      setExpandedDates(prev => {
-                        const n = new Set(prev)
-                        n.has(date) ? n.delete(date) : n.add(date)
-                        return n
-                      })
-                    }}
-                    className="w-full flex items-center gap-3 mb-3 group">
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {isTodayDate && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
-                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: isTodayDate ? '22px' : '15px', color: isTodayDate ? '#f0f4ff' : '#4a5f7a', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</span>
-                      <span className="text-xs text-slate-600">{dateGames.filter(g => g.status === 'Final').length} finals</span>
-                    </div>
-                    <div className="flex-1 h-px bg-white/5" />
-                    {isTodayDate && (
-                      <button onClick={e => { e.stopPropagation(); setCompact(c => !c) }}
-                        className="text-xs px-2 py-0.5 rounded flex-shrink-0 transition-colors"
-                        style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', background: compact ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.05)', color: compact ? '#60a5fa' : '#4a5f7a', border: `1px solid ${compact ? 'rgba(37,99,235,0.3)' : 'rgba(255,255,255,0.06)'}` }}>
-                        {compact ? 'STANDARD' : 'COMPACT'}
-                      </button>
-                    )}
-                    {!isTodayDate && <span className="text-slate-600 text-xs flex-shrink-0">{isExpanded ? '▲' : '▼'}</span>}
-                  </button>
-
-                  {isExpanded && (
-                    <div className="rounded-2xl overflow-hidden border border-white/6 mb-6" style={{ background: 'rgba(8,12,20,0.7)' }}>
-                      {sportKeys.map((sportKey, sportIdx) => {
-                        const games = sportGroups.get(sportKey)!
-                        const icon = SPORT_ICONS[sportKey] || '🏆'
-                        const finals = games.filter(g => g.status === 'Final')
-                        return (
-                          <div key={sportKey}>
-                            {sportIdx > 0 && <div className="mx-4 h-px bg-white/[0.04]" />}
-                            <div className="px-4 pt-3 pb-1 flex items-center gap-2">
-                              <span className="text-sm leading-none">{icon}</span>
-                              <span className="font-black text-xs uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: '#4a5f7a', letterSpacing: '0.14em' }}>{sportKey}</span>
-                            </div>
-                            {finals.map(game => {
-                              const ht = game.home_team
-                              const at = game.away_team
-                              const homeName = ht?.school?.school_name || (game as any).external_home?.name || 'TBD'
-                              const awayName = at?.school?.school_name || (game as any).external_away?.name || 'TBD'
-                              const homeColor = ht?.school?.primary_color || '#334155'
-                              const awayColor = at?.school?.primary_color || '#334155'
-                              const homeLogo = (ht?.school as any)?.logo_url || null
-                              const awayLogo = (at?.school as any)?.logo_url || null
-                              const hasRecap = !!(game as any).recap
-                              const isGolfGame = game.sport?.sport_name?.toLowerCase().includes('golf')
-                              const homeWins = isGolfGame ? (game.home_score ?? 999) < (game.away_score ?? 999) : (game.home_score ?? 0) > (game.away_score ?? 0)
-                              const awayWins = isGolfGame ? (game.away_score ?? 999) < (game.home_score ?? 999) : (game.away_score ?? 0) > (game.home_score ?? 0)
-                              const diff = Math.abs((game.home_score ?? 0) - (game.away_score ?? 0))
-                              const isClose = diff <= 2
-                              const isBlowout = diff >= 15
-                              const winnerColor = homeWins ? homeColor : awayColor
-
-                              if (compact) {
-                                return (
-                                  <Link key={game.id} href={`/games/${game.id}`} className="flex items-center px-4 py-1.5 hover:bg-white/[0.03] transition-colors">
-                                    <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 mr-3" style={{ background: winnerColor }} />
-                                    <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 700 : 400, fontSize: '13px', color: awayWins ? '#d1d9e8' : '#4a5568' }}>{awayName}</span>
-                                      <span style={{ color: '#2d3748', fontSize: '11px' }}>at</span>
-                                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 700 : 400, fontSize: '13px', color: homeWins ? '#d1d9e8' : '#4a5568' }}>{homeName}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                                      {hasRecap && <span className="text-xs text-blue-400">📝</span>}
-                                      {isClose && <span className="text-xs text-amber-400">🔥</span>}
-                                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '13px', color: '#ffffff' }}>
-                                        {awayWins ? game.away_score : game.home_score}<span style={{ color: '#374151', fontWeight: 400 }}>–</span>{awayWins ? game.home_score : game.away_score}
-                                      </span>
-                                      <span className="text-xs font-bold text-emerald-500" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>F</span>
-                                    </div>
-                                  </Link>
-                                )
-                              }
-
-                              return (
-                                <Link key={game.id} href={`/games/${game.id}`}
-                                  className="flex items-center px-4 py-2.5 hover:bg-white/[0.025] transition-colors group border-l-2 border-transparent"
-                                  onMouseEnter={e => (e.currentTarget.style.borderLeftColor = winnerColor + '60')}
-                                  onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'transparent')}>
-                                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mr-3 mt-0.5" style={{ background: winnerColor, boxShadow: `0 0 6px ${winnerColor}80` }} />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 mb-0.5">
-                                      <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>AWY</span>
-                                      <TeamDot color={awayColor} logo={awayLogo} />
-                                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '15px' : '14px', color: awayWins ? '#e8edf5' : '#8a9ab0' }}>{awayName}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs text-slate-700 w-6 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>HME</span>
-                                      <TeamDot color={homeColor} logo={homeLogo} />
-                                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '15px' : '14px', color: homeWins ? '#e8edf5' : '#8a9ab0' }}>{homeName}</span>
-                                    </div>
-                                  </div>
-                                  <div className="flex flex-col items-end ml-4 flex-shrink-0 gap-0.5">
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: awayWins ? 800 : 500, fontSize: awayWins ? '20px' : '15px', color: awayWins ? '#ffffff' : '#52647a', lineHeight: 1 }}>{game.away_score}</span>
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: homeWins ? 800 : 500, fontSize: homeWins ? '20px' : '15px', color: homeWins ? '#ffffff' : '#52647a', lineHeight: 1 }}>{game.home_score}</span>
-                                  </div>
-                                  <div className="flex flex-col items-center ml-2 flex-shrink-0 gap-1">
-                                    <span className="text-xs font-bold text-emerald-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px' }}>F</span>
-                                    {hasRecap && <span className="text-xs leading-none">📝</span>}
-                                    {isClose && <span className="text-xs leading-none">🔥</span>}
-                                    {isBlowout && <span className="text-xs leading-none opacity-40">💨</span>}
-                                  </div>
-                                </Link>
-                              )
-                            })}
-                            <div className="pb-1" />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* ── SIDEBAR ── */}
-        <div className="space-y-4">
-
-          {/* School search */}
-          <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3" style={{ fontFamily: 'var(--font-display)' }}>Find a School</p>
-            <input className="input text-sm w-full" placeholder="Search schools..."
-              value={schoolSearch} onChange={e => setSchoolSearch(e.target.value)} />
-            {filteredSchools.length > 0 && (
-              <div className="mt-2 space-y-0.5">
-                {filteredSchools.map(school => (
-                  <Link key={school.id} href={`/schools/${school.slug}`}
-                    className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors group"
-                    onClick={() => setSchoolSearch('')}>
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: school.primary_color || '#1e3a5f' }}>
-                      {(school as any).logo_url
-                        ? <img src={(school as any).logo_url} alt="" className="w-full h-full object-contain" />
-                        : <span className="text-white text-xs font-black" style={{ fontFamily: 'var(--font-display)' }}>{school.school_name[0]}</span>
-                      }
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm text-slate-200 group-hover:text-white transition-colors truncate">{school.school_name}</p>
-                      <p className="text-xs text-slate-600">{school.city}</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Quick actions */}
-          <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3" style={{ fontFamily: 'var(--font-display)' }}>Quick Actions</p>
-            <div className="space-y-1">
-              {[
-                { href: '/submit-score', label: 'Submit a Score', icon: '✏️', accent: true },
-                { href: '/submit-photo', label: 'Submit a Photo', icon: '📷', accent: false },
-                { href: '/shoutout', label: 'Send a Shoutout', icon: '🌟', accent: false },
-                { href: '/nominate', label: 'Nominate an Athlete', icon: '🏅', accent: false },
-              ].map(link => (
-                <Link key={link.href} href={link.href}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${link.accent ? 'text-white hover:brightness-110' : 'text-slate-300 hover:text-white hover:bg-white/5'}`}
-                  style={link.accent ? { background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.04em' } : {}}>
-                  <span className="text-base">{link.icon}</span> {link.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Score Alerts */}
-          <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>🔔 Score Alerts</p>
-            <p className="text-xs text-slate-500 mb-1">Get notified when Section X scores are posted.</p>
-            <ScoreAlertForm />
-          </div>
-
-          {/* Athlete of Week */}
-          {featuredAthlete && (
-            <div className="rounded-2xl overflow-hidden border border-yellow-400/20" style={{ background: 'rgba(251,191,36,0.04)' }}>
-              <div className="px-4 py-3 border-b border-yellow-400/10 flex items-center gap-2">
-                <span className="text-base">🏅</span>
-                <p className="text-xs font-black text-yellow-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>Athlete of the Week</p>
-              </div>
-              <div className="p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  {featuredAthlete.photo_url ? (
-                    <img src={featuredAthlete.photo_url} alt={featuredAthlete.athlete_name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0 border border-white/10" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10" style={{ background: featuredAthlete.school?.primary_color || '#1e3a5f' }}>
-                      {featuredAthlete.school?.logo_url
-                        ? <img src={featuredAthlete.school.logo_url} alt="" className="w-full h-full object-contain p-1.5" />
-                        : <span className="text-white font-black text-lg" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.athlete_name[0]}</span>
-                      }
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="font-black text-white text-base leading-tight" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.athlete_name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{[featuredAthlete.grade, featuredAthlete.sport_name, featuredAthlete.school?.school_name].filter(Boolean).join(' · ')}</p>
-                  </div>
-                </div>
-                {featuredAthlete.stats && (
-                  <div className="rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.15)' }}>
-                    <p className="text-xs font-black text-yellow-400" style={{ fontFamily: 'var(--font-display)' }}>{featuredAthlete.stats}</p>
-                  </div>
-                )}
-                <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">{featuredAthlete.body}</p>
-                <Link href="/nominate" className="block text-center mt-3 text-xs font-bold text-yellow-400 hover:text-yellow-300 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>NOMINATE AN ATHLETE →</Link>
-              </div>
-            </div>
-          )}
-
-          {/* Latest Shoutout */}
-          {latestShoutout && (
-            <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
-              <p className="text-xs font-black text-yellow-500 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)' }}>🏆 Latest Shoutout</p>
-              {latestShoutout.athlete_name && <p className="text-white font-black text-base leading-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>{latestShoutout.athlete_name}</p>}
-              <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">{latestShoutout.description}</p>
-              <Link href="/shoutout" className="block mt-2 text-xs text-yellow-500 font-bold hover:text-yellow-400 transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>SEND A SHOUTOUT →</Link>
-            </div>
-          )}
-
-          {/* Explore */}
-          <div className="rounded-2xl p-4 border border-white/6" style={{ background: 'rgba(10,15,28,0.7)' }}>
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3" style={{ fontFamily: 'var(--font-display)' }}>Explore</p>
-            <div className="space-y-0.5">
-              {[
-                { href: '/scores', label: 'All Scores', icon: '📅' },
-                { href: '/standings', label: 'Standings', icon: '📊' },
-                { href: '/playoffs', label: 'Playoffs', icon: '🏆' },
-                { href: '/spotlight', label: 'Spotlight', icon: '📰' },
-                { href: '/schools', label: 'All Schools', icon: '🏫' },
-                { href: '/photos', label: 'Photo Gallery', icon: '📷' },
-              ].map(link => (
-                <Link key={link.href} href={link.href}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-400 hover:text-slate-200 hover:bg-white/4 transition-colors">
-                  <span className="w-5 text-center">{link.icon}</span> {link.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Featured photo */}
-          {featuredPhoto && (
-            <div className="rounded-2xl overflow-hidden border border-white/6">
-              <div className="relative">
-                <img src={featuredPhoto.photo_url} alt={featuredPhoto.caption || 'Section X sports'} className="w-full aspect-video object-cover" loading="lazy" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                <div className="absolute bottom-0 left-0 right-0 p-3">
-                  <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--font-display)' }}>Photo of the Week</p>
-                  {featuredPhoto.caption && <p className="text-sm text-white font-semibold">{featuredPhoto.caption}</p>}
-                  <p className="text-xs text-white/50 mt-0.5">📷 {featuredPhoto.photographer_credit_name || featuredPhoto.submitter_name}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Sponsor — now tracked via HomeSponsorWrapper */}
-          {homepageSponsor ? (
-            <HomeSponsorWrapper sponsor={homepageSponsor} />
-          ) : (
-            <Link href="/advertise" className="block rounded-2xl overflow-hidden transition-all hover:-translate-y-0.5"
-              style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.03), rgba(8,12,24,0.8))', border: '1px dashed rgba(255,255,255,0.1)' }}>
-              <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                <p className="text-xs font-black uppercase tracking-widest text-slate-600" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.14em' }}>Sponsor This Section</p>
-              </div>
-              <div className="px-4 py-4">
-                <p className="font-black text-slate-400 text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>Your Business Here</p>
-                <p className="text-slate-600 text-xs mb-3">Reach thousands of North Country sports families every night.</p>
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold text-blue-400" style={{ fontFamily: 'var(--font-display)', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}>LEARN MORE →</div>
-              </div>
-            </Link>
-          )}
-
-          {/* Spotlight */}
-          {featuredSpotlight ? (
-            <Link href={`/spotlight/${featuredSpotlight.id}`}
-              className="block rounded-2xl p-4 border border-white/8 transition-all hover:-translate-y-0.5 group"
-              style={{ background: 'rgba(10,15,28,0.7)' }}>
-              <p className="text-xs font-black text-blue-400 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>📰 Section X Spotlight</p>
-              <p className="text-white font-black text-sm leading-tight mb-2 group-hover:text-blue-300 transition-colors" style={{ fontFamily: 'var(--font-display)' }}>{featuredSpotlight.title}</p>
-              <p className="text-slate-400 text-xs leading-relaxed line-clamp-3">{featuredSpotlight.body}</p>
-              <div className="flex items-center justify-between mt-2">
-                <p className="text-xs text-slate-600">by {featuredSpotlight.author}</p>
-                <p className="text-xs font-bold text-blue-400 group-hover:text-blue-300" style={{ fontFamily: 'var(--font-display)' }}>Read →</p>
-              </div>
-            </Link>
-          ) : (
-            <div className="rounded-2xl p-4 border border-white/4" style={{ background: 'rgba(10,15,28,0.4)' }}>
-              <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2" style={{ fontFamily: 'var(--font-display)' }}>Section X Spotlight</p>
-              <p className="text-xs text-slate-600">Coming soon: interviews, athlete stories, and weekly Section X sports recaps.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+function HeroStat({label,value,tone}:{label:string;value:number;tone:'yellow'|'green'|'blue'}) {
+  const color = tone==='yellow'?'#fde047':tone==='green'?'#4ade80':'#60a5fa'
+  return <div className="rounded-2xl p-3 sm:p-4 text-center" style={{background:'rgba(255,255,255,.028)',border:'1px solid rgba(255,255,255,.07)'}}><div className="text-2xl sm:text-3xl font-black" style={{color}}>{value}</div><div className="text-[9px] sm:text-[10px] uppercase tracking-[.12em] text-white/30 mt-1">{label}</div></div>
 }
+
+function FeatureGame({game}:{game:any}) {
+  return <Link href={`/game-center/${game.id}`} className="block rounded-3xl p-5 transition-all hover:-translate-y-1" style={{background:'linear-gradient(135deg,rgba(250,204,21,.11),rgba(18,24,38,.96))',border:'1px solid rgba(250,204,21,.16)'}}><div className="text-[9px] uppercase tracking-[.18em] font-black text-yellow-300/70">Game to watch</div><div className="mt-3 text-lg font-black text-white leading-tight">{teamName(game,'away')} <span className="text-white/25">at</span> {teamName(game,'home')}</div><div className="mt-3 text-xs text-white/38">{sportName(game)} · {formatGameTime(game.game_time)}</div><div className="mt-4 text-[10px] font-black text-yellow-300">OPEN GAME CENTER →</div></Link>
+}
+
+function QuickLinks() {
+  return <div className="grid grid-cols-2 gap-2"><Quick href="/standings" title="Standings" sub="See who's on top"/><Quick href="/playoffs" title="Playoffs" sub="Brackets & road ahead"/><Quick href="/sports" title="Sports" sub="Browse every sport"/><Quick href="/spotlight" title="Stories" sub="Section X Spotlight"/></div>
+}
+function Quick({href,title,sub}:{href:string;title:string;sub:string}) {return <Link href={href} className="rounded-2xl p-4 hover:-translate-y-0.5 transition-transform" style={{background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.06)'}}><div className="text-sm font-black text-white/78">{title}</div><div className="text-[10px] text-white/28 mt-1">{sub}</div></Link>}
+function MobileNav({href,label}:{href:string;label:string}) {return <Link href={href} className="rounded-xl py-2.5 text-center text-[10px] font-black uppercase tracking-[.08em] text-white/55 active:text-yellow-300 active:bg-white/[.04]">{label}</Link>}
