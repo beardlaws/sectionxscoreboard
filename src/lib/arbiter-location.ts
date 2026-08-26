@@ -48,6 +48,17 @@ function semanticVenueFingerprint(value: unknown): string {
     .trim()
 }
 
+function canonicalKnownVenue(value: string): string {
+  // Arbiter currently publishes OFA's named field as Ronald N. Johnson Turf Field,
+  // while older imports used the generic Turf Field label. These are the same
+  // facility, so collapse only this known school/facility alias rather than
+  // weakening venue matching globally.
+  return value
+    .replace(/^ogdensburg free academy ronald n johnson turf field$/, 'ogdensburg free academy turf field')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function arbiterLocationFingerprint(value: unknown): string {
   let raw = stripLeadingArbiterMarker(cleanArbiterLocation(value))
     .replace(/\bshow\s+details\b.*$/i, '')
@@ -61,10 +72,12 @@ export function arbiterLocationFingerprint(value: unknown): string {
   const scheduleNoise = raw.search(/\s+(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i)
   if (scheduleNoise >= 0) raw = raw.slice(0, scheduleNoise).trim()
 
-  return semanticVenueFingerprint(raw)
-    .replace(/^stl\s+/, 'st ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return canonicalKnownVenue(
+    semanticVenueFingerprint(raw)
+      .replace(/^stl\s+/, 'st ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
 }
 
 function genericVenueSuffix(extra: string): boolean {
@@ -126,11 +139,9 @@ function anchorsCompatible(a: VenueProfile, b: VenueProfile): boolean {
   if (a.anchor === b.anchor) return true
   const shorter = a.anchor.length <= b.anchor.length ? a.anchor : b.anchor
   const longer = a.anchor.length > b.anchor.length ? a.anchor : b.anchor
-  // Arbiter often expands a school venue with an honorific facility name
-  // (example: "Ogdensburg Free Academy Turf Field" ->
-  // "Ogdensburg Free Academy Ronald N. Johnson Turf Field"). Treat those
-  // as the same facility only when the school anchor is preserved and the
-  // facility type also matches.
+  // Arbiter sometimes expands a venue with a named facility. Only treat that
+  // as equivalent when the school anchor is preserved and the facility family
+  // also matches below.
   return shorter.length >= 6 && longer.startsWith(`${shorter} `)
 }
 
