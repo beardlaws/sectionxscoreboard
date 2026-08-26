@@ -84,11 +84,19 @@ export async function POST(req:NextRequest){
       const homeInternal=row.home.kind==='internal'?row.home.id:null,awayInternal=row.away.kind==='internal'?row.away.id:null
       const homeExternal=row.home.kind==='external'?await ensureExternal(row.home):null,awayExternal=row.away.kind==='external'?await ensureExternal(row.away):null
       if((!homeInternal&&!homeExternal)||(!awayInternal&&!awayExternal))throw new Error('Opponent resolution incomplete during create.')
-      const {data:same,error:sameError}=await db.from('games').select('id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id').eq('game_date',row.date).eq('sport_id',row.sportId)
+      const {data:same,error:sameError}=await db.from('games').select('id,game_time,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id').eq('game_date',row.date).eq('sport_id',row.sportId)
       if(sameError)throw new Error(`Duplicate safety check failed: ${sameError.message}`)
       const h=homeInternal?`t:${homeInternal}`:`e:${homeExternal}`,a=awayInternal?`t:${awayInternal}`:`e:${awayExternal}`
       const token=(g:any,home:boolean)=>{const t=home?g.home_team_id:g.away_team_id,e=home?g.external_home_opponent_id:g.external_away_opponent_id;return t?`t:${t}`:e?`e:${e}`:'tba'}
-      const duplicate=(same||[]).find((g:any)=>(token(g,true)===h&&token(g,false)===a)||(token(g,true)===a&&token(g,false)===h))
+      const teamMatches=(same||[]).filter((g:any)=>(token(g,true)===h&&token(g,false)===a)||(token(g,true)===a&&token(g,false)===h))
+      let duplicate:any=null
+      if(row.time){
+        const exactTime=teamMatches.filter((g:any)=>String(g.game_time||'').slice(0,5)===row.time)
+        if(exactTime.length>1)throw new Error('Multiple same-team same-time games already exist; manual reconciliation required.')
+        duplicate=exactTime[0]||null
+      }else if(teamMatches.length){
+        throw new Error('Same teams already play on this date and Arbiter has no reliable time; manual reconciliation required.')
+      }
       if(duplicate){await updateExisting(row,duplicate.id);await log(row,'duplicate-prevented','ok',duplicate.id,{bucket:row.bucket});return}
       const insert:any={season_id:audit.season.id,sport_id:row.sportId,home_team_id:homeInternal,away_team_id:awayInternal,external_home_opponent_id:homeExternal,external_away_opponent_id:awayExternal,game_date:row.date,game_time:row.time||null,location:meaningfulLocation(row.location)?row.location:null,status:sourceStatus(row.status),verification_status:'Reported',source:'arbiter-api',contest_type:contestType(row.type)}
       const {data:created,error:createError}=await db.from('games').insert(insert).select('id').single()
@@ -123,7 +131,7 @@ export async function POST(req:NextRequest){
 
     const status=totals.failed?'completed-with-errors':'completed'
     await db.from('arbiter_sync_runs').update({status,summary:{...totals,planned:audit.comparison.counts},finished_at:new Date().toISOString()}).eq('id',runId)
-    return NextResponse.json({ok:totals.failed===0,controlledWrite:true,runId,season:audit.season,window:audit.window,totals,comparison:audit.comparison,actions:logs.slice(0,200),note:'Only confidently resolved rows were written. TBA, event sports, mapping ambiguity, orphaned links, and unlinked cancelled source rows were quarantined.'},{status:totals.failed?207:200})
+    return NextResponse.json({ok:totals.failed===0,controlledWrite:true,runId,season:audit.season,window:audit.window,totals,comparison:audit.comparison,actions:logs.slice(0,200),note:'Only confidently resolved rows were written. TBA, event sports, title/type conflicts, ambiguous same-day matches, mapping ambiguity, orphaned links, other-season rows, and unlinked cancelled source rows were quarantined or skipped.'},{status:totals.failed?207:200})
   }catch(error){
     console.error('Arbiter controlled sync error:',error)
     if(runId)await db.from('arbiter_sync_runs').update({status:'failed',summary:{error:error instanceof Error?error.message:String(error)},finished_at:new Date().toISOString()}).eq('id',runId)
