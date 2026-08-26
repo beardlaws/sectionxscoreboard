@@ -6,6 +6,7 @@ import PublicLayout from '@/components/layout/PublicLayout'
 import SchoolLogo from '@/components/SchoolLogo'
 import { createClient } from '@/lib/supabase/server'
 import { calculateStandings } from '@/lib/standings'
+import { isScrimmage } from '@/lib/gameType'
 import GameCenterActions from './GameCenterActions'
 
 export const revalidate = 60
@@ -17,6 +18,8 @@ type GameCard = {
   game_date: string
   game_time: string | null
   status: string | null
+  contest_type?: string | null
+  notes?: string | null
   home_score: number | null
   away_score: number | null
   home_team_id: string | null
@@ -64,11 +67,11 @@ function statusKey(game: any) {
 }
 
 function isFinal(game: any) {
-  return statusKey(game) === 'final'
+  return !isScrimmage(game) && statusKey(game) === 'final'
 }
 
 function isLive(game: any) {
-  return ['live', 'in progress'].includes(statusKey(game))
+  return !isScrimmage(game) && ['live', 'in progress'].includes(statusKey(game))
 }
 
 function isPostponed(game: any) {
@@ -80,6 +83,11 @@ function isCanceled(game: any) {
 }
 
 function statusText(game: any) {
+  if (isScrimmage(game)) {
+    if (isPostponed(game)) return 'Postponed Scrimmage'
+    if (isCanceled(game)) return 'Canceled Scrimmage'
+    return 'Scrimmage'
+  }
   if (isFinal(game)) return 'Final'
   if (isLive(game)) return 'Live'
   if (isPostponed(game)) return 'Postponed'
@@ -88,6 +96,11 @@ function statusText(game: any) {
 }
 
 function statusTone(game: any) {
+  if (isScrimmage(game)) {
+    if (isPostponed(game)) return 'border-orange-400/25 bg-orange-400/10 text-orange-300'
+    if (isCanceled(game)) return 'border-red-400/25 bg-red-400/10 text-red-300'
+    return 'border-yellow-300/30 bg-yellow-300/10 text-yellow-200'
+  }
   if (isLive(game)) return 'border-yellow-300/30 bg-yellow-300/10 text-yellow-200'
   if (isFinal(game)) return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-300'
   if (isPostponed(game)) return 'border-orange-400/25 bg-orange-400/10 text-orange-300'
@@ -132,6 +145,7 @@ function MatchupMini({ game, currentId }: { game: GameCard; currentId?: string }
   const home = shortName(teamName(game, 'home'))
   const final = isFinal(game)
   const live = isLive(game)
+  const scrimmage = isScrimmage(game)
   return (
     <Link
       href={`/game-center/${game.id}`}
@@ -139,7 +153,7 @@ function MatchupMini({ game, currentId }: { game: GameCard; currentId?: string }
     >
       <div className="flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-[0.13em]">
         <span className="text-white/35">{dateLabel(game.game_date)} · {timeLabel(game.game_time)}</span>
-        <span className={live ? 'text-yellow-300' : final ? 'text-emerald-400' : isPostponed(game) ? 'text-orange-300' : isCanceled(game) ? 'text-red-300' : 'text-blue-300'}>{statusText(game)}</span>
+        <span className={scrimmage ? 'text-yellow-300' : live ? 'text-yellow-300' : final ? 'text-emerald-400' : isPostponed(game) ? 'text-orange-300' : isCanceled(game) ? 'text-red-300' : 'text-blue-300'}>{statusText(game)}</span>
       </div>
       <div className="mt-3 space-y-2 text-sm">
         <div className="flex items-center justify-between gap-3"><span className="truncate font-bold text-white/75">{away}</span><span className="font-black tabular-nums text-white">{final || live ? game.away_score ?? '—' : ''}</span></div>
@@ -154,7 +168,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { data } = await supabase
     .from('games')
     .select(`
-      id, game_date, game_time, status, home_score, away_score,
+      id, game_date, game_time, status, contest_type, notes, home_score, away_score,
       sport:sports(sport_name),
       home_team:teams!games_home_team_id_fkey(school:schools(school_name)),
       away_team:teams!games_away_team_id_fkey(school:schools(school_name)),
@@ -168,13 +182,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const game: any = data
   const home = teamName(game, 'home')
   const away = teamName(game, 'away')
+  const scrimmage = isScrimmage(game)
   const score = isFinal(game) && game.away_score != null && game.home_score != null
     ? `${away} ${game.away_score}, ${home} ${game.home_score}`
     : null
-  const title = score ? `${score} | Final` : `${away} at ${home} | Game Center`
-  const description = score
-    ? `Final score, matchup context and game details for ${score} in Section X ${game.sport?.sport_name || 'sports'}.`
-    : `${game.sport?.sport_name || 'Section X sports'} matchup hub for ${away} at ${home} on ${longDate(game.game_date)}.`
+  const title = scrimmage
+    ? `${away} at ${home} | Scrimmage`
+    : score
+      ? `${score} | Final`
+      : `${away} at ${home} | Game Center`
+  const description = scrimmage
+    ? `Section X ${game.sport?.sport_name || 'sports'} scrimmage details for ${away} at ${home} on ${longDate(game.game_date)}. Scrimmages do not count in official records or standings.`
+    : score
+      ? `Final score, matchup context and game details for ${score} in Section X ${game.sport?.sport_name || 'sports'}.`
+      : `${game.sport?.sport_name || 'Section X sports'} matchup hub for ${away} at ${home} on ${longDate(game.game_date)}.`
   const url = `https://sectionxscoreboard.com/game-center/${params.id}`
 
   return {
@@ -221,6 +242,7 @@ export default async function GameCenterPage({ params }: PageProps) {
   const awaySchool = joined<any>(awayTeam?.school)
   const homeName = teamName(game, 'home')
   const awayName = teamName(game, 'away')
+  const scrimmage = isScrimmage(game)
   const final = isFinal(game)
   const live = isLive(game)
   const postponed = isPostponed(game)
@@ -238,9 +260,9 @@ export default async function GameCenterPage({ params }: PageProps) {
       ? supabase.from('team_seasons').select(`team_id, division, class, btm_override, active_for_season, team:teams(*, school:schools(*))`).eq('season_id', game.season_id).neq('active_for_season', false)
       : Promise.resolve({ data: [] } as any),
     game.season_id && game.sport_id
-      ? supabase.from('games').select(`*, home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`).eq('season_id', game.season_id).eq('sport_id', game.sport_id).eq('status', 'Final')
+      ? supabase.from('games').select(`*, home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`).eq('season_id', game.season_id).eq('sport_id', game.sport_id).eq('status', 'Final').neq('contest_type', 'Scrimmage')
       : Promise.resolve({ data: [] } as any),
-    supabase.from('games').select(`id, game_date, game_time, status, home_score, away_score, home_team_id, away_team_id, location, sport:sports(sport_name, slug), home_team:teams!games_home_team_id_fkey(school:schools(school_name)), away_team:teams!games_away_team_id_fkey(school:schools(school_name)), external_home:external_opponents!games_external_home_opponent_id_fkey(name), external_away:external_opponents!games_external_away_opponent_id_fkey(name)`).eq('game_date', game.game_date).neq('id', game.id).order('game_time', { ascending: true }).limit(8),
+    supabase.from('games').select(`id, game_date, game_time, status, contest_type, notes, home_score, away_score, home_team_id, away_team_id, location, sport:sports(sport_name, slug), home_team:teams!games_home_team_id_fkey(school:schools(school_name)), away_team:teams!games_away_team_id_fkey(school:schools(school_name)), external_home:external_opponents!games_external_home_opponent_id_fkey(name), external_away:external_opponents!games_external_away_opponent_id_fkey(name)`).eq('game_date', game.game_date).neq('id', game.id).order('game_time', { ascending: true }).limit(8),
   ])
 
   const photos = photosRes.data || []
@@ -270,7 +292,7 @@ export default async function GameCenterPage({ params }: PageProps) {
     if (!teamId || !game.season_id || !game.sport_id) return []
     const { data: rows } = await supabase
       .from('games')
-      .select(`id, game_date, game_time, status, home_score, away_score, home_team_id, away_team_id, location, home_team:teams!games_home_team_id_fkey(school:schools(school_name)), away_team:teams!games_away_team_id_fkey(school:schools(school_name)), external_home:external_opponents!games_external_home_opponent_id_fkey(name), external_away:external_opponents!games_external_away_opponent_id_fkey(name)`)
+      .select(`id, game_date, game_time, status, contest_type, notes, home_score, away_score, home_team_id, away_team_id, location, home_team:teams!games_home_team_id_fkey(school:schools(school_name)), away_team:teams!games_away_team_id_fkey(school:schools(school_name)), external_home:external_opponents!games_external_home_opponent_id_fkey(name), external_away:external_opponents!games_external_away_opponent_id_fkey(name)`)
       .eq('season_id', game.season_id)
       .eq('sport_id', game.sport_id)
       .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
@@ -297,9 +319,10 @@ export default async function GameCenterPage({ params }: PageProps) {
   if (awayTeam?.id && homeTeam?.id && game.sport_id) {
     const { data: rows } = await supabase
       .from('games')
-      .select(`id, game_date, game_time, status, home_score, away_score, home_team_id, away_team_id, season_id, season:seasons(name), home_team:teams!games_home_team_id_fkey(school:schools(school_name)), away_team:teams!games_away_team_id_fkey(school:schools(school_name))`)
+      .select(`id, game_date, game_time, status, contest_type, notes, home_score, away_score, home_team_id, away_team_id, season_id, season:seasons(name), home_team:teams!games_home_team_id_fkey(school:schools(school_name)), away_team:teams!games_away_team_id_fkey(school:schools(school_name))`)
       .eq('sport_id', game.sport_id)
       .eq('status', 'Final')
+      .neq('contest_type', 'Scrimmage')
       .or(`and(home_team_id.eq.${awayTeam.id},away_team_id.eq.${homeTeam.id}),and(home_team_id.eq.${homeTeam.id},away_team_id.eq.${awayTeam.id})`)
       .neq('id', game.id)
       .order('game_date', { ascending: false })
@@ -338,9 +361,11 @@ export default async function GameCenterPage({ params }: PageProps) {
     return Array.from(grouped.values())
   }
 
-  const shareTitle = final && game.away_score != null && game.home_score != null
-    ? `${awayName} ${game.away_score}, ${homeName} ${game.home_score} — Final`
-    : `${awayName} at ${homeName} — ${game.sport?.sport_name || 'Section X'}`
+  const shareTitle = scrimmage
+    ? `${awayName} at ${homeName} — Scrimmage`
+    : final && game.away_score != null && game.home_score != null
+      ? `${awayName} ${game.away_score}, ${homeName} ${game.home_score} — Final`
+      : `${awayName} at ${homeName} — ${game.sport?.sport_name || 'Section X'}`
 
   const awayColor = awaySchool?.primary_color || '#2563eb'
   const homeColor = homeSchool?.primary_color || '#facc15'
@@ -373,7 +398,15 @@ export default async function GameCenterPage({ params }: PageProps) {
               </div>
 
               <div className="px-1 sm:px-5 text-center">
-                {live || final ? (
+                {scrimmage ? (
+                  postponed ? (
+                    <div><div className="text-xl sm:text-3xl font-black text-orange-300">POSTPONED</div><div className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-yellow-300">Scrimmage</div></div>
+                  ) : canceled ? (
+                    <div><div className="text-xl sm:text-3xl font-black text-red-300">CANCELED</div><div className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-yellow-300">Scrimmage</div></div>
+                  ) : (
+                    <div><div className="text-2xl sm:text-5xl font-black text-white tracking-tight">{timeLabel(game.game_time)}</div><div className="mt-2 text-xs font-black uppercase tracking-[0.2em] text-yellow-300">Scrimmage</div><div className="mt-1 text-[10px] text-white/35">No official score or standings result</div></div>
+                  )
+                ) : live || final ? (
                   <div>
                     <div className="flex items-center justify-center gap-2 sm:gap-5">
                       <span className={`text-5xl sm:text-7xl lg:text-8xl font-black tabular-nums tracking-tight ${awayWins ? 'text-white' : 'text-white/55'}`}>{game.away_score ?? '—'}</span>
@@ -402,7 +435,7 @@ export default async function GameCenterPage({ params }: PageProps) {
             <div className="mt-7 grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-2xl overflow-hidden border border-white/[0.07] bg-black/20">
               <div className="px-4 py-3"><div className="text-[9px] uppercase tracking-[0.16em] text-white/25">Venue</div><div className="mt-1 text-sm font-bold text-white/70">{venue}</div></div>
               <div className="px-4 py-3 sm:border-x border-white/[0.07]"><div className="text-[9px] uppercase tracking-[0.16em] text-white/25">Season</div><div className="mt-1 text-sm font-bold text-white/70">{game.season?.name || 'Current season'}</div></div>
-              <div className="px-4 py-3"><div className="text-[9px] uppercase tracking-[0.16em] text-white/25">Event</div><div className="mt-1 text-sm font-bold text-white/70">{game.event_name || (game.is_playoff ? game.playoff_round || 'Playoffs' : game.neutral_site ? 'Neutral-site game' : 'Regular season')}</div></div>
+              <div className="px-4 py-3"><div className="text-[9px] uppercase tracking-[0.16em] text-white/25">Event</div><div className="mt-1 text-sm font-bold text-white/70">{scrimmage ? 'Scrimmage' : game.event_name || (game.is_playoff ? game.playoff_round || 'Playoffs' : game.neutral_site ? 'Neutral-site game' : 'Regular season')}</div></div>
             </div>
 
             <div className="mt-5 flex justify-center"><GameCenterActions gameId={game.id} shareTitle={shareTitle} /></div>
@@ -410,6 +443,13 @@ export default async function GameCenterPage({ params }: PageProps) {
         </section>
 
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+          {scrimmage && (
+            <section className="rounded-2xl border border-yellow-300/20 bg-yellow-300/[0.055] px-5 py-4">
+              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300">Preseason / non-counting event</div>
+              <div className="mt-1 text-sm font-bold text-white/80">This is a scrimmage. Section X Scoreboard does not record an official score, win/loss, BTM result or season-series result from this event.</div>
+            </section>
+          )}
+
           {(awayStanding || homeStanding) && (
             <section className="grid md:grid-cols-2 gap-3">
               {[{ name: awayName, standing: awayStanding, season: awaySeason, team: awayTeam }, { name: homeName, standing: homeStanding, season: homeSeason, team: homeTeam }].map(item => {
@@ -420,18 +460,18 @@ export default async function GameCenterPage({ params }: PageProps) {
             </section>
           )}
 
-          {periodNumbers.length > 0 && (
+          {!scrimmage && periodNumbers.length > 0 && (
             <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
               <div className="px-5 py-4 border-b border-white/[0.07]"><div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300/65">Scoring detail</div><h2 className="mt-1 text-xl font-black text-white">By period</h2></div>
               <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-sm"><thead><tr className="border-b border-white/[0.07] text-white/35"><th className="text-left px-5 py-3">Team</th>{periodNumbers.map(n => <th key={n} className="px-3 py-3 text-center">{periodLabel(n)}</th>)}<th className="px-5 py-3 text-center">Total</th></tr></thead><tbody><tr className="border-b border-white/[0.05]"><td className="px-5 py-3 font-bold text-white/80">{awayName}</td>{periodNumbers.map(n => <td key={n} className="px-3 py-3 text-center text-white/65">{periodScore('away', n)}</td>)}<td className="px-5 py-3 text-center font-black text-white">{game.away_score ?? '—'}</td></tr><tr><td className="px-5 py-3 font-bold text-white/80">{homeName}</td>{periodNumbers.map(n => <td key={n} className="px-3 py-3 text-center text-white/65">{periodScore('home', n)}</td>)}<td className="px-5 py-3 text-center font-black text-white">{game.home_score ?? '—'}</td></tr></tbody></table></div>
             </section>
           )}
 
-          {statDefinitions.length > 0 && teamStats.length > 0 && (
+          {!scrimmage && statDefinitions.length > 0 && teamStats.length > 0 && (
             <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden"><div className="px-5 py-4 border-b border-white/[0.07]"><div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300/65">Game stats</div><h2 className="mt-1 text-xl font-black text-white">Team comparison</h2></div><div className="divide-y divide-white/[0.05]">{statDefinitions.map(def => { const away = teamStats.find(row => row.team_side === 'away' && row.stat_definition?.id === def.id); const home = teamStats.find(row => row.team_side === 'home' && row.stat_definition?.id === def.id); return <div key={def.id} className="grid grid-cols-[1fr_1.4fr_1fr] gap-3 items-center px-5 py-3"><div className="text-left text-lg font-black text-white">{statValue(away)}</div><div className="text-center text-xs uppercase tracking-wide text-white/35">{def.label}</div><div className="text-right text-lg font-black text-white">{statValue(home)}</div></div> })}</div></section>
           )}
 
-          {athleteDefinitions.length > 0 && athleteStats.length > 0 && (
+          {!scrimmage && athleteDefinitions.length > 0 && athleteStats.length > 0 && (
             <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden"><div className="px-5 py-4 border-b border-white/[0.07]"><div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300/65">Player stats</div><h2 className="mt-1 text-xl font-black text-white">Game leaders</h2></div>{[{ id: awayTeam?.id || null, name: awayName }, { id: homeTeam?.id || null, name: homeName }].map(team => { const rows = athleteRows(team.id); if (!rows.length) return null; return <div key={team.name} className="border-b last:border-b-0 border-white/[0.07]"><div className="px-5 py-3 bg-white/[0.02] text-sm font-black text-white/75">{team.name}</div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-sm"><thead><tr className="text-white/30"><th className="text-left px-5 py-2">Player</th>{athleteDefinitions.map(def => <th key={def.id} className="px-3 py-2 text-center">{def.label}</th>)}</tr></thead><tbody>{rows.map((row: any) => <tr key={row.athlete.id} className="border-t border-white/[0.05]"><td className="px-5 py-3 font-semibold">{row.athlete.slug ? <Link href={`/athletes/${row.athlete.slug}`} className="text-white hover:text-yellow-300">{row.athlete.display_name}</Link> : <span className="text-white/75">{row.athlete.display_name}</span>}</td>{athleteDefinitions.map(def => <td key={def.id} className="px-3 py-3 text-center text-white/60">{statValue(row.stats.get(def.id))}</td>)}</tr>)}</tbody></table></div></div> })}</section>
           )}
 
@@ -452,7 +492,7 @@ export default async function GameCenterPage({ params }: PageProps) {
           {awayTeam?.id && homeTeam?.id && (
             <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
               <div className="px-5 py-4 border-b border-white/[0.07] flex items-end justify-between gap-4 flex-wrap"><div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300/65">Matchup history</div><h2 className="mt-1 text-xl font-black text-white">{shortName(awayName)} vs {shortName(homeName)}</h2></div>{seriesMeetings.length > 0 && <div className="text-right"><div className="text-xs text-white/30">Season series</div><div className="mt-1 font-black text-white">{shortName(awayName)} {awaySeriesWins} · {shortName(homeName)} {homeSeriesWins}{seriesTies ? ` · ${seriesTies} tie${seriesTies === 1 ? '' : 's'}` : ''}</div></div>}</div>
-              {meetings.length ? <div className="grid md:grid-cols-2 gap-2 p-4">{meetings.map(meeting => <MatchupMini key={meeting.id} game={meeting} />)}</div> : <div className="p-6 text-sm text-white/35">No previous final between these teams is in the Section X database yet. This matchup starts the archive.</div>}
+              {meetings.length ? <div className="grid md:grid-cols-2 gap-2 p-4">{meetings.map(meeting => <MatchupMini key={meeting.id} game={meeting} />)}</div> : <div className="p-6 text-sm text-white/35">No previous official final between these teams is in the Section X database yet.</div>}
             </section>
           )}
 
