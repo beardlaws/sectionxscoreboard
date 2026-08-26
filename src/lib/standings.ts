@@ -1,5 +1,6 @@
 import type { StandingsRow } from '@/types'
 import { calculateBTM } from './btm'
+import { isScrimmage } from './gameType'
 
 function normalizeJoinedRecord<T = any>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] || null
@@ -85,6 +86,7 @@ export function calculateStandings(
   const didAwayWin = (hs: number, as_: number) => isGolf ? as_ < hs : as_ > hs
 
   for (const game of games) {
+    if (isScrimmage(game)) continue
     if (game.status !== 'Final') continue
     if (game.home_score == null || game.away_score == null) continue
 
@@ -161,6 +163,7 @@ export function calculateStandings(
 
   const btmGames = games
     .filter(g =>
+      !isScrimmage(g) &&
       g.status === 'Final' &&
       g.home_score != null &&
       g.away_score != null &&
