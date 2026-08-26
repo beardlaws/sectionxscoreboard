@@ -20,6 +20,26 @@ const GAME_SELECT = `
   external_away:external_opponents!games_external_away_opponent_id_fkey(*)
 `
 
+function pickHomepagePhoto(photos:any[], activeSeason:any|null) {
+  if (!photos?.length) return null
+  const seasonType = String(activeSeason?.season_type || '').toLowerCase()
+  const seasonId = String(activeSeason?.id || '')
+
+  const currentSeason = photos.filter(photo => {
+    const photoSeason = String(photo?.sport?.season_type || '').toLowerCase()
+    const gameSeasonId = String(photo?.game?.season_id || '')
+    return (seasonType && photoSeason === seasonType) || (seasonId && gameSeasonId === seasonId)
+  })
+
+  const featuredCurrent = currentSeason.find(photo => photo.featured)
+  if (featuredCurrent) return featuredCurrent
+  if (currentSeason[0]) return currentSeason[0]
+
+  // A generic approved Section X image is a better fallback than the wrong-season sport.
+  const general = photos.find(photo => !photo.sport_id && !photo.game_id)
+  return general || null
+}
+
 async function getHomepageData() {
   const supabase = createClient()
   const now = new Date()
@@ -44,7 +64,7 @@ async function getHomepageData() {
     { data: featuredSpotlight },
     { data: featuredAthlete },
     { data: allSpotlights },
-    { data: featuredPhoto },
+    { data: photoCandidates },
   ] = await Promise.all([
     supabase.from('games').select(GAME_SELECT)
       .eq('game_date', yesterday).order('game_time', { ascending: true }),
@@ -78,9 +98,15 @@ async function getHomepageData() {
       .limit(1).maybeSingle(),
     supabase.from('spotlights').select('id, title, body, author, created_at, sport_name')
       .eq('published', true).order('created_at', { ascending: false }).limit(6),
-    supabase.from('photos').select('*, school:schools(id, school_name, slug, primary_color, logo_url)')
-      .eq('approved', true).order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('photos')
+      .select('*, school:schools(id, school_name, slug, primary_color, logo_url), sport:sports(id, sport_name, gender, season_type), game:games(id, game_date, season_id, sport_id)')
+      .eq('approved', true)
+      .order('featured', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(48),
   ])
+
+  const featuredPhoto = pickHomepagePhoto(photoCandidates || [], activeSeason || null)
 
   return {
     activeSeason: activeSeason || null,
@@ -96,7 +122,7 @@ async function getHomepageData() {
     featuredSpotlight: featuredSpotlight || null,
     featuredAthlete: featuredAthlete || null,
     allSpotlights: allSpotlights || [],
-    featuredPhoto: featuredPhoto || null,
+    featuredPhoto,
   }
 }
 
