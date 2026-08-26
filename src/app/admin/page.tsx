@@ -4,8 +4,8 @@ import AdminLayout from '@/components/layout/AdminLayout'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import {
-  PlusCircle, Upload, CheckSquare, Image, Star, Bell,
-  Calendar, Trophy, School, Users, BarChart2
+  PlusCircle, Upload, CheckSquare, Image,
+  Calendar, Users, BarChart2, ShieldCheck
 } from 'lucide-react'
 
 export const revalidate = 0
@@ -45,6 +45,7 @@ export default async function AdminDashboard() {
   ].filter(Boolean)
 
   const quickActions = [
+    { href: '/admin/schedule-intelligence', icon: ShieldCheck, label: 'Schedule Intelligence', desc: 'Dry-run and controlled Arbiter sync' },
     { href: '/admin/scores/entry', icon: PlusCircle, label: 'Enter Score', desc: 'Add a single game result' },
     { href: '/admin/scores/manage', icon: BarChart2, label: 'Manage Games', desc: 'Edit or delete games' },
     { href: '/admin/import', icon: Upload, label: 'Import Center', desc: 'Paste or upload scores/schedules' },
@@ -57,7 +58,6 @@ export default async function AdminDashboard() {
   return (
     <AdminLayout>
       <div className="p-4 max-w-4xl">
-        {/* Header */}
         <div className="mb-5">
           <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'var(--font-display)' }}>
             Admin Dashboard
@@ -67,7 +67,6 @@ export default async function AdminDashboard() {
           </p>
         </div>
 
-        {/* Alerts */}
         {alerts.length > 0 && (
           <div className="space-y-2 mb-5">
             {alerts.map((alert, i) => alert && (
@@ -88,7 +87,6 @@ export default async function AdminDashboard() {
           </div>
         )}
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           {[
             { label: "Today's Games", value: todayGames || 0 },
@@ -97,18 +95,12 @@ export default async function AdminDashboard() {
             { label: 'Season', value: (activeSeason as any)?.season_type || '—' },
           ].map(stat => (
             <div key={stat.label} className="card p-4 text-center">
-              <div
-                className="text-2xl font-bold text-white"
-                style={{ fontFamily: 'var(--font-scoreboard)' }}
-              >
-                {stat.value}
-              </div>
+              <div className="text-2xl font-bold text-white" style={{ fontFamily: 'var(--font-scoreboard)' }}>{stat.value}</div>
               <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{stat.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Quick actions — large mobile-friendly buttons */}
         <h2 className="section-label mb-3">Quick Actions</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {quickActions.map(action => {
@@ -117,9 +109,7 @@ export default async function AdminDashboard() {
               <Link key={action.href} href={action.href} className="admin-action-btn">
                 <Icon size={22} style={{ color: 'var(--accent-bright)' }} />
                 <div>
-                  <div className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-                    {action.label}
-                  </div>
+                  <div className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>{action.label}</div>
                   <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{action.desc}</div>
                 </div>
               </Link>
