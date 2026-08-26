@@ -119,12 +119,12 @@ function leagueRecordLabel(row: any) {
   return `${row.league_wins}-${row.league_losses}${row.league_ties ? `-${row.league_ties}` : ''}`
 }
 
-function gameResultFor(game: any, teamId: string | null) {
+function gameResultFor(game: any, teamId: string | null, lowerScoreWins = false) {
   if (!teamId || !isFinal(game) || game.home_score == null || game.away_score == null) return null
   const mine = game.home_team_id === teamId ? game.home_score : game.away_score
   const opp = game.home_team_id === teamId ? game.away_score : game.home_score
   if (mine === opp) return 'T'
-  return mine > opp ? 'W' : 'L'
+  return (lowerScoreWins ? mine < opp : mine > opp) ? 'W' : 'L'
 }
 
 function MatchupMini({ game, currentId }: { game: GameCard; currentId?: string }) {
@@ -308,10 +308,11 @@ export default async function GameCenterPage({ params }: PageProps) {
   }
 
   const currentSeasonMeetings = meetings.filter(row => row.season_id === game.season_id)
+  const seriesMeetings = final ? [game, ...currentSeasonMeetings] : currentSeasonMeetings
   let awaySeriesWins = 0
   let homeSeriesWins = 0
   let seriesTies = 0
-  for (const meeting of currentSeasonMeetings) {
+  for (const meeting of seriesMeetings) {
     if (meeting.home_score == null || meeting.away_score == null) continue
     const awayScore = meeting.home_team_id === awayTeam?.id ? meeting.home_score : meeting.away_score
     const homeScore = meeting.home_team_id === homeTeam?.id ? meeting.home_score : meeting.away_score
@@ -444,13 +445,13 @@ export default async function GameCenterPage({ params }: PageProps) {
               <div className="grid lg:grid-cols-2 gap-4">{[
                 { name: awayName, teamId: awayTeam?.id || null, previous: awayNeighbors.previous, next: awayNeighbors.next },
                 { name: homeName, teamId: homeTeam?.id || null, previous: homeNeighbors.previous, next: homeNeighbors.next },
-              ].map(item => <div key={item.name} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="font-black text-white mb-3">{shortName(item.name)}</div><div className="grid sm:grid-cols-2 gap-2">{item.previous ? <div><div className="mb-1 text-[9px] font-black uppercase tracking-[0.15em] text-white/25">Previous</div><MatchupMini game={item.previous} /></div> : <div className="rounded-xl border border-dashed border-white/[0.07] p-4 text-xs text-white/25">No previous game listed.</div>}{item.next ? <div><div className="mb-1 text-[9px] font-black uppercase tracking-[0.15em] text-white/25">Next</div><MatchupMini game={item.next} /></div> : <div className="rounded-xl border border-dashed border-white/[0.07] p-4 text-xs text-white/25">No next game listed.</div>}</div>{item.previous && isFinal(item.previous) && <div className="mt-3 text-[10px] text-white/30">Previous result: <span className="font-black text-white/55">{gameResultFor(item.previous, item.teamId)}</span></div>}</div>)}</div>
+              ].map(item => <div key={item.name} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="font-black text-white mb-3">{shortName(item.name)}</div><div className="grid sm:grid-cols-2 gap-2">{item.previous ? <div><div className="mb-1 text-[9px] font-black uppercase tracking-[0.15em] text-white/25">Previous</div><MatchupMini game={item.previous} /></div> : <div className="rounded-xl border border-dashed border-white/[0.07] p-4 text-xs text-white/25">No previous game listed.</div>}{item.next ? <div><div className="mb-1 text-[9px] font-black uppercase tracking-[0.15em] text-white/25">Next</div><MatchupMini game={item.next} /></div> : <div className="rounded-xl border border-dashed border-white/[0.07] p-4 text-xs text-white/25">No next game listed.</div>}</div>{item.previous && isFinal(item.previous) && <div className="mt-3 text-[10px] text-white/30">Previous result: <span className="font-black text-white/55">{gameResultFor(item.previous, item.teamId, lowWins)}</span></div>}</div>)}</div>
             </section>
           )}
 
           {awayTeam?.id && homeTeam?.id && (
             <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
-              <div className="px-5 py-4 border-b border-white/[0.07] flex items-end justify-between gap-4 flex-wrap"><div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300/65">Matchup history</div><h2 className="mt-1 text-xl font-black text-white">{shortName(awayName)} vs {shortName(homeName)}</h2></div>{currentSeasonMeetings.length > 0 && <div className="text-right"><div className="text-xs text-white/30">Season series</div><div className="mt-1 font-black text-white">{shortName(awayName)} {awaySeriesWins} · {shortName(homeName)} {homeSeriesWins}{seriesTies ? ` · ${seriesTies} tie${seriesTies === 1 ? '' : 's'}` : ''}</div></div>}</div>
+              <div className="px-5 py-4 border-b border-white/[0.07] flex items-end justify-between gap-4 flex-wrap"><div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300/65">Matchup history</div><h2 className="mt-1 text-xl font-black text-white">{shortName(awayName)} vs {shortName(homeName)}</h2></div>{seriesMeetings.length > 0 && <div className="text-right"><div className="text-xs text-white/30">Season series</div><div className="mt-1 font-black text-white">{shortName(awayName)} {awaySeriesWins} · {shortName(homeName)} {homeSeriesWins}{seriesTies ? ` · ${seriesTies} tie${seriesTies === 1 ? '' : 's'}` : ''}</div></div>}</div>
               {meetings.length ? <div className="grid md:grid-cols-2 gap-2 p-4">{meetings.map(meeting => <MatchupMini key={meeting.id} game={meeting} />)}</div> : <div className="p-6 text-sm text-white/35">No previous final between these teams is in the Section X database yet. This matchup starts the archive.</div>}
             </section>
           )}
