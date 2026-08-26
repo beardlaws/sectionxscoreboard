@@ -5,6 +5,7 @@ export const SECTION_X_SCHOOL_IDS = new Set([2630,52120,3988,4543,4769,6714,8736
 const CONTEST_TYPE_IDS = new Set([1,2,3,4,8])
 const EVENT_SPORTS = new Set(['cross country','track','indoor track'])
 const SEASON_TYPES = new Set(['fall','winter','spring'])
+const SPECIAL_EVENT_TERMS = ['round robin','jamboree','showcase']
 
 export type ScheduleAuditOptions = {
   start?: string | null
@@ -25,6 +26,9 @@ export type AuditBucket =
   | 'orphaned-link'
   | 'event-sport'
   | 'source-cancelled'
+  | 'title-type-conflict'
+  | 'ambiguous-match'
+  | 'other-season'
 
 const arr=(v:unknown):any[]=>Array.isArray(v)?v:v==null?[]:[v]
 const num=(v:unknown)=>Number.isFinite(Number(v))?Number(v):null
@@ -42,6 +46,15 @@ function seasonWindow(type:string,year:number){
   if(type==='Winter') return {start:`${year}-11-01T00:00:00.000Z`,end:`${year+1}-03-31T23:59:59.999Z`}
   if(type==='Spring') return {start:`${year}-03-01T00:00:00.000Z`,end:`${year}-06-30T23:59:59.999Z`}
   return {start:`${year}-08-01T00:00:00.000Z`,end:`${year}-11-30T23:59:59.999Z`}
+}
+
+function titleSafety(g:any){
+  const title=clean(g.title),structured=clean(g.gameTypeName)
+  if(!title)return{conflict:false,reasons:[] as string[]}
+  const reasons:string[]=[]
+  if(title.includes('scrimmage')&&structured!=='scrimmage')reasons.push('title-says-scrimmage')
+  if(SPECIAL_EVENT_TERMS.some(term=>title.includes(term)))reasons.push('special-event-title')
+  return{conflict:reasons.length>0,reasons}
 }
 
 function side(game:any,home:boolean){
@@ -63,9 +76,7 @@ async function resolveSeason(db:any,options:ScheduleAuditOptions){
   let season:any=null
   if(options.seasonId)season=seasons.find((s:any)=>s.id===options.seasonId)||null
   const requestedType=normalizeSeasonType(options.seasonType)
-  if(!season&&requestedType){
-    season=seasons.find((s:any)=>clean(s.season_type)===clean(requestedType)&&(options.year==null||Number(s.year)===Number(options.year)))||null
-  }
+  if(!season&&requestedType)season=seasons.find((s:any)=>clean(s.season_type)===clean(requestedType)&&(options.year==null||Number(s.year)===Number(options.year)))||null
   if(!season&&!options.seasonId&&!requestedType)season=seasons.find((s:any)=>s.is_active)||null
   if(!season)throw new Error('Target season not found. Pass a valid seasonId, or seasonType + year after the season exists in Supabase.')
   const type=normalizeSeasonType(season.season_type)
@@ -90,16 +101,18 @@ export async function runScheduleAudit(options:ScheduleAuditOptions={}){
   const [schoolR,teamR,sportR,extR,gameR,linkR]=await Promise.all([
     db.from('schools').select('id,school_name,arbiter_entity_id').not('arbiter_entity_id','is',null),
     db.from('teams').select('id,school_id,sport_id,team_name,level,active'),
-    db.from('sports').select('id,sport_name,gender,season_type,slug').eq('season_type',target.type),
+    db.from('sports').select('id,sport_name,gender,season_type,slug'),
     db.from('external_opponents').select('id,name,slug'),
     db.from('games').select('id,season_id,game_date,game_time,sport_id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,status,contest_type,source,location').gte('game_date',startDate).lte('game_date',endDate),
     db.from('arbiter_game_links').select('arbiter_game_id,game_id,last_modified_at,source_status')
   ])
   const error=schoolR.error||teamR.error||sportR.error||extR.error||gameR.error||linkR.error
   if(error)throw new Error(`Supabase comparison query failed: ${error.message}`)
-  const schools=schoolR.data||[],teams=teamR.data||[],sports=sportR.data||[],externals=extR.data||[],existing=gameR.data||[],links=linkR.data||[]
+  const schools=schoolR.data||[],teams=teamR.data||[],allSports=sportR.data||[],externals=extR.data||[],existing=gameR.data||[],links=linkR.data||[]
+  const targetSports=allSports.filter((s:any)=>clean(s.season_type)===clean(target.type))
   const schoolByArbiter=new Map(schools.map((s:any)=>[Number(s.arbiter_entity_id),s])),extByName=new Map(externals.map((e:any)=>[clean(e.name),e])),linkByArbiter=new Map(links.map((l:any)=>[Number(l.arbiter_game_id),l]))
-  const resolveSport=(g:any)=>sports.find((s:any)=>sportMatches(s,g))||null
+  const resolveSport=(g:any)=>targetSports.find((s:any)=>sportMatches(s,g))||null
+  const resolveAnySport=(g:any)=>allSports.find((s:any)=>sportMatches(s,g))||null
   function resolveSide(s:any,sport:any,level:any){
     if(s.isTba)return{kind:'tba',id:null,name:s.teamName||s.schoolName||'TBA',mapped:false,canCreate:false}
     if(s.isSectionX){
@@ -115,35 +128,52 @@ export async function runScheduleAudit(options:ScheduleAuditOptions={}){
   const dbToken=(g:any,h:boolean)=>{const t=h?g.home_team_id:g.away_team_id,e=h?g.external_home_opponent_id:g.external_away_opponent_id;return t?`t:${t}`:e?`e:${e}`:'tba'}
   const varsity=contests.filter((g:any)=>levelKey(g.levelName)==='varsity')
   const rows=varsity.map((g:any)=>{
-    const sport=resolveSport(g),date=day(g.fromDate),rawTime=clock(g.fromDate),time=rawTime==='00:01'?null:rawTime
+    const sport=resolveSport(g),anySport=resolveAnySport(g),date=day(g.fromDate),rawTime=clock(g.fromDate),time=rawTime==='00:01'?null:rawTime
+    const wrongSeason=Boolean(anySport&&clean(anySport.season_type)!==clean(target.type))
     const home=resolveSide(g.home,sport,g.levelName),away=resolveSide(g.away,sport,g.levelName),issues:string[]=[],warnings:string[]=[]
+    const titleCheck=titleSafety(g)
     if(rawTime==='00:01')warnings.push('placeholder-time')
+    if(titleCheck.reasons.length)warnings.push(...titleCheck.reasons)
     const eventSport=EVENT_SPORTS.has(clean(g.sportName))
-    if(!sport)issues.push('sport-unmapped')
-    if(!home.mapped&&home.kind==='internal')issues.push('home-internal')
-    if(!away.mapped&&away.kind==='internal')issues.push('away-internal')
+    if(!sport&&!wrongSeason)issues.push('sport-unmapped')
+    if(!wrongSeason&&!home.mapped&&home.kind==='internal')issues.push('home-internal')
+    if(!wrongSeason&&!away.mapped&&away.kind==='internal')issues.push('away-internal')
     if(home.kind==='tba'||away.kind==='tba')issues.push('tba')
-    if(!home.mapped&&home.kind==='external')warnings.push('home-external-create')
-    if(!away.mapped&&away.kind==='external')warnings.push('away-external-create')
+    if(!wrongSeason&&!home.mapped&&home.kind==='external')warnings.push('home-external-create')
+    if(!wrongSeason&&!away.mapped&&away.kind==='external')warnings.push('away-external-create')
     let bucket:AuditBucket='new-game',match:any=null
     const linked=g.uniqueGameId!==null?linkByArbiter.get(Number(g.uniqueGameId)) as any:null
-    if(linked){match=existing.find((x:any)=>x.id===linked.game_id)||null;bucket=match?'stable-id-match':'orphaned-link'}
-    else if(eventSport)bucket='event-sport'
-    else if(issues.includes('tba'))bucket='manual-review'
-    else if(issues.length)bucket='mapping-needed'
-    else if(!home.mapped||!away.mapped)bucket='external-create'
-    else if(isCancelled(g.status))bucket='source-cancelled'
+    const linkedMatch=linked?existing.find((x:any)=>x.id===linked.game_id)||null:null
+    if(linked&&!linkedMatch){bucket='orphaned-link'}
+    else if(wrongSeason){bucket='other-season'}
+    else if(eventSport){bucket='event-sport'}
+    else if(titleCheck.conflict){match=linkedMatch;bucket='title-type-conflict'}
+    else if(linkedMatch&&isCancelled(g.status)){match=linkedMatch;bucket='stable-id-match'}
+    else if(issues.includes('tba')){match=linkedMatch;bucket='manual-review'}
+    else if(issues.length){match=linkedMatch;bucket='mapping-needed'}
+    else if(linkedMatch){match=linkedMatch;bucket='stable-id-match'}
+    else if(isCancelled(g.status)){bucket='source-cancelled'}
     else if(sport){
       const same=existing.filter((x:any)=>x.game_date===date&&x.sport_id===sport.id),h=token(home),a=token(away)
-      match=same.find((x:any)=>dbToken(x,true)===h&&dbToken(x,false)===a)||same.find((x:any)=>dbToken(x,true)===a&&dbToken(x,false)===h)||null
-      if(match){const dbTime=String(match.game_time||'').slice(0,5)||null;bucket=!time||!dbTime||time===dbTime?'exact-match':'probable-match'}
+      const teamMatches=same.filter((x:any)=>(dbToken(x,true)===h&&dbToken(x,false)===a)||(dbToken(x,true)===a&&dbToken(x,false)===h))
+      if(teamMatches.length===1){
+        match=teamMatches[0]
+        const dbTime=String(match.game_time||'').slice(0,5)||null
+        bucket=!time||!dbTime||time===dbTime?'exact-match':'probable-match'
+      }else if(teamMatches.length>1){
+        const exactTime=time?teamMatches.filter((x:any)=>String(x.game_time||'').slice(0,5)===time):[]
+        if(exactTime.length===1){match=exactTime[0];bucket='exact-match'}
+        else{warnings.push('multiple-same-day-team-matches');bucket='ambiguous-match'}
+      }else if(!home.mapped||!away.mapped){bucket='external-create'}
     }
+    if(bucket==='new-game'&&(!home.mapped||!away.mapped))bucket='external-create'
     const safelyActionable=['stable-id-match','exact-match','probable-match','new-game','external-create'].includes(bucket)
-    return{bucket,safelyActionable,quarantined:!safelyActionable,uniqueGameId:g.uniqueGameId,lastModifiedDate:g.lastModifiedDate,date,time,rawTime,sport:g.sportName,sportId:sport?.id||null,gender:g.gender,level:g.levelName,type:g.gameTypeName,status:g.status,location:g.subSiteName||g.siteName||null,home:{arbiter:g.home.schoolName||g.home.teamName,mapped:home.name,kind:home.kind,id:home.id,create:!home.mapped&&home.kind==='external'?{name:home.name,slug:slug(home.name)}:null},away:{arbiter:g.away.schoolName||g.away.teamName,mapped:away.name,kind:away.kind,id:away.id,create:!away.mapped&&away.kind==='external'?{name:away.name,slug:slug(away.name)}:null},mappingIssues:issues,warnings,existingGameId:match?.id||null,existingTime:match?.game_time||null,sourcePayload:g}
+    return{bucket,safelyActionable,quarantined:!safelyActionable,uniqueGameId:g.uniqueGameId,lastModifiedDate:g.lastModifiedDate,date,time,rawTime,sport:g.sportName,sportId:sport?.id||null,gender:g.gender,level:g.levelName,type:g.gameTypeName,status:g.status,title:g.title||null,location:g.subSiteName||g.siteName||null,home:{arbiter:g.home.schoolName||g.home.teamName,mapped:home.name,kind:home.kind,id:home.id,create:!home.mapped&&home.kind==='external'?{name:home.name,slug:slug(home.name)}:null},away:{arbiter:g.away.schoolName||g.away.teamName,mapped:away.name,kind:away.kind,id:away.id,create:!away.mapped&&away.kind==='external'?{name:away.name,slug:slug(away.name)}:null},mappingIssues:issues,warnings,existingGameId:match?.id||null,existingTime:match?.game_time||null,sourcePayload:g}
   })
-  const keys:AuditBucket[]=['stable-id-match','exact-match','probable-match','new-game','external-create','mapping-needed','manual-review','orphaned-link','event-sport','source-cancelled']
+  const keys:AuditBucket[]=['stable-id-match','exact-match','probable-match','new-game','external-create','mapping-needed','manual-review','orphaned-link','event-sport','source-cancelled','title-type-conflict','ambiguous-match','other-season']
   const counts=Object.fromEntries(keys.map(k=>[k,rows.filter((r:any)=>r.bucket===k).length]))
-  const eligible=rows.filter((r:any)=>r.safelyActionable).length,quarantined=rows.length-eligible,trueBlockers=counts['mapping-needed']+counts['orphaned-link']
+  const targetRows=rows.filter((r:any)=>r.bucket!=='other-season')
+  const eligible=targetRows.filter((r:any)=>r.safelyActionable).length,quarantined=targetRows.length-eligible,trueBlockers=counts['mapping-needed']+counts['orphaned-link']+counts['ambiguous-match']
   const ids=new Set<number>(),dup=new Set<number>();normalized.forEach((g:any)=>{if(g.uniqueGameId!==null){if(ids.has(g.uniqueGameId))dup.add(g.uniqueGameId);ids.add(g.uniqueGameId)}})
-  return{ok:true,dryRun:true,writesPerformed:0,window:{start:target.start,end:target.end},season:{id:target.season.id,name:target.season.name,year:target.season.year,type:target.type},summary:{recordsReturned:normalized.length,uniqueGameIds:ids.size,duplicateUniqueGameIds:dup.size,contests:contests.length,practices:practices.length,varsityContests:varsity.length,jvContests:contests.filter((g:any)=>levelKey(g.levelName)==='jv').length,modifiedContests:contests.filter((g:any)=>levelKey(g.levelName)==='modified').length,sectionXVsSectionX:contests.filter((g:any)=>g.opponentScope==='section-x-vs-section-x').length,sectionXVsExternal:contests.filter((g:any)=>g.opponentScope==='section-x-vs-external').length,tbaContests:contests.filter((g:any)=>g.hasTba).length,coOpContests:contests.filter((g:any)=>g.hasCoOpTeam).length},breakdowns:{sports:countBy(normalized.map((g:any)=>g.sportName||'unknown')),levels:countBy(normalized.map((g:any)=>g.levelName||'unknown')),gameTypes:countBy(normalized.map((g:any)=>g.gameTypeName||'unknown')),statuses:countBy(normalized.map((g:any)=>g.status||'unknown'))},comparison:{targetScope:`${target.type} varsity contests`,existingGamesInWindow:existing.length,stableLinks:links.length,scopedContestRows:rows.length,nonVarsitySkipped:contests.length-varsity.length,counts,eligible,quarantined,trueBlockers,writerReady:counts['orphaned-link']===0,samples:{stableIdMatches:rows.filter((r:any)=>r.bucket==='stable-id-match').slice(0,10),probableMatches:rows.filter((r:any)=>r.bucket==='probable-match').slice(0,20),newGames:rows.filter((r:any)=>r.bucket==='new-game').slice(0,30),externalCreate:rows.filter((r:any)=>r.bucket==='external-create').slice(0,30),mappingNeeded:rows.filter((r:any)=>r.bucket==='mapping-needed').slice(0,30),manualReview:rows.filter((r:any)=>r.bucket==='manual-review').slice(0,30),eventSports:rows.filter((r:any)=>r.bucket==='event-sport').slice(0,30),sourceCancelled:rows.filter((r:any)=>r.bucket==='source-cancelled').slice(0,20)}},rows}
+  return{ok:true,dryRun:true,writesPerformed:0,window:{start:target.start,end:target.end},season:{id:target.season.id,name:target.season.name,year:target.season.year,type:target.type},summary:{recordsReturned:normalized.length,uniqueGameIds:ids.size,duplicateUniqueGameIds:dup.size,contests:contests.length,practices:practices.length,varsityContests:varsity.length,jvContests:contests.filter((g:any)=>levelKey(g.levelName)==='jv').length,modifiedContests:contests.filter((g:any)=>levelKey(g.levelName)==='modified').length,sectionXVsSectionX:contests.filter((g:any)=>g.opponentScope==='section-x-vs-section-x').length,sectionXVsExternal:contests.filter((g:any)=>g.opponentScope==='section-x-vs-external').length,tbaContests:contests.filter((g:any)=>g.hasTba).length,coOpContests:contests.filter((g:any)=>g.hasCoOpTeam).length},breakdowns:{sports:countBy(normalized.map((g:any)=>g.sportName||'unknown')),levels:countBy(normalized.map((g:any)=>g.levelName||'unknown')),gameTypes:countBy(normalized.map((g:any)=>g.gameTypeName||'unknown')),statuses:countBy(normalized.map((g:any)=>g.status||'unknown'))},comparison:{targetScope:`${target.type} varsity contests`,existingGamesInWindow:existing.length,stableLinks:links.length,scopedContestRows:targetRows.length,otherSeasonSkipped:counts['other-season'],nonVarsitySkipped:contests.length-varsity.length,counts,eligible,quarantined,trueBlockers,writerReady:counts['orphaned-link']===0&&counts['ambiguous-match']===0,samples:{stableIdMatches:rows.filter((r:any)=>r.bucket==='stable-id-match').slice(0,10),probableMatches:rows.filter((r:any)=>r.bucket==='probable-match').slice(0,20),newGames:rows.filter((r:any)=>r.bucket==='new-game').slice(0,30),externalCreate:rows.filter((r:any)=>r.bucket==='external-create').slice(0,30),mappingNeeded:rows.filter((r:any)=>r.bucket==='mapping-needed').slice(0,30),manualReview:rows.filter((r:any)=>r.bucket==='manual-review').slice(0,30),titleTypeConflicts:rows.filter((r:any)=>r.bucket==='title-type-conflict').slice(0,30),ambiguousMatches:rows.filter((r:any)=>r.bucket==='ambiguous-match').slice(0,30),eventSports:rows.filter((r:any)=>r.bucket==='event-sport').slice(0,30),otherSeason:rows.filter((r:any)=>r.bucket==='other-season').slice(0,30),sourceCancelled:rows.filter((r:any)=>r.bucket==='source-cancelled').slice(0,20)}},rows}
 }
