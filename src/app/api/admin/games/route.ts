@@ -10,6 +10,12 @@ function getAdminClient() {
   )
 }
 
+function inferredContestType(game: any): 'Game' | 'Scrimmage' {
+  if (String(game?.contest_type || '').toLowerCase() === 'scrimmage') return 'Scrimmage'
+  if (String(game?.notes || '').toLowerCase().includes('arbiter type: scrimmage')) return 'Scrimmage'
+  return 'Game'
+}
+
 async function findOrCreateExternalOpponent(
   supabase: any,
   name: string
@@ -62,6 +68,11 @@ async function recordImportSource(
     seasonId: string | null
     sportId: string | null
     source: string
+    sourceStatus?: string | null
+    sourceGameTime?: string | null
+    sourceLocation?: string | null
+    sourceContestType?: string | null
+    sourceNotes?: string | null
   }
 ): Promise<string | null> {
   const {
@@ -70,6 +81,11 @@ async function recordImportSource(
     seasonId,
     sportId,
     source,
+    sourceStatus,
+    sourceGameTime,
+    sourceLocation,
+    sourceContestType,
+    sourceNotes,
   } = params
 
   // Import tracking only applies when we know exactly
@@ -92,6 +108,11 @@ async function recordImportSource(
         season_id: seasonId,
         sport_id: sportId,
         source,
+        source_status: sourceStatus ?? null,
+        source_game_time: sourceGameTime ?? null,
+        source_location: sourceLocation ?? null,
+        source_contest_type: sourceContestType ?? null,
+        source_notes: sourceNotes ?? null,
         imported_at: new Date().toISOString(),
       },
       {
@@ -182,6 +203,14 @@ export async function POST(
     */
     delete clean.import_team_id
     delete clean.import_source
+
+    clean.contest_type = inferredContestType(clean)
+
+    if (clean.contest_type === 'Scrimmage') {
+      clean.home_score = null
+      clean.away_score = null
+      if (clean.status === 'Final') clean.status = 'Scheduled'
+    }
 
     // --------------------------------------------------
     // EXTERNAL OPPONENTS
@@ -347,6 +376,11 @@ export async function POST(
             sportId:
               clean.sport_id || null,
             source: importSource,
+            sourceStatus: clean.status ?? null,
+            sourceGameTime: clean.game_time ?? null,
+            sourceLocation: clean.location ?? null,
+            sourceContestType: clean.contest_type ?? null,
+            sourceNotes: clean.notes ?? null,
           }
         )
 
@@ -391,7 +425,7 @@ export async function POST(
       let duplicateQuery =
         supabase
           .from('games')
-          .select('id')
+          .select('id,home_team_id,away_team_id,home_score,away_score,status,game_time,location,notes,contest_type,parser_confidence')
           .eq(
             'game_date',
             clean.game_date
@@ -487,42 +521,72 @@ export async function POST(
         existing &&
         existing.length > 0
       ) {
-        const gameId =
-          existing[0].id
+        const existingGame = existing[0]
+        const gameId = existingGame.id
 
         /*
-          Update useful schedule/game data
-          without creating another copy.
+          Arbiter can publish the same matchup on both teams' schedules
+          with slightly different logistics. For home games, the home
+          team's schedule is authoritative for time/location/status.
+          Away schedules still confirm the matchup and fill missing data.
+          Manual/admin imports remain authoritative.
         */
+        const isArbiter = importSource === 'arbiter'
+        const isHomeSource = !!importTeamId && clean.home_team_id === importTeamId
+        const sourceIsAuthoritative = !isArbiter || isHomeSource
+
+        const mergedContestType =
+          clean.contest_type === 'Scrimmage' || existingGame.contest_type === 'Scrimmage'
+            ? 'Scrimmage'
+            : 'Game'
+
+        const mergedStatus = sourceIsAuthoritative
+          ? (clean.status ?? existingGame.status ?? 'Scheduled')
+          : (existingGame.status ?? clean.status ?? 'Scheduled')
+
+        const mergedTime = sourceIsAuthoritative
+          ? (clean.game_time ?? existingGame.game_time ?? null)
+          : (existingGame.game_time ?? clean.game_time ?? null)
+
+        const mergedLocation = sourceIsAuthoritative
+          ? (clean.location ?? existingGame.location ?? null)
+          : (existingGame.location ?? clean.location ?? null)
+
+        const mergedNotes = sourceIsAuthoritative
+          ? (clean.notes ?? existingGame.notes ?? null)
+          : (existingGame.notes ?? clean.notes ?? null)
+
         const { error } = await supabase
           .from('games')
           .update({
             home_score:
               clean.home_score ??
+              existingGame.home_score ??
               null,
 
             away_score:
               clean.away_score ??
+              existingGame.away_score ??
               null,
 
             status:
-              clean.status ??
-              'Scheduled',
+              mergedStatus,
 
             game_time:
-              clean.game_time ??
-              null,
+              mergedTime,
 
             location:
-              clean.location ??
-              null,
+              mergedLocation,
 
             notes:
-              clean.notes ??
-              null,
+              mergedNotes,
+
+            contest_type:
+              mergedContestType,
 
             parser_confidence:
               clean.parser_confidence ??
+              existingGame.parser_confidence ??
               null,
           })
           .eq('id', gameId)
@@ -538,11 +602,10 @@ export async function POST(
         }
 
         /*
-          This is the key Phase 1 behavior.
-
           Even though the game already existed,
           record that THIS team's schedule also
-          contained the game.
+          contained the game, including the values
+          that source reported for future conflict audits.
         */
         const trackingError =
           await recordImportSource(
@@ -559,6 +622,11 @@ export async function POST(
                 null,
               source:
                 importSource,
+              sourceStatus: clean.status ?? null,
+              sourceGameTime: clean.game_time ?? null,
+              sourceLocation: clean.location ?? null,
+              sourceContestType: clean.contest_type ?? null,
+              sourceNotes: clean.notes ?? null,
             }
           )
 
@@ -638,6 +706,11 @@ export async function POST(
             null,
           source:
             importSource,
+          sourceStatus: clean.status ?? null,
+          sourceGameTime: clean.game_time ?? null,
+          sourceLocation: clean.location ?? null,
+          sourceContestType: clean.contest_type ?? null,
+          sourceNotes: clean.notes ?? null,
         }
       )
 
@@ -645,8 +718,7 @@ export async function POST(
       action: 'inserted',
       game_id: gameId,
       tracking_error:
-        trackingError ||
-        undefined,
+        trackingError || undefined,
     })
   }
 
