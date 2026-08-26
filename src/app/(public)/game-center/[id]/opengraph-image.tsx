@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og'
 import { createClient } from '@/lib/supabase/server'
+import { isScrimmage } from '@/lib/gameType'
 
 export const runtime = 'nodejs'
 export const size = { width: 1200, height: 630 }
@@ -36,7 +37,7 @@ export default async function Image({ params }: { params: { id: string } }) {
   const { data } = await supabase
     .from('games')
     .select(`
-      game_date, game_time, status, home_score, away_score,
+      game_date, game_time, status, contest_type, notes, home_score, away_score,
       sport:sports(sport_name, gender),
       home_team:teams!games_home_team_id_fkey(school:schools(school_name, logo_url, primary_color, secondary_color)),
       away_team:teams!games_away_team_id_fkey(school:schools(school_name, logo_url, primary_color, secondary_color)),
@@ -58,22 +59,39 @@ export default async function Image({ params }: { params: { id: string } }) {
   const homeColor = homeSchool?.primary_color || '#facc15'
   const awayColor = awaySchool?.primary_color || '#2563eb'
   const status = statusKey(game.status)
-  const final = status === 'final'
-  const live = status === 'live' || status === 'in progress'
+  const scrimmage = isScrimmage(game)
+  const final = !scrimmage && status === 'final'
+  const live = !scrimmage && (status === 'live' || status === 'in progress')
   const postponed = status === 'postponed'
   const canceled = status === 'canceled' || status === 'cancelled'
   const date = game.game_date
     ? new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${game.game_date}T12:00:00Z`))
     : 'Section X'
   const sport = `${game.sport?.gender ? `${game.sport.gender} ` : ''}${game.sport?.sport_name || 'Sports'}`
-  const center = final || live
-    ? `${game.away_score ?? '—'}  –  ${game.home_score ?? '—'}`
-    : postponed
+
+  const center = scrimmage
+    ? postponed
       ? 'POSTPONED'
       : canceled
         ? 'CANCELED'
         : timeLabel(game.game_time)
-  const centerSub = final ? 'FINAL' : live ? 'LATEST REPORTED SCORE' : postponed || canceled ? sport.toUpperCase() : 'GAME CENTER'
+    : final || live
+      ? `${game.away_score ?? '—'}  –  ${game.home_score ?? '—'}`
+      : postponed
+        ? 'POSTPONED'
+        : canceled
+          ? 'CANCELED'
+          : timeLabel(game.game_time)
+
+  const centerSub = scrimmage
+    ? 'SCRIMMAGE · NO OFFICIAL SCORE'
+    : final
+      ? 'FINAL'
+      : live
+        ? 'LATEST REPORTED SCORE'
+        : postponed || canceled
+          ? sport.toUpperCase()
+          : 'GAME CENTER'
 
   return new ImageResponse(
     (
@@ -101,7 +119,7 @@ export default async function Image({ params }: { params: { id: string } }) {
             <div style={{ display: 'flex', width: '52px', height: '52px', borderRadius: '14px', alignItems: 'center', justifyContent: 'center', background: '#facc15', color: '#060910', fontSize: '22px', fontWeight: 900 }}>SX</div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <div style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '1px' }}>SECTION X SCOREBOARD</div>
-              <div style={{ fontSize: '14px', color: 'rgba(255,255,255,.55)', marginTop: '3px' }}>GAME CENTER</div>
+              <div style={{ fontSize: '14px', color: 'rgba(255,255,255,.55)', marginTop: '3px' }}>{scrimmage ? 'SCRIMMAGE CENTER' : 'GAME CENTER'}</div>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
@@ -121,7 +139,7 @@ export default async function Image({ params }: { params: { id: string } }) {
 
           <div style={{ width: '34%', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
             <div style={{ fontSize: final || live ? '68px' : postponed || canceled ? '42px' : '52px', fontWeight: 900, letterSpacing: final || live ? '-3px' : '-1px' }}>{center}</div>
-            <div style={{ marginTop: '12px', fontSize: '15px', fontWeight: 900, color: final ? '#4ade80' : live ? '#fde047' : postponed ? '#fb923c' : canceled ? '#f87171' : '#93c5fd', letterSpacing: '2px' }}>{centerSub}</div>
+            <div style={{ marginTop: '12px', fontSize: scrimmage ? '14px' : '15px', fontWeight: 900, color: scrimmage ? '#fde047' : final ? '#4ade80' : live ? '#fde047' : postponed ? '#fb923c' : canceled ? '#f87171' : '#93c5fd', letterSpacing: scrimmage ? '1px' : '2px' }}>{centerSub}</div>
           </div>
 
           <div style={{ width: '33%', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
