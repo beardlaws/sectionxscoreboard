@@ -6,7 +6,7 @@ import HomeClient from '@/components/home/HomeClient'
 import { format } from 'date-fns'
 
 export const metadata: Metadata = {
-  description: 'Section X scores, schedules, standings, results, schools, and stories for North Country high school sports.',
+  description: 'Section X scores, schedules, standings, results, schools, and stories for Northern New York high school sports.',
 }
 
 export const revalidate = 60
@@ -26,6 +26,7 @@ async function getHomepageData() {
   const today = format(now, 'yyyy-MM-dd')
   const yesterday = format(new Date(now.getTime() - 86400000), 'yyyy-MM-dd')
   const tomorrow = format(new Date(now.getTime() + 86400000), 'yyyy-MM-dd')
+  const fourteenDaysOut = format(new Date(now.getTime() + 14 * 86400000), 'yyyy-MM-dd')
   const sevenDaysAgo = format(new Date(now.getTime() - 7 * 86400000), 'yyyy-MM-dd')
 
   const { data: activeSeason } = await supabase
@@ -35,6 +36,7 @@ async function getHomepageData() {
     { data: yesterdayGames },
     { data: todayGames },
     { data: tomorrowGames },
+    { data: upcomingGames },
     { data: recentGames },
     { data: featuredGame },
     { data: homepageSponsor },
@@ -42,6 +44,7 @@ async function getHomepageData() {
     { data: featuredSpotlight },
     { data: featuredAthlete },
     { data: allSpotlights },
+    { data: featuredPhoto },
   ] = await Promise.all([
     supabase.from('games').select(GAME_SELECT)
       .eq('game_date', yesterday).order('game_time', { ascending: true }),
@@ -49,6 +52,9 @@ async function getHomepageData() {
       .eq('game_date', today).order('game_time', { ascending: true }),
     supabase.from('games').select(GAME_SELECT)
       .eq('game_date', tomorrow).order('game_time', { ascending: true }),
+    supabase.from('games').select(GAME_SELECT)
+      .gt('game_date', today).lte('game_date', fourteenDaysOut)
+      .order('game_date', { ascending: true }).order('game_time', { ascending: true }).limit(160),
     supabase.from('games').select(GAME_SELECT)
       .eq('status', 'Final').gte('game_date', sevenDaysAgo)
       .order('game_date', { ascending: false })
@@ -67,11 +73,13 @@ async function getHomepageData() {
       .eq('published', true).eq('featured', true)
       .order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('athlete_of_week')
-      .select('*, school:schools(school_name, slug, primary_color, logo_url)')
+      .select('*, school:schools(id, school_name, slug, primary_color, logo_url)')
       .eq('published', true).order('week_of', { ascending: false })
       .limit(1).maybeSingle(),
     supabase.from('spotlights').select('id, title, body, author, created_at, sport_name')
       .eq('published', true).order('created_at', { ascending: false }).limit(6),
+    supabase.from('photos').select('*, school:schools(id, school_name, slug, primary_color, logo_url)')
+      .eq('approved', true).order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
   return {
@@ -79,6 +87,7 @@ async function getHomepageData() {
     yesterdayGames: yesterdayGames || [],
     todayGames: todayGames || [],
     tomorrowGames: tomorrowGames || [],
+    upcomingGames: upcomingGames || [],
     recentGames: recentGames || [],
     featuredGame: featuredGame || null,
     homepageSponsor: homepageSponsor || null,
@@ -87,6 +96,7 @@ async function getHomepageData() {
     featuredSpotlight: featuredSpotlight || null,
     featuredAthlete: featuredAthlete || null,
     allSpotlights: allSpotlights || [],
+    featuredPhoto: featuredPhoto || null,
   }
 }
 
