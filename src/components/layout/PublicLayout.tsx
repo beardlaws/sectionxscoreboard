@@ -12,6 +12,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sportsMenuOpen, setSportsMenuOpen] = useState(false)
   const pathname = usePathname()
+  const isHome = pathname === '/'
 
   const navLinks = [
     { href: '/', label: 'Home' },
@@ -145,7 +146,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
           </div>
         )}
       </header>
-      <ScoreTicker />
+      {!isHome && <ScoreTicker />}
       <GlobalSponsorStrip />
 
       <main className="flex-1">{children}</main>
