@@ -3,8 +3,22 @@ import { ArbiterApiError, arbiterApi, getArbiterConfigStatus } from '@/lib/arbit
 
 export const dynamic = 'force-dynamic'
 
+const SECTION_X_SCHOOL_IDS = [
+  2630, 52120, 3988, 4543, 4769, 6714, 8736, 9356, 9563, 9923, 9954, 13012,
+  13569, 7896, 14077, 15195, 16678, 16935, 17532, 18479, 20233, 20061, 20146,
+  23855,
+]
+
 function count(value: unknown): number | null {
   return Array.isArray(value) ? value.length : value == null ? 0 : null
+}
+
+function message(error: unknown) {
+  return error instanceof ArbiterApiError
+    ? `${error.message} (${error.status}) ${JSON.stringify(error.details ?? '')}`
+    : error instanceof Error
+      ? error.message
+      : 'Unknown Arbiter API error'
 }
 
 export async function GET() {
@@ -26,19 +40,47 @@ export async function GET() {
       arbiterApi.levels(),
     ])
 
-    let teams: unknown = null
-    let teamsError: string | null = null
+    let nySchools: unknown = null
+    let nySchoolsError: string | null = null
+    let sectionXSchools: unknown = null
+    let sectionXSchoolsError: string | null = null
 
     try {
-      teams = await arbiterApi.teams()
+      nySchools = await arbiterApi.schools({ StateAbbreviation: 'NY', IsAccessible: true })
     } catch (error) {
-      teamsError =
-        error instanceof ArbiterApiError
-          ? `${error.message} (${error.status})`
-          : error instanceof Error
-            ? error.message
-            : 'Unknown team discovery error'
+      nySchoolsError = message(error)
     }
+
+    try {
+      sectionXSchools = await arbiterApi.schools({ SchoolIds: SECTION_X_SCHOOL_IDS })
+    } catch (error) {
+      sectionXSchoolsError = message(error)
+    }
+
+    const schoolRows = Array.isArray(sectionXSchools)
+      ? sectionXSchools
+      : Array.isArray(nySchools)
+        ? nySchools
+        : []
+
+    const schoolIds = schoolRows
+      .map((school: any) => Number(school?.schoolId ?? school?.schoolID ?? school?.id))
+      .filter((id: number) => Number.isFinite(id))
+
+    const teamResults = await Promise.all(
+      schoolIds.slice(0, 50).map(async schoolId => {
+        try {
+          const teams = await arbiterApi.teams({ schoolId })
+          return { schoolId, ok: true, teams }
+        } catch (error) {
+          return { schoolId, ok: false, error: message(error), teams: null }
+        }
+      })
+    )
+
+    const teams = teamResults.flatMap(result =>
+      Array.isArray(result.teams) ? result.teams : []
+    )
 
     return NextResponse.json({
       ok: true,
@@ -47,14 +89,20 @@ export async function GET() {
         groups: count(groups),
         sports: count(sports),
         levels: count(levels),
-        teams: count(teams),
+        nyAccessibleSchools: count(nySchools),
+        sectionXSchools: count(sectionXSchools),
+        teams: teams.length,
       },
       identity,
       groups,
       sports,
       levels,
+      nySchools,
+      nySchoolsError,
+      sectionXSchools,
+      sectionXSchoolsError,
+      teamResults,
       teams,
-      teamsError,
     })
   } catch (error) {
     console.error('Arbiter API discovery error:', error)
