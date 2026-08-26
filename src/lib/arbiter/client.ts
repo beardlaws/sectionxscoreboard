@@ -9,9 +9,15 @@ type CachedToken = {
 
 let tokenCache: CachedToken | null = null
 
+type QueryPrimitive = string | number | boolean
+export type ArbiterQuery = Record<
+  string,
+  QueryPrimitive | QueryPrimitive[] | null | undefined
+>
+
 export type ArbiterRequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'
-  query?: Record<string, string | number | boolean | null | undefined>
+  query?: ArbiterQuery
   body?: unknown
   noData404?: boolean
 }
@@ -132,7 +138,11 @@ export async function arbiterRequest<T = unknown>(
   const url = new URL(path, ARBITER_API_BASE_URL)
 
   for (const [key, value] of Object.entries(options.query || {})) {
-    if (value !== null && value !== undefined && value !== '') {
+    if (value === null || value === undefined || value === '') continue
+
+    if (Array.isArray(value)) {
+      for (const item of value) url.searchParams.append(key, String(item))
+    } else {
       url.searchParams.set(key, String(value))
     }
   }
@@ -142,9 +152,7 @@ export async function arbiterRequest<T = unknown>(
     Accept: 'application/json',
   }
 
-  if (options.body !== undefined) {
-    headers['Content-Type'] = 'application/json'
-  }
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
   const response = await fetch(url, {
     method: options.method || 'GET',
@@ -153,9 +161,7 @@ export async function arbiterRequest<T = unknown>(
     cache: 'no-store',
   })
 
-  if (response.status === 404 && options.noData404) {
-    return null
-  }
+  if (response.status === 404 && options.noData404) return null
 
   const raw = options.method === 'HEAD' ? '' : await response.text()
   let payload: any = null
@@ -179,22 +185,29 @@ export async function arbiterRequest<T = unknown>(
 
 export const arbiterApi = {
   identity: () => arbiterRequest('/api/Identity'),
-  groups: (groupId?: string) =>
+  groups: (groupId?: number | string) =>
     arbiterRequest('/api/Group', { query: groupId ? { GroupID: groupId } : undefined }),
+  schools: (query: ArbiterQuery) =>
+    arbiterRequest('/api/School/GetAllSchools', { query, noData404: true }),
+  schoolPartnerIds: (schoolIds: number[]) =>
+    arbiterRequest('/api/School/GetPartnerIdsForSchools', {
+      query: { SchoolIds: schoolIds },
+      noData404: true,
+    }),
   sports: () => arbiterRequest('/api/Sport/GetGenericSports'),
   levels: () => arbiterRequest('/api/Level/GetLevels'),
-  teams: (query?: Record<string, string | number | boolean | null | undefined>) =>
-    arbiterRequest('/api/Team/GetTeams', { query }),
-  teamWithRoster: (teamId: string) =>
-    arbiterRequest('/api/Team/GetTeamWithRosters', { query: { teamId } }),
-  games: (lastModifiedDate?: string) =>
-    arbiterRequest('/api/Game/GetGames', {
-      query: lastModifiedDate ? { lastModifiedDate } : undefined,
-      noData404: Boolean(lastModifiedDate),
+  teams: (query: ArbiterQuery) =>
+    arbiterRequest('/api/Team/GetTeams', { query, noData404: true }),
+  teamWithRoster: (teamId: number | string, schoolId?: number | string) =>
+    arbiterRequest('/api/Team/GetTeamWithRosters', {
+      query: { teamId, schoolId },
+      noData404: true,
     }),
-  deletedGames: (lastModifiedDate: string) =>
+  games: (query: ArbiterQuery) =>
+    arbiterRequest('/api/Game/GetGames', { query, noData404: true }),
+  deletedGames: (fromDate: string, toDate?: string) =>
     arbiterRequest('/api/Game/DeletedGames', {
-      query: { lastModifiedDate },
+      query: { fromDate, toDate },
       noData404: true,
     }),
 }
