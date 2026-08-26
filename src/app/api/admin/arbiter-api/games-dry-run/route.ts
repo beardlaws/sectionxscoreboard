@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
   try {
     const raw = await arbiterApi.games({
       SchoolIds: SECTION_X_SCHOOL_IDS,
+      DateFilter: 'Range',
       GameStartDate: start,
       GameEndDate: end,
       IncludeDeletedGames: false,
