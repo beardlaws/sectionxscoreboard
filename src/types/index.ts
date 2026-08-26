@@ -2,6 +2,7 @@
 
 export type SeasonType = 'Spring' | 'Fall' | 'Winter'
 export type GameStatus = 'Scheduled' | 'Live' | 'Final' | 'Postponed' | 'Canceled'
+export type ContestType = 'Game' | 'Scrimmage'
 export type VerificationStatus = 'Reported' | 'Verified' | 'Official'
 export type ImportSource = 'manual' | 'bulk_paste' | 'csv' | 'arbiter' | 'public_submission'
 export type ImportConfidence = 'High' | 'Medium' | 'Low'
@@ -106,6 +107,7 @@ export interface Game {
   home_score: number | null
   away_score: number | null
   status: GameStatus
+  contest_type: ContestType
   verification_status: VerificationStatus
   source: ImportSource
   notes: string | null
@@ -258,6 +260,7 @@ export interface ParsedGameRow {
   away_score: number | null
 
   status: GameStatus
+  contest_type?: ContestType
 
   location?: string | null
   notes?: string | null
