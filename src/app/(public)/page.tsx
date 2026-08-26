@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import PublicLayout from '@/components/layout/PublicLayout'
 import HomeClient from '@/components/home/HomeClient'
+import { isScrimmage } from '@/lib/gameType'
 import { format } from 'date-fns'
 
 export const metadata: Metadata = {
@@ -19,6 +20,17 @@ const GAME_SELECT = `
   external_home:external_opponents!games_external_home_opponent_id_fkey(*),
   external_away:external_opponents!games_external_away_opponent_id_fkey(*)
 `
+
+function presentGame(game:any) {
+  if (!game) return game
+  return isScrimmage(game)
+    ? { ...game, status: 'Scrimmage', home_score: null, away_score: null }
+    : game
+}
+
+function presentGames(games:any[] | null) {
+  return (games || []).map(presentGame)
+}
 
 function pickHomepagePhoto(photos:any[], activeSeason:any|null) {
   if (!photos?.length) return null
@@ -76,7 +88,7 @@ async function getHomepageData() {
       .gt('game_date', today).lte('game_date', fourteenDaysOut)
       .order('game_date', { ascending: true }).order('game_time', { ascending: true }).limit(160),
     supabase.from('games').select(GAME_SELECT)
-      .eq('status', 'Final').gte('game_date', sevenDaysAgo)
+      .eq('status', 'Final').neq('contest_type', 'Scrimmage').gte('game_date', sevenDaysAgo)
       .order('game_date', { ascending: false })
       .order('game_time', { ascending: false }).limit(80),
     supabase.from('games').select(GAME_SELECT)
@@ -110,12 +122,12 @@ async function getHomepageData() {
 
   return {
     activeSeason: activeSeason || null,
-    yesterdayGames: yesterdayGames || [],
-    todayGames: todayGames || [],
-    tomorrowGames: tomorrowGames || [],
-    upcomingGames: upcomingGames || [],
-    recentGames: recentGames || [],
-    featuredGame: featuredGame || null,
+    yesterdayGames: presentGames(yesterdayGames),
+    todayGames: presentGames(todayGames),
+    tomorrowGames: presentGames(tomorrowGames),
+    upcomingGames: presentGames(upcomingGames),
+    recentGames: presentGames(recentGames),
+    featuredGame: presentGame(featuredGame || null),
     homepageSponsor: homepageSponsor || null,
     schools: schools || [],
     today,
