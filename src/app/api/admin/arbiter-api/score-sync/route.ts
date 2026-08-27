@@ -16,7 +16,7 @@ export async function POST(req:NextRequest){
     const results:any[]=[]
     let updated=0,failed=0
     for(const row of candidates){
-      const patch={home_score:row.arbiter.home,away_score:row.arbiter.away,status:'Final',verification_status:'Reported',updated_at:new Date().toISOString()}
+      const patch={home_score:row.arbiter.home,away_score:row.arbiter.away,status:'Final',verification_status:'Reported',source:'arbiter-api',updated_at:new Date().toISOString()}
       const {error}=await db.from('games').update(patch).eq('id',row.gameId)
       if(error){failed++;results.push({gameId:row.gameId,arbiterGameId:row.arbiterGameId,action:row.bucket,outcome:'failed',error:error.message});continue}
       updated++;results.push({gameId:row.gameId,arbiterGameId:row.arbiterGameId,action:row.bucket,outcome:'updated',score:`${row.arbiter.away}-${row.arbiter.home}`})
