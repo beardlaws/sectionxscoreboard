@@ -1,72 +1,19 @@
-import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Users } from 'lucide-react'
 
-function statusTone(status:string){
-  if(status==='completed')return {label:'Healthy',className:'text-emerald-300',dot:'bg-emerald-400'}
-  if(status==='running')return {label:'Running',className:'text-sky-300',dot:'bg-sky-400'}
-  if(status==='completed-with-errors')return {label:'Completed with errors',className:'text-amber-300',dot:'bg-amber-400'}
-  return {label:'Failed',className:'text-red-300',dot:'bg-red-400'}
-}
+function statusTone(status:string){if(status==='completed')return{label:'Healthy',className:'text-emerald-300',dot:'bg-emerald-400'};if(status==='running')return{label:'Running',className:'text-sky-300',dot:'bg-sky-400'};if(status==='completed-with-errors')return{label:'Completed with errors',className:'text-amber-300',dot:'bg-amber-400'};return{label:'Failed',className:'text-red-300',dot:'bg-red-400'}}
+function fmt(value:string|null|undefined){if(!value)return'—';return new Date(value).toLocaleString('en-US',{timeZone:'America/New_York',month:'numeric',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})}
+function hoursSince(value:string|null|undefined){if(!value)return Number.POSITIVE_INFINITY;return Math.max(0,(Date.now()-new Date(value).getTime())/3_600_000)}
 
-function fmt(value:string|null|undefined){
-  if(!value)return '—'
-  return new Date(value).toLocaleString('en-US',{timeZone:'America/New_York',month:'numeric',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})
-}
-
-export default function AutomationPanel({runs,cron}:{runs:any[];cron:any|null}){
-  const latest=runs?.[0]||null
-  const tone=statusTone(latest?.status||'failed')
-  const s=latest?.summary||{}
-  const schedule=s.schedule||{},scores=s.scores||{},rosters=s.rosters||{}
-  const changed=Number(schedule.updated||0)+Number(schedule.created||0)+Number(schedule.deletedMarked||0)+Number(scores.updated||0)
-  const enabled=Boolean(cron?.active)
-
-  return <div className="card p-4 space-y-4">
-    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
-      <div>
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={20} className={enabled?'text-emerald-300':'text-amber-300'}/>
-          <h2 className="font-semibold text-white">Arbiter Automation</h2>
-          <span className={`text-[10px] px-2 py-1 rounded-full border ${enabled?'text-emerald-300 border-emerald-500/30 bg-emerald-500/10':'text-amber-300 border-amber-500/30 bg-amber-500/10'}`}>{enabled?'ACTIVE':'INACTIVE'}</span>
-        </div>
-        <p className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Secure Supabase scheduler → Arbiter Partner API → safety reconciliation → controlled automatic upsert.</p>
-      </div>
-      <div className="text-xs lg:text-right" style={{color:'var(--text-muted)'}}>
-        <div>5 checks daily</div>
-        <div className="text-white mt-1">Morning · midday · afternoon · evening · late night ET</div>
-      </div>
+export default function AutomationPanel({runs,cron,rosterRuns,rosterCron}:{runs:any[];cron:any|null;rosterRuns:any[];rosterCron:any|null}){
+  const latest=runs?.[0]||null,rosterLatest=rosterRuns?.[0]||null,s=latest?.summary||{},rs=rosterLatest?.summary||{},schedule=s.schedule||{},scores=s.scores||{},changed=Number(schedule.updated||0)+Number(schedule.created||0)+Number(schedule.deletedMarked||0)+Number(scores.updated||0),enabled=Boolean(cron?.active),rosterEnabled=Boolean(rosterCron?.active),scheduleStale=hoursSince(latest?.finished_at||latest?.started_at)>8,rosterStale=hoursSince(rosterLatest?.finished_at||rosterLatest?.started_at)>30,scheduleHardProblem=!enabled||!latest||scheduleStale||latest?.status==='failed'||latest?.status==='completed-with-errors'||Number(schedule.blockers||0)>0||Number(schedule.failed||0)>0||Number(scores.failed||0)>0,rosterHardProblem=!rosterEnabled||!rosterLatest||rosterStale||rosterLatest?.status==='failed'||rosterLatest?.status==='completed-with-errors'||Number(rs.failed||0)>0,rosterReview=Number(rs.quarantined||0)>0||Number(rs.scanWarnings?.ambiguous||0)>0||Number(rs.scanWarnings?.apiErrors||0)>0,overall=scheduleHardProblem||rosterHardProblem?{label:'Automation needs attention',className:'text-red-300',border:'border-red-500/30 bg-red-500/10'}:rosterReview?{label:'Automation healthy · roster review waiting',className:'text-amber-300',border:'border-amber-500/30 bg-amber-500/10'}:{label:'Automation healthy',className:'text-emerald-300',border:'border-emerald-500/30 bg-emerald-500/10'}
+  return <div className="card p-4 space-y-5">
+    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><ShieldCheck size={20} className={!scheduleHardProblem&&!rosterHardProblem?'text-emerald-300':'text-amber-300'}/><h2 className="font-semibold text-white">Arbiter Automation</h2><span className={`text-[10px] px-2 py-1 rounded-full border ${enabled?'text-emerald-300 border-emerald-500/30 bg-emerald-500/10':'text-amber-300 border-amber-500/30 bg-amber-500/10'}`}>SCHEDULE {enabled?'ACTIVE':'INACTIVE'}</span><span className={`text-[10px] px-2 py-1 rounded-full border ${rosterEnabled?'text-emerald-300 border-emerald-500/30 bg-emerald-500/10':'text-amber-300 border-amber-500/30 bg-amber-500/10'}`}>ROSTERS {rosterEnabled?'ACTIVE':'INACTIVE'}</span></div><p className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Secure Supabase scheduler → Arbiter Partner API → safety reconciliation → controlled automatic upsert.</p></div><div className="text-xs lg:text-right" style={{color:'var(--text-muted)'}}><div>Schedules + scores: 5 checks daily</div><div>Rosters: 1 guarded reconciliation daily</div></div></div>
+    <div className={`rounded-lg border p-3 ${overall.border}`}><div className="flex items-start gap-2">{scheduleHardProblem||rosterHardProblem?<AlertTriangle size={16} className="mt-0.5 text-red-300"/>:<CheckCircle2 size={16} className="mt-0.5 text-emerald-300"/>}<div><b className={overall.className}>{overall.label}</b><div className="text-xs mt-1" style={{color:'var(--text-muted)'}}>{scheduleStale?'Schedule automation has not completed within the expected window. ':''}{rosterStale?'Roster automation is stale. ':''}{rosterReview?`${Number(rs.quarantined||0)} roster change${Number(rs.quarantined||0)===1?'':'s'} withheld for review. `:''}{!scheduleHardProblem&&!rosterHardProblem&&!rosterReview?'No automation failures or unresolved blockers detected.':''}</div></div></div></div>
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="rounded-lg border border-white/10 bg-black/20 p-4"><div className="flex flex-wrap items-center justify-between gap-3 mb-3"><div className="flex items-center gap-2"><ShieldCheck size={16}/><b className="text-white">Schedules & scores</b></div><span className="text-xs" style={{color:'var(--text-muted)'}}>{fmt(latest?.started_at)}</span></div>{!latest?<div className="text-amber-300 text-sm">No automatic schedule run recorded yet.</div>:latest.status==='running'?<div className="flex items-center gap-2 text-sky-300 text-sm"><RefreshCw size={15} className="animate-spin"/>Reconciliation is running now.</div>:latest.status==='failed'?<div className="flex items-start gap-2 text-red-300 text-sm"><AlertTriangle size={15} className="mt-0.5"/><span>{s.error||'Automatic schedule run failed.'}</span></div>:<><div className="grid grid-cols-2 gap-2 text-sm"><div className="rounded bg-black/20 p-3"><b className="text-white">{Number(schedule.stableLinks||0)}</b><div style={{color:'var(--text-muted)'}}>Stable links checked</div></div><div className="rounded bg-black/20 p-3"><b className="text-white">{changed}</b><div style={{color:'var(--text-muted)'}}>Changes applied</div></div><div className="rounded bg-black/20 p-3"><b className="text-white">{Number(scores.updated||0)}</b><div style={{color:'var(--text-muted)'}}>Scores applied</div></div><div className="rounded bg-black/20 p-3"><b className="text-white">{Number(schedule.failed||0)+Number(scores.failed||0)}</b><div style={{color:'var(--text-muted)'}}>Write failures</div></div></div><div className="text-xs mt-3 flex flex-wrap gap-x-3 gap-y-1" style={{color:'var(--text-muted)'}}><span>{Number(schedule.updated||0)} updated</span><span>{Number(schedule.created||0)} created</span><span>{Number(schedule.deletedMarked||0)} cancelled</span><span>{Number(schedule.quarantined||0)} quarantined</span><span>{Number(schedule.blockers||0)} blockers</span></div></>}</div>
+      <div className="rounded-lg border border-white/10 bg-black/20 p-4"><div className="flex flex-wrap items-center justify-between gap-3 mb-3"><div className="flex items-center gap-2"><Users size={16}/><b className="text-white">Roster intelligence</b></div><span className="text-xs" style={{color:'var(--text-muted)'}}>{fmt(rosterLatest?.started_at)}</span></div>{!rosterLatest?<div className="text-amber-300 text-sm">Daily roster automation is armed. First run has not completed yet.</div>:rosterLatest.status==='running'?<div className="flex items-center gap-2 text-sky-300 text-sm"><RefreshCw size={15} className="animate-spin"/>Roster reconciliation is running now.</div>:rosterLatest.status==='failed'?<div className="flex items-start gap-2 text-red-300 text-sm"><AlertTriangle size={15} className="mt-0.5"/><span>{rs.error||'Automatic roster run failed.'}</span></div>:<><div className="grid grid-cols-2 gap-2 text-sm"><div className="rounded bg-black/20 p-3"><b className="text-white">{Number(rs.scanned||0)}</b><div style={{color:'var(--text-muted)'}}>Varsity teams scanned</div></div><div className="rounded bg-black/20 p-3"><b className="text-white">{Number(rs.teamsUpdated||0)}</b><div style={{color:'var(--text-muted)'}}>Teams reconciled</div></div><div className="rounded bg-black/20 p-3"><b className="text-white">{Number(rs.athletesAdded||0)}</b><div style={{color:'var(--text-muted)'}}>Athletes added</div></div><div className="rounded bg-black/20 p-3"><b className={Number(rs.quarantined||0)?'text-amber-300':'text-white'}>{Number(rs.quarantined||0)}</b><div style={{color:'var(--text-muted)'}}>Changes withheld</div></div></div><div className="text-xs mt-3 flex flex-wrap gap-x-3 gap-y-1" style={{color:'var(--text-muted)'}}><span>{Number(rs.published||0)} published</span><span>{Number(rs.unchanged||0)} unchanged</span><span>{Number(rs.athleteMetadataUpdated||0)} athlete details refreshed</span><span>{Number(rs.coachesAdded||0)} coaches added</span><span>{Number(rs.failed||0)} failures</span></div></>}</div>
     </div>
-
-    {latest ? <>
-      <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2"><span className={`w-2.5 h-2.5 rounded-full ${tone.dot}`}/><b className={tone.className}>Latest automatic run: {tone.label}</b></div>
-          <div className="text-xs" style={{color:'var(--text-muted)'}}>{fmt(latest.started_at)}{latest.finished_at?` · finished ${fmt(latest.finished_at)}`:''}</div>
-        </div>
-        {latest.status==='running' ? <div className="flex items-center gap-2 text-sky-300 text-sm"><RefreshCw size={15} className="animate-spin"/>Arbiter reconciliation is running now.</div> : latest.status==='failed' ? <div className="flex items-start gap-2 text-red-300 text-sm"><AlertTriangle size={15} className="mt-0.5"/><span>{s.error||'Automatic run failed. Review runtime logs before retrying.'}</span></div> : <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-          <div className="rounded bg-black/20 p-3"><b className="text-white">{Number(schedule.stableLinks||0)}</b><div style={{color:'var(--text-muted)'}}>Stable links checked</div></div>
-          <div className="rounded bg-black/20 p-3"><b className="text-white">{changed}</b><div style={{color:'var(--text-muted)'}}>Changes applied</div></div>
-          <div className="rounded bg-black/20 p-3"><b className="text-white">{Number(scores.updated||0)}</b><div style={{color:'var(--text-muted)'}}>Scores applied</div></div>
-          <div className="rounded bg-black/20 p-3"><b className="text-white">{Number(schedule.failed||0)+Number(scores.failed||0)}</b><div style={{color:'var(--text-muted)'}}>Write failures</div></div>
-        </div>}
-        {latest.status!=='running'&&latest.status!=='failed'&&<div className="text-xs mt-3 flex flex-wrap gap-x-4 gap-y-1" style={{color:'var(--text-muted)'}}>
-          <span>Schedule: {Number(schedule.updated||0)} updated · {Number(schedule.created||0)} created · {Number(schedule.deletedMarked||0)} cancelled</span>
-          <span>Rosters: {Number(rosters.loaded||0)}/{Number(rosters.varsityTeams||0)} loaded</span>
-          <span>Quarantined: {Number(schedule.quarantined||0)}</span>
-          <span>Blockers: {Number(schedule.blockers||0)}</span>
-        </div>}
-      </div>
-    </> : <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-amber-300 text-sm">Automation is configured but no automatic run has been recorded yet.</div>}
-
-    <div>
-      <div className="flex items-center gap-2 mb-2"><Clock3 size={16}/><h3 className="text-sm font-semibold text-white">Automatic run history</h3></div>
-      <div className="space-y-2">
-        {(runs||[]).slice(0,8).map((run:any)=>{const t=statusTone(run.status),rs=run.summary||{},sch=rs.schedule||{},sc=rs.scores||{};const changes=Number(sch.updated||0)+Number(sch.created||0)+Number(sch.deletedMarked||0)+Number(sc.updated||0);return <div key={run.id} className="rounded border border-white/10 bg-black/20 p-3 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2"><span className={`w-2 h-2 rounded-full ${t.dot}`}/><b className={t.className}>{t.label}</b><span style={{color:'var(--text-muted)'}}>{fmt(run.started_at)}</span></div>
-          <div className="flex gap-4" style={{color:'var(--text-muted)'}}><span>{changes} changes</span><span>{Number(sch.blockers||0)} blockers</span><span>{Number(sch.quarantined||0)} quarantined</span></div>
-        </div>})}
-      </div>
-    </div>
-
-    <div className="flex items-start gap-2 text-xs rounded border border-white/10 bg-black/20 p-3" style={{color:'var(--text-muted)'}}><CheckCircle2 size={15} className="text-emerald-300 mt-0.5 shrink-0"/><span>Only rows already classified safe by Schedule Intelligence are automatically changed. TBA, ambiguous matches, event sports, mapping problems, manual score conflicts and other quarantined records remain untouched.</span></div>
+    <div className="grid lg:grid-cols-2 gap-4"><div><div className="flex items-center gap-2 mb-2"><Clock3 size={16}/><h3 className="text-sm font-semibold text-white">Schedule automation history</h3></div><div className="space-y-2">{(runs||[]).slice(0,5).map((run:any)=>{const t=statusTone(run.status),x=run.summary||{},sch=x.schedule||{},sc=x.scores||{},changes=Number(sch.updated||0)+Number(sch.created||0)+Number(sch.deletedMarked||0)+Number(sc.updated||0);return <div key={run.id} className="rounded border border-white/10 bg-black/20 p-3 flex items-center justify-between gap-2 text-xs"><div className="flex items-center gap-2"><span className={`w-2 h-2 rounded-full ${t.dot}`}/><b className={t.className}>{t.label}</b><span style={{color:'var(--text-muted)'}}>{fmt(run.started_at)}</span></div><span style={{color:'var(--text-muted)'}}>{changes} changes</span></div>})}</div></div><div><div className="flex items-center gap-2 mb-2"><Users size={16}/><h3 className="text-sm font-semibold text-white">Roster automation history</h3></div><div className="space-y-2">{(rosterRuns||[]).slice(0,5).map((run:any)=>{const t=statusTone(run.status),x=run.summary||{};return <div key={run.id} className="rounded border border-white/10 bg-black/20 p-3 flex items-center justify-between gap-2 text-xs"><div className="flex items-center gap-2"><span className={`w-2 h-2 rounded-full ${t.dot}`}/><b className={t.className}>{t.label}</b><span style={{color:'var(--text-muted)'}}>{fmt(run.started_at)}</span></div><span style={{color:'var(--text-muted)'}}>{Number(x.teamsUpdated||0)} teams · {Number(x.quarantined||0)} held</span></div>})}{(!rosterRuns||rosterRuns.length===0)&&<div className="rounded border border-white/10 bg-black/20 p-3 text-xs" style={{color:'var(--text-muted)'}}>No roster automation history yet.</div>}</div></div></div>
+    <div className="flex items-start gap-2 text-xs rounded border border-white/10 bg-black/20 p-3" style={{color:'var(--text-muted)'}}><CheckCircle2 size={15} className="text-emerald-300 mt-0.5 shrink-0"/><span>Schedules and scores only change when Schedule Intelligence already classifies the row as safe. Daily roster automation only adds or refreshes people when Arbiter returns the same roster or a safe superset; any apparent removal, replacement, duplicate-name roster, ambiguous match or suspicious expansion is withheld for admin review.</span></div>
   </div>
 }
