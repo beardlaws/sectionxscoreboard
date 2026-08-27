@@ -92,7 +92,7 @@ export async function GET(req:NextRequest){
     const allVarsity=(teams||[]).filter((t:any)=>activeIds.has(t.id)&&varsityLevel(t.level)).sort((a:any,b:any)=>String(a.id).localeCompare(String(b.id)))
     const effectiveLimit=requestedLimit??Math.max(allVarsity.length,1)
     const varsity=allVarsity.slice(requestedOffset,requestedOffset+effectiveLimit)
-    const batchSchoolIds=[...new Set(varstiySchoolIds(varstiySchools(varstiy,schoolById)))]
+    const batchSchoolIds=[...new Set(varsitySchoolIds(varsitySchools(varsity,schoolById)))]
     const batchSchools=(schools||[]).filter((s:any)=>batchSchoolIds.includes(Number(s.arbiter_entity_id)))
     const window=seasonWindow(season)
     const gameRaw=batchSchoolIds.length?await arbiterApi.games({SchoolIds:batchSchoolIds,DateFilter:'Range',GameStartDate:window.start,GameEndDate:window.end,IncludeDeletedGames:false,IncludePendingInformation:false}).catch(()=>null):null
@@ -135,5 +135,5 @@ export async function GET(req:NextRequest){
   }catch(error){console.error('Partner API roster scan failed:',error);return NextResponse.json({ok:false,readOnly:true,error:error instanceof Error?error.message:'Unknown error'},{status:500})}
 }
 
-function varstiySchools(teams:any[],schoolById:Map<any,any>){return teams.map((t:any)=>schoolById.get(t.school_id)).filter(Boolean)}
-function varstiySchoolIds(schools:any[]){return schools.map((s:any)=>Number(s.arbiter_entity_id)).filter(Number.isFinite)}
+function varsitySchools(teams:any[],schoolById:Map<any,any>){return teams.map((t:any)=>schoolById.get(t.school_id)).filter(Boolean)}
+function varsitySchoolIds(schools:any[]){return schools.map((s:any)=>Number(s.arbiter_entity_id)).filter(Number.isFinite)}
