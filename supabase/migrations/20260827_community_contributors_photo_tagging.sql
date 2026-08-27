@@ -102,6 +102,7 @@ alter table public.contributor_score_updates enable row level security;
 alter table public.contributor_activity enable row level security;
 alter table public.photo_tag_suggestions enable row level security;
 
+-- Contributor profile: self-read and one-time pending application only.
 drop policy if exists "Contributor read own profile" on public.contributor_profiles;
 create policy "Contributor read own profile" on public.contributor_profiles for select to authenticated using (user_id = auth.uid());
 
@@ -114,6 +115,7 @@ create policy "Contributor apply" on public.contributor_profiles for insert to a
   and trust_level = 'new'
 );
 
+-- Contributor assignment/activity history: read only for the owner. Writes happen server-side.
 drop policy if exists "Contributor read assignments" on public.contributor_game_assignments;
 create policy "Contributor read assignments" on public.contributor_game_assignments for select to authenticated using (
   exists(select 1 from public.contributor_profiles cp where cp.id=contributor_id and cp.user_id=auth.uid())
@@ -129,6 +131,30 @@ create policy "Contributor read own activity" on public.contributor_activity for
   exists(select 1 from public.contributor_profiles cp where cp.id=contributor_id and cp.user_id=auth.uid())
 );
 
+-- Tighten photo inserts now that a contributor identity can be attached.
+-- Anonymous visitors can only submit anonymous/public photos.
+drop policy if exists "Public submit photos" on public.photos;
+drop policy if exists "Anonymous submit photos" on public.photos;
+create policy "Anonymous submit photos" on public.photos for insert to anon with check (
+  contributor_id is null and contributor_user_id is null and approved=false and featured=false
+);
+
+-- Authenticated people may still submit normal photos, but if they attach contributor identity it must be their own approved profile.
+drop policy if exists "Authenticated submit photos" on public.photos;
+create policy "Authenticated submit photos" on public.photos for insert to authenticated with check (
+  approved=false and featured=false and (
+    (contributor_id is null and contributor_user_id is null)
+    or (
+      contributor_user_id=auth.uid()
+      and exists(
+        select 1 from public.contributor_profiles cp
+        where cp.id=contributor_id and cp.user_id=auth.uid() and cp.status='approved' and cp.can_submit_photos=true
+      )
+    )
+  )
+);
+
+-- Anonymous tag suggestions are limited to rostered athletes from the selected game.
 drop policy if exists "Public suggest athlete tags" on public.photo_tag_suggestions;
 create policy "Public suggest athlete tags" on public.photo_tag_suggestions for insert to anon with check (
   contributor_id is null and source_type='public' and status='pending' and exists (
@@ -144,9 +170,20 @@ create policy "Public suggest athlete tags" on public.photo_tag_suggestions for 
   )
 );
 
+-- Approved contributors may suggest tags only as themselves and only if tag permission is enabled.
 drop policy if exists "Contributor suggest athlete tags" on public.photo_tag_suggestions;
 create policy "Contributor suggest athlete tags" on public.photo_tag_suggestions for insert to authenticated with check (
   status='pending' and source_type='contributor' and exists(
     select 1 from public.contributor_profiles cp where cp.id=contributor_id and cp.user_id=auth.uid() and cp.status='approved' and cp.can_tag_photos=true
+  ) and exists (
+    select 1
+    from public.photos p
+    join public.games g on g.id=p.game_id
+    join public.roster_entries re on re.athlete_id=photo_tag_suggestions.athlete_id
+    where p.id=photo_tag_suggestions.photo_id
+      and p.approved=false
+      and re.active=true
+      and (re.team_id=g.home_team_id or re.team_id=g.away_team_id)
+      and (g.season_id is null or re.season_id=g.season_id)
   )
 );
