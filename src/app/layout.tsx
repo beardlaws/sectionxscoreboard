@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://sectionxscoreboard.com'),
   title: {
     template: '%s | Section X Scoreboard',
     default: 'Section X Scoreboard',
