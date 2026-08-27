@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck } from 'lucide-react'
 
 function statusTone(status:string){
   if(status==='completed')return {label:'Healthy',className:'text-emerald-300',dot:'bg-emerald-400'}
@@ -42,7 +42,7 @@ export default function AutomationPanel({runs,cron}:{runs:any[];cron:any|null}){
           <div className="flex items-center gap-2"><span className={`w-2.5 h-2.5 rounded-full ${tone.dot}`}/><b className={tone.className}>Latest automatic run: {tone.label}</b></div>
           <div className="text-xs" style={{color:'var(--text-muted)'}}>{fmt(latest.started_at)}{latest.finished_at?` · finished ${fmt(latest.finished_at)}`:''}</div>
         </div>
-        {latest.status==='running' ? <div className="flex items-center gap-2 text-sky-300 text-sm"><RefreshCw size={15} className="animate-spin"/>Arbiter reconciliation is running now.</div> : latest.status==='failed' ? <div className="flex items-start gap-2 text-red-300 text-sm"><TriangleAlert size={15} className="mt-0.5"/><span>{s.error||'Automatic run failed. Review runtime logs before retrying.'}</span></div> : <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+        {latest.status==='running' ? <div className="flex items-center gap-2 text-sky-300 text-sm"><RefreshCw size={15} className="animate-spin"/>Arbiter reconciliation is running now.</div> : latest.status==='failed' ? <div className="flex items-start gap-2 text-red-300 text-sm"><AlertTriangle size={15} className="mt-0.5"/><span>{s.error||'Automatic run failed. Review runtime logs before retrying.'}</span></div> : <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
           <div className="rounded bg-black/20 p-3"><b className="text-white">{Number(schedule.stableLinks||0)}</b><div style={{color:'var(--text-muted)'}}>Stable links checked</div></div>
           <div className="rounded bg-black/20 p-3"><b className="text-white">{changed}</b><div style={{color:'var(--text-muted)'}}>Changes applied</div></div>
           <div className="rounded bg-black/20 p-3"><b className="text-white">{Number(scores.updated||0)}</b><div style={{color:'var(--text-muted)'}}>Scores applied</div></div>
