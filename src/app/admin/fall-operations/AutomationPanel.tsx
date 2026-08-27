@@ -32,7 +32,7 @@ export default function AutomationPanel({runs,cron}:{runs:any[];cron:any|null}){
       </div>
       <div className="text-xs lg:text-right" style={{color:'var(--text-muted)'}}>
         <div>5 checks daily</div>
-        <div className="text-white mt-1">7 AM · 11 AM · 3 PM · 7 PM · 10 PM ET</div>
+        <div className="text-white mt-1">Morning · midday · afternoon · evening · late night ET</div>
       </div>
     </div>
 
