@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import {
   PlusCircle, Upload, CheckSquare, Image,
-  Calendar, Users, BarChart2, ShieldCheck, Activity, ClipboardList
+  Calendar, Users, BarChart2, ShieldCheck, Activity, ClipboardList, UserRoundCheck
 } from 'lucide-react'
 
 export const revalidate = 0
@@ -32,27 +32,29 @@ export default async function AdminDashboard() {
     supabase.from('schools').select('*', { count: 'exact', head: true }).eq('active', true),
   ])
 
-  let latestScheduleHealth:any=null
-  if((activeSeason as any)?.id){
-    const admin=createAdminClient()
-    const {data}=await admin.from('arbiter_health_checks')
-      .select('status,summary,created_at')
-      .eq('season_id',(activeSeason as any).id)
-      .order('created_at',{ascending:false})
-      .limit(1)
-      .maybeSingle()
-    latestScheduleHealth=data||null
-  }
+  const admin=createAdminClient()
+  const [{ data: latestScheduleHealth }, { count: contributorCount }, { count: pendingContributors }, { count: liveScorers }] = await Promise.all([
+    (activeSeason as any)?.id
+      ? admin.from('arbiter_health_checks').select('status,summary,created_at').eq('season_id',(activeSeason as any).id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+      : Promise.resolve({data:null}),
+    admin.from('contributor_profiles').select('*',{count:'exact',head:true}).eq('status','approved'),
+    admin.from('contributor_profiles').select('*',{count:'exact',head:true}).eq('status','pending'),
+    admin.from('contributor_profiles').select('*',{count:'exact',head:true}).eq('status','approved').eq('can_live_score',true),
+  ])
 
-  const schedulePending=Number(latestScheduleHealth?.summary?.pendingChanges||0)
-  const scheduleBlockers=Number(latestScheduleHealth?.summary?.trueBlockers||0)
+  const schedulePending=Number((latestScheduleHealth as any)?.summary?.pendingChanges||0)
+  const scheduleBlockers=Number((latestScheduleHealth as any)?.summary?.trueBlockers||0)
   const scheduleDesc=latestScheduleHealth
     ? scheduleBlockers>0
       ? `${scheduleBlockers} blocker${scheduleBlockers===1?'':'s'} need attention`
       : schedulePending>0
         ? `${schedulePending} Arbiter change${schedulePending===1?'':'s'} pending`
-        : `Healthy · ${latestScheduleHealth?.summary?.syncedStable||0} stable`
+        : `Healthy · ${(latestScheduleHealth as any)?.summary?.syncedStable||0} stable`
     : 'Run first full schedule health check'
+
+  const contributorDesc = pendingContributors && pendingContributors > 0
+    ? `${pendingContributors} application${pendingContributors===1?'':'s'} need review`
+    : `${contributorCount || 0} active · ${liveScorers || 0} live scorer${liveScorers===1?'':'s'}`
 
   const alerts = [
     scheduleBlockers>0
@@ -60,6 +62,9 @@ export default async function AdminDashboard() {
       : schedulePending>0
         ? {label:`${schedulePending} Arbiter schedule change${schedulePending===1?'':'s'} waiting for review`,href:'/admin/schedule-intelligence',color:'amber'}
         : null,
+    pendingContributors && pendingContributors > 0
+      ? {label:`${pendingContributors} contributor application${pendingContributors===1?'':'s'} awaiting approval`,href:'/admin/contributors',color:'amber'}
+      : null,
     pendingSubmissions && pendingSubmissions > 0
       ? { label: `${pendingSubmissions} pending score submission${pendingSubmissions !== 1 ? 's' : ''}`, href: '/admin/submissions', color: 'amber' }
       : null,
@@ -75,6 +80,7 @@ export default async function AdminDashboard() {
     { href: '/admin/fall-operations', icon: Activity, label: 'Fall Operations', desc: 'Schedules · scores · rosters · exceptions' },
     { href: '/admin/score-intelligence/today', icon: ClipboardList, label: "Today's Results", desc: 'Finals · reported · missing results' },
     { href: '/admin/score-intelligence', icon: ShieldCheck, label: 'Score Intelligence', desc: 'Match and review backup score sources' },
+    { href: '/admin/contributors', icon: UserRoundCheck, label: 'Contributor Control Room', desc: contributorDesc },
     { href: '/admin/schedule-intelligence', icon: ShieldCheck, label: 'Schedule Intelligence', desc: scheduleDesc },
     { href: '/admin/scores/entry', icon: PlusCircle, label: 'Enter Score', desc: 'Add a single game result' },
     { href: '/admin/scores/manage', icon: BarChart2, label: 'Manage Games', desc: 'Edit or delete games' },
