@@ -4,9 +4,16 @@ import { createAdminClient } from '@/lib/supabase/server'
 export const dynamic='force-dynamic'
 
 const STALE_MINUTES=12
+const HARD_STALE_MINUTES=30
 const nowIso=()=>new Date().toISOString()
 const heartbeatMs=(run:any)=>new Date(run?.summary?.progress?.heartbeatAt||run?.started_at||0).getTime()
-const isStale=(run:any)=>Date.now()-heartbeatMs(run)>STALE_MINUTES*60_000
+const runAgeMs=(run:any)=>Date.now()-new Date(run?.started_at||0).getTime()
+const isStale=(run:any)=>{
+  const heartbeat=heartbeatMs(run)
+  if(!Number.isFinite(heartbeat)||heartbeat<=0)return true
+  if(runAgeMs(run)>HARD_STALE_MINUTES*60_000)return true
+  return Date.now()-heartbeat>STALE_MINUTES*60_000
+}
 
 export async function GET(){
   const db=createAdminClient()
