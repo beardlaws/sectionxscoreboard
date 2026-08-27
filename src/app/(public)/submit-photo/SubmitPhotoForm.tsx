@@ -1,5 +1,3 @@
-// src/app/(public)/submit-photo/SubmitPhotoForm.tsx
-// Mobile photo flow v4: game picker, roster tagging, contributor attribution, moderated athlete connections.
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -7,156 +5,54 @@ import { createClient } from '@/lib/supabase/client'
 import type { Sport } from '@/types'
 import PhotoAthleteSuggestor from './PhotoAthleteSuggestor'
 
-type GameOption = {
-  id: string
-  game_date: string
-  game_time: string | null
-  sport_id: string | null
-  sport_name: string
-  home_team_id: string | null
-  away_team_id: string | null
-  home_school_id: string | null
-  away_school_id: string | null
-  home_name: string
-  away_name: string
-}
+type GameOption={id:string;game_date:string;game_time:string|null;sport_id:string|null;sport_name:string;home_team_id:string|null;away_team_id:string|null;home_school_id:string|null;away_school_id:string|null;home_name:string;away_name:string}
+interface Props{schools:{id:string;school_name:string}[];sports:Sport[];games:GameOption[];initialGameId?:string}
+type DayFilter='yesterday'|'today'|'tomorrow'|'all'
+type BatchItem={key:string;file:File;preview:string;status:'ready'|'uploading'|'uploaded'|'failed';photoId?:string;error?:string;tags:string[];tagsSaved:boolean}
 
-interface Props {
-  schools: { id: string; school_name: string }[]
-  sports: Sport[]
-  games: GameOption[]
-  initialGameId?: string
-}
+const MAX_BATCH=25
+const MAX_FILE_BYTES=15*1024*1024
+function localDateKey(offset=0){const d=new Date();d.setDate(d.getDate()+offset);const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`}
+function timeLabel(value:string|null){if(!value)return'TBA';const[hRaw,mRaw]=value.split(':'),h=Number(hRaw),m=Number(mRaw);if(Number.isNaN(h)||Number.isNaN(m))return value;return`${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`}
+function dateLabel(value:string){return new Date(`${value}T12:00:00`).toLocaleDateString(undefined,{month:'short',day:'numeric'})}
+function makeItem(file:File):BatchItem{return{key:`${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,file,preview:URL.createObjectURL(file),status:'ready',tags:[],tagsSaved:false}}
 
-type DayFilter = 'yesterday' | 'today' | 'tomorrow' | 'all'
-
-function localDateKey(offset = 0) {
-  const d = new Date(); d.setDate(d.getDate() + offset)
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-function timeLabel(value: string | null) {
-  if (!value) return 'TBA'
-  const [hRaw, mRaw] = value.split(':'); const h = Number(hRaw), m = Number(mRaw)
-  if (Number.isNaN(h) || Number.isNaN(m)) return value
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
-}
-function dateLabel(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
-
-export default function SubmitPhotoForm({ schools, sports, games, initialGameId = '' }: Props) {
-  const supabase = createClient()
-  const initialGame = games.find(g => g.id === initialGameId)
-  const [form, setForm] = useState({
-    submitter_name: '', submitter_email: '', photographer_credit_name: '',
-    school_id: initialGame?.home_school_id || initialGame?.away_school_id || '',
-    sport_id: initialGame?.sport_id || '', game_id: initialGameId, caption: '',
-  })
-  const [file, setFile] = useState<File | null>(null), [preview, setPreview] = useState<string | null>(null)
-  const [permission, setPermission] = useState(false), [submitted, setSubmitted] = useState(false), [loading, setLoading] = useState(false)
-  const [error, setError] = useState(''), [dayFilter, setDayFilter] = useState<DayFilter>(initialGame ? 'all' : 'today')
-  const [gameSearch, setGameSearch] = useState(''), [gameSport, setGameSport] = useState(''), [gameSchool, setGameSchool] = useState('')
-  const [athleteIds, setAthleteIds] = useState<string[]>([]), [tagCount, setTagCount] = useState(0)
-  const [contributor, setContributor] = useState<any>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const selectedGame = games.find(g => g.id === form.game_id)
-
-  useEffect(() => {
-    let active = true
-    async function loadContributor() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!active || !user) return
-      const { data } = await supabase.from('contributor_profiles').select('id,user_id,display_name,public_credit_name,email,status,can_submit_photos,can_tag_photos').eq('user_id', user.id).maybeSingle()
-      if (!active || !data || data.status !== 'approved' || !data.can_submit_photos) return
-      setContributor(data)
-      setForm(prev => ({
-        ...prev,
-        submitter_name: prev.submitter_name || data.display_name || '',
-        submitter_email: prev.submitter_email || data.email || user.email || '',
-        photographer_credit_name: prev.photographer_credit_name || data.public_credit_name || data.display_name || '',
-      }))
-    }
-    void loadContributor()
-    return () => { active = false }
-  }, [])
-
-  const filteredGames = useMemo(() => {
-    const dayMap: Record<Exclude<DayFilter, 'all'>, string> = { yesterday: localDateKey(-1), today: localDateKey(0), tomorrow: localDateKey(1) }
-    const q = gameSearch.trim().toLowerCase()
-    return games.filter(g => {
-      if (dayFilter !== 'all' && g.game_date !== dayMap[dayFilter]) return false
-      if (gameSport && g.sport_id !== gameSport) return false
-      if (gameSchool && g.home_school_id !== gameSchool && g.away_school_id !== gameSchool) return false
-      if (q && !`${g.home_name} ${g.away_name} ${g.sport_name}`.toLowerCase().includes(q)) return false
-      return true
-    }).slice(0, 80)
-  }, [games, dayFilter, gameSearch, gameSport, gameSchool])
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; if (!f) return
-    setFile(f); const reader = new FileReader(); reader.onload = ev => setPreview(ev.target?.result as string); reader.readAsDataURL(f)
-  }
-  const handleGame = (gameId: string) => {
-    const game = games.find(g => g.id === gameId); setAthleteIds([])
-    setForm(prev => ({ ...prev, game_id: gameId, sport_id: game?.sport_id || prev.sport_id, school_id: game?.home_school_id || game?.away_school_id || prev.school_id }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file || !permission || !form.photographer_credit_name) { setError('Please select a photo, enter photographer credit, and confirm permission.'); return }
-    setLoading(true); setError('')
-    const ext = file.name.split('.').pop() || 'jpg', filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`, storagePath = `submissions/${filename}`
-    const { error: uploadErr } = await supabase.storage.from('photos').upload(storagePath, file, { cacheControl: '3600', upsert: false })
-    if (uploadErr) { setError('Upload failed. Please try again.'); setLoading(false); return }
-    const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(storagePath), game = games.find(g => g.id === form.game_id)
-    const photoRow:any = {
-      submitter_name: form.submitter_name || 'Anonymous', submitter_email: form.submitter_email || null,
-      photographer_credit_name: form.photographer_credit_name, school_id: form.school_id || null,
-      team_id: game && form.school_id === game.home_school_id ? game.home_team_id : game && form.school_id === game.away_school_id ? game.away_team_id : null,
-      game_id: form.game_id || null, sport_id: form.sport_id || null, caption: form.caption || null,
-      photo_url: publicUrl, permission_confirmed: true, approved: false, featured: false,
-    }
-    if (contributor) {
-      photoRow.contributor_id = contributor.id
-      photoRow.contributor_user_id = contributor.user_id
-    }
-    const { data: created, error: dbErr } = await supabase.from('photos').insert(photoRow).select('id').single()
-    if (dbErr || !created?.id) { await supabase.storage.from('photos').remove([storagePath]); setError('Submission failed. Please try again.'); setLoading(false); return }
-
-    let tagsSaved = 0
-    if (athleteIds.length && form.game_id) {
-      const contributorTags = Boolean(contributor?.can_tag_photos)
-      const { error: tagErr } = await supabase.from('photo_tag_suggestions').insert(athleteIds.map(athlete_id => ({
-        photo_id: created.id,
-        athlete_id,
-        contributor_id: contributorTags ? contributor.id : null,
-        source_type: contributorTags ? 'contributor' : 'public',
-        status: 'pending',
-      })))
-      if (!tagErr) tagsSaved = athleteIds.length
-    }
-    setTagCount(tagsSaved); setSubmitted(true); setLoading(false)
-  }
-
-  if (submitted) return <div className="card p-8 text-center"><div className="text-5xl mb-4">📷</div><h2 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-display)' }}>Photo Submitted!</h2><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Your photo is in the review queue. {tagCount ? `${tagCount} athlete tag suggestion${tagCount===1?'':'s'} will be reviewed with it. ` : ''}Once approved, the photo can appear on its game, team, school, sport, and tagged athlete profiles.</p>{contributor&&<div className="mt-3 text-xs text-blue-300">Submitted as contributor: {contributor.public_credit_name || contributor.display_name}</div>}</div>
-
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
-  return <form onSubmit={handleSubmit} className="card p-4 sm:p-6 space-y-5">
-    {error && <div className="rounded-lg px-4 py-3 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>{error}</div>}
-    {contributor&&<div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200">Signed in as approved contributor <b>{contributor.public_credit_name || contributor.display_name}</b>. Your submission will be tied to your contributor history.</div>}
-
-    <div><label className="label">Photo *</label><div className="rounded-xl border-2 border-dashed p-5 text-center cursor-pointer transition-colors" style={{ borderColor: 'var(--border)' }} onClick={() => fileRef.current?.click()}>{preview ? <img src={preview} alt="Preview" className="max-h-64 mx-auto rounded-lg" /> : <div><div className="text-3xl mb-2">📸</div><p className="text-sm font-semibold text-white">Choose a photo</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>JPG, PNG, HEIC accepted</p></div>}<input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} /></div></div>
-
-    <div><div className="flex items-center justify-between gap-3 mb-2"><label className="label mb-0">Which game?</label>{form.game_id && <button type="button" onClick={() => handleGame('')} className="text-xs text-slate-400 hover:text-white">Clear</button>}</div>
-      {selectedGame ? <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4"><div className="text-[10px] uppercase tracking-widest text-blue-300 font-black">Selected Game</div><div className="mt-1 text-base font-bold text-white">{selectedGame.away_name} at {selectedGame.home_name}</div><div className="text-xs text-slate-400 mt-1">{selectedGame.sport_name} · {dateLabel(selectedGame.game_date)} · {timeLabel(selectedGame.game_time)}</div></div> : <><div className="grid grid-cols-4 gap-1.5 mb-3">{(['yesterday','today','tomorrow','all'] as DayFilter[]).map(day => <button key={day} type="button" onClick={() => setDayFilter(day)} className={`rounded-lg px-2 py-2 text-[11px] font-bold capitalize border ${dayFilter === day ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/[0.03] border-white/10 text-slate-400'}`}>{day === 'all' ? 'Search' : day}</button>)}</div><div className="space-y-2 mb-3"><input className="input w-full" value={gameSearch} onChange={e => { setGameSearch(e.target.value); if (e.target.value) setDayFilter('all') }} placeholder="Search school or matchup..."/><div className="grid grid-cols-2 gap-2"><select className="input" value={gameSport} onChange={e => { setGameSport(e.target.value); if (e.target.value) setDayFilter('all') }}><option value="">All sports</option>{sports.map(s => <option key={s.id} value={s.id}>{s.sport_name}</option>)}</select><select className="input" value={gameSchool} onChange={e => { setGameSchool(e.target.value); if (e.target.value) setDayFilter('all') }}><option value="">All schools</option>{schools.map(s => <option key={s.id} value={s.id}>{s.school_name}</option>)}</select></div></div><div className="rounded-xl border border-white/10 overflow-hidden max-h-80 overflow-y-auto">{filteredGames.length ? filteredGames.map(g => <button key={g.id} type="button" onClick={() => handleGame(g.id)} className="w-full text-left p-3 border-b border-white/5 last:border-b-0 hover:bg-white/[0.04] active:bg-white/[0.06]"><div className="text-sm font-semibold text-white">{g.away_name} at {g.home_name}</div><div className="text-xs text-slate-500 mt-1">{g.sport_name} · {dateLabel(g.game_date)} · {timeLabel(g.game_time)}</div></button>) : <div className="p-5 text-center text-sm text-slate-500">No games found. Try Search or clear a filter.</div>}</div><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>Today’s games are shown first. If you opened this from a Game Center, the matchup is preselected automatically.</p></>}
-    </div>
-
-    {form.game_id && <PhotoAthleteSuggestor gameId={form.game_id} selected={athleteIds} onChange={setAthleteIds} />}
-
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">Your Name</label><input className="input" value={form.submitter_name} onChange={e => set('submitter_name', e.target.value)} placeholder="Optional" /></div><div><label className="label">Your Email</label><input className="input" type="email" value={form.submitter_email} onChange={e => set('submitter_email', e.target.value)} placeholder="Optional" /></div></div>
-    <div><label className="label">Photographer Credit *</label><input className="input" required value={form.photographer_credit_name} onChange={e => set('photographer_credit_name', e.target.value)} placeholder="Name to display as credit" /></div>
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">School</label><select className="input" value={form.school_id} onChange={e => set('school_id', e.target.value)}><option value="">Select school...</option>{schools.map(s => <option key={s.id} value={s.id}>{s.school_name}</option>)}</select></div><div><label className="label">Sport</label><select className="input" value={form.sport_id} onChange={e => set('sport_id', e.target.value)}><option value="">Select sport...</option>{sports.map(s => <option key={s.id} value={s.id}>{s.sport_name}</option>)}</select></div></div>
-    <div><label className="label">Caption</label><textarea className="input" rows={2} value={form.caption} onChange={e => set('caption', e.target.value)} placeholder="Describe the photo..." /></div>
-    <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}><input type="checkbox" required checked={permission} onChange={e => setPermission(e.target.checked)} className="mt-0.5 flex-shrink-0" /><span className="text-sm" style={{ color: 'var(--text-secondary)' }}>I confirm I took this photo or have permission to submit it, and I allow Section X Scoreboard to display it with credit.</span></label>
-    <button type="submit" className="btn-primary w-full py-3" disabled={loading || !permission}>{loading ? 'Uploading...' : athleteIds.length ? `Submit Photo + ${athleteIds.length} Tag${athleteIds.length===1?'':'s'} for Review` : 'Submit Photo for Review'}</button>
-  </form>
+export default function SubmitPhotoForm({schools,sports,games,initialGameId=''}:Props){
+ const supabase=createClient(),initialGame=games.find(g=>g.id===initialGameId)
+ const [form,setForm]=useState({submitter_name:'',submitter_email:'',photographer_credit_name:'',school_id:initialGame?.home_school_id||initialGame?.away_school_id||'',sport_id:initialGame?.sport_id||'',game_id:initialGameId,caption:''})
+ const [items,setItems]=useState<BatchItem[]>([]),[permission,setPermission]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('')
+ const [dayFilter,setDayFilter]=useState<DayFilter>(initialGame?'all':'today'),[gameSearch,setGameSearch]=useState(''),[gameSport,setGameSport]=useState(''),[gameSchool,setGameSchool]=useState('')
+ const [singleTags,setSingleTags]=useState<string[]>([]),[contributor,setContributor]=useState<any>(null),[dragging,setDragging]=useState(false),[progress,setProgress]=useState({done:0,total:0})
+ const fileRef=useRef<HTMLInputElement>(null),selectedGame=games.find(g=>g.id===form.game_id),isBatch=Boolean(contributor&&items.length>1),uploaded=items.filter(i=>i.status==='uploaded'),failed=items.filter(i=>i.status==='failed')
+ useEffect(()=>()=>{items.forEach(i=>URL.revokeObjectURL(i.preview))},[])
+ useEffect(()=>{let active=true;async function loadContributor(){const{data:{user}}=await supabase.auth.getUser();if(!active||!user)return;const{data}=await supabase.from('contributor_profiles').select('id,user_id,display_name,public_credit_name,email,status,can_submit_photos,can_tag_photos,can_publish_photos').eq('user_id',user.id).maybeSingle();if(!active||!data||data.status!=='approved'||!data.can_submit_photos)return;setContributor(data);setForm(prev=>({...prev,submitter_name:prev.submitter_name||data.display_name||'',submitter_email:prev.submitter_email||data.email||user.email||'',photographer_credit_name:prev.photographer_credit_name||data.public_credit_name||data.display_name||''}))}void loadContributor();return()=>{active=false}},[])
+ const filteredGames=useMemo(()=>{const dayMap:{[K in Exclude<DayFilter,'all'>]:string}={yesterday:localDateKey(-1),today:localDateKey(0),tomorrow:localDateKey(1)},q=gameSearch.trim().toLowerCase();return games.filter(g=>{if(dayFilter!=='all'&&g.game_date!==dayMap[dayFilter])return false;if(gameSport&&g.sport_id!==gameSport)return false;if(gameSchool&&g.home_school_id!==gameSchool&&g.away_school_id!==gameSchool)return false;if(q&&!`${g.home_name} ${g.away_name} ${g.sport_name}`.toLowerCase().includes(q))return false;return true}).slice(0,80)},[games,dayFilter,gameSearch,gameSport,gameSchool])
+ function addFiles(list:FileList|File[]){setError('');const incoming=Array.from(list).filter(f=>f.type.startsWith('image/'));const limit=contributor?MAX_BATCH:1;const oversized=incoming.filter(f=>f.size>MAX_FILE_BYTES);if(oversized.length)setError(`${oversized.length} image${oversized.length===1?' is':'s are'} over the 15 MB file limit and ${oversized.length===1?'was':'were'} skipped.`);const allowed=incoming.filter(f=>f.size<=MAX_FILE_BYTES);setItems(prev=>{const room=Math.max(0,limit-prev.length),next=allowed.slice(0,room).map(makeItem);if(allowed.length>room)setError(`You can upload up to ${limit} photo${limit===1?'':'s'} at a time.`);return[...prev,...next]})}
+ function removeItem(key:string){setItems(prev=>{const found=prev.find(i=>i.key===key);if(found)URL.revokeObjectURL(found.preview);return prev.filter(i=>i.key!==key)})}
+ function handleGame(gameId:string){const game=games.find(g=>g.id===gameId);setSingleTags([]);setItems(prev=>prev.map(i=>({...i,tags:[],tagsSaved:false})));setForm(prev=>({...prev,game_id:gameId,sport_id:game?.sport_id||prev.sport_id,school_id:game?.home_school_id||game?.away_school_id||prev.school_id}))}
+ function photoRow(game:GameOption|undefined,publicUrl:string){const row:any={submitter_name:form.submitter_name||'Anonymous',submitter_email:form.submitter_email||null,photographer_credit_name:form.photographer_credit_name,school_id:form.school_id||null,team_id:game&&form.school_id===game.home_school_id?game.home_team_id:game&&form.school_id===game.away_school_id?game.away_team_id:null,game_id:form.game_id||null,sport_id:form.sport_id||null,caption:form.caption||null,photo_url:publicUrl,permission_confirmed:true,approved:false,featured:false};if(contributor){row.contributor_id=contributor.id;row.contributor_user_id=contributor.user_id}return row}
+ async function saveSuggestions(photoId:string,athleteIds:string[]){if(!athleteIds.length||!form.game_id)return 0;const contributorTags=Boolean(contributor?.can_tag_photos);const{error:tagErr}=await supabase.from('photo_tag_suggestions').insert(athleteIds.map(athlete_id=>({photo_id:photoId,athlete_id,contributor_id:contributorTags?contributor.id:null,source_type:contributorTags?'contributor':'public',status:'pending'})));if(tagErr)throw tagErr;return athleteIds.length}
+ async function uploadOne(item:BatchItem,initialTags:string[]){setItems(p=>p.map(i=>i.key===item.key?{...i,status:'uploading',error:undefined}:i));try{const ext=(item.file.name.split('.').pop()||'jpg').toLowerCase(),filename=`${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`,storagePath=`submissions/${filename}`;const{error:uploadErr}=await supabase.storage.from('photos').upload(storagePath,item.file,{cacheControl:'3600',upsert:false});if(uploadErr)throw uploadErr;const{data:{publicUrl}}=supabase.storage.from('photos').getPublicUrl(storagePath),game=games.find(g=>g.id===form.game_id),{data:created,error:dbErr}=await supabase.from('photos').insert(photoRow(game,publicUrl)).select('id').single();if(dbErr||!created?.id){await supabase.storage.from('photos').remove([storagePath]);throw dbErr||new Error('Could not create photo record.')}let tagsSaved=false;if(initialTags.length){await saveSuggestions(created.id,initialTags);tagsSaved=true}setItems(p=>p.map(i=>i.key===item.key?{...i,status:'uploaded',photoId:created.id,tags:initialTags,tagsSaved}:i));return true}catch(e:any){setItems(p=>p.map(i=>i.key===item.key?{...i,status:'failed',error:e?.message||'Upload failed'}:i));return false}}
+ async function runUpload(targets:BatchItem[]){if(!targets.length||!permission||!form.photographer_credit_name){setError('Choose at least one photo, enter photographer credit, and confirm permission.');return}setLoading(true);setError('');setMessage('');setProgress({done:0,total:targets.length});let success=0;for(let x=0;x<targets.length;x++){const initialTags=targets.length===1?singleTags:[];if(await uploadOne(targets[x],initialTags))success++;setProgress({done:x+1,total:targets.length})}setLoading(false);const misses=targets.length-success;setMessage(`${success} photo${success===1?'':'s'} uploaded${misses?`; ${misses} failed and can be retried.`:'.'}`)}
+ async function submit(e:React.FormEvent){e.preventDefault();await runUpload(items.filter(i=>i.status==='ready'||i.status==='failed'))}
+ async function saveItemTags(item:BatchItem){if(!item.photoId)return;try{await saveSuggestions(item.photoId,item.tags);setItems(p=>p.map(i=>i.key===item.key?{...i,tagsSaved:true}:i));setMessage('Athlete tag suggestions saved for that photo.')}catch(e:any){setError(e?.message||'Could not save tags.') }}
+ function reset(){items.forEach(i=>URL.revokeObjectURL(i.preview));setItems([]);setSingleTags([]);setProgress({done:0,total:0});setMessage('');setError('');setPermission(false)}
+ const set=(k:string,v:string)=>setForm(p=>({...p,[k]:v}))
+ if(uploaded.length&&uploaded.length===items.length&&!isBatch&&items.length===1)return <div className="card p-8 text-center space-y-4"><div className="text-5xl">📷</div><h2 className="text-xl font-bold" style={{fontFamily:'var(--font-display)'}}>Photo Submitted!</h2><p className="text-sm text-slate-400">Your photo is in the review queue. Once approved, it can appear on its game, team, school, sport, and tagged athlete profiles.</p>{contributor&&<div className="text-xs text-blue-300">Submitted as contributor: {contributor.public_credit_name||contributor.display_name}</div>}<button onClick={reset} className="btn-primary px-5 py-3">Submit Another Photo</button></div>
+ return <form onSubmit={submit} className="card p-4 sm:p-6 space-y-5">
+  {error&&<div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}{message&&<div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200">{message}</div>}
+  {contributor&&<div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200"><b>Contributor batch uploader enabled.</b> Select up to {MAX_BATCH} photos for one game. Each photo stays individually moderated and can be tagged separately after upload.</div>}
+  <div><div className="flex items-center justify-between mb-2"><label className="label mb-0">{contributor?'Photos':'Photo'} *</label>{items.length>0&&<button type="button" onClick={reset} className="text-xs text-slate-400 hover:text-white">Clear all</button>}</div><div onDragEnter={e=>{e.preventDefault();setDragging(true)}} onDragOver={e=>e.preventDefault()} onDragLeave={e=>{e.preventDefault();setDragging(false)}} onDrop={e=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files)}} onClick={()=>fileRef.current?.click()} className={`rounded-xl border-2 border-dashed p-5 text-center cursor-pointer transition-colors ${dragging?'border-blue-400 bg-blue-500/10':'border-white/15 hover:border-blue-500/40'}`}><div className="text-3xl mb-2">📸</div><p className="text-sm font-semibold text-white">{contributor?'Choose or drop multiple photos':'Choose a photo'}</p><p className="text-xs mt-1 text-slate-500">JPG, PNG, HEIC · 15 MB max each{contributor?` · up to ${MAX_BATCH} per batch`:''}</p><input ref={fileRef} type="file" accept="image/*" multiple={Boolean(contributor)} className="hidden" onChange={e=>{if(e.target.files)addFiles(e.target.files);e.currentTarget.value=''}}/></div>{items.length>0&&<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mt-3">{items.map(i=><div key={i.key} className="relative rounded-lg border border-white/10 overflow-hidden bg-black/20"><img src={i.preview} alt="Selected" className="w-full aspect-square object-cover"/><div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-[10px] flex items-center justify-between"><span className={i.status==='failed'?'text-red-300':i.status==='uploaded'?'text-emerald-300':'text-white'}>{i.status}</span>{!loading&&i.status!=='uploaded'&&<button type="button" onClick={e=>{e.stopPropagation();removeItem(i.key)}} className="text-slate-300">Remove</button>}</div>{i.error&&<div className="absolute top-1 left-1 right-1 rounded bg-red-950/90 px-1 py-0.5 text-[9px] text-red-200 truncate">{i.error}</div>}</div>)}</div>}</div>
+  <div><div className="flex items-center justify-between gap-3 mb-2"><label className="label mb-0">Which game?</label>{form.game_id&&<button type="button" onClick={()=>handleGame('')} className="text-xs text-slate-400 hover:text-white">Clear</button>}</div>{selectedGame?<div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4"><div className="text-[10px] uppercase tracking-widest text-blue-300 font-black">Selected Game</div><div className="mt-1 text-base font-bold text-white">{selectedGame.away_name} at {selectedGame.home_name}</div><div className="text-xs text-slate-400 mt-1">{selectedGame.sport_name} · {dateLabel(selectedGame.game_date)} · {timeLabel(selectedGame.game_time)}</div></div>:<><div className="grid grid-cols-4 gap-1.5 mb-3">{(['yesterday','today','tomorrow','all'] as DayFilter[]).map(day=><button key={day} type="button" onClick={()=>setDayFilter(day)} className={`rounded-lg px-2 py-2 text-[11px] font-bold capitalize border ${dayFilter===day?'bg-blue-600 border-blue-500 text-white':'bg-white/[0.03] border-white/10 text-slate-400'}`}>{day==='all'?'Search':day}</button>)}</div><div className="space-y-2 mb-3"><input className="input w-full" value={gameSearch} onChange={e=>{setGameSearch(e.target.value);if(e.target.value)setDayFilter('all')}} placeholder="Search school or matchup..."/><div className="grid grid-cols-2 gap-2"><select className="input" value={gameSport} onChange={e=>{setGameSport(e.target.value);if(e.target.value)setDayFilter('all')}}><option value="">All sports</option>{sports.map(s=><option key={s.id} value={s.id}>{s.sport_name}</option>)}</select><select className="input" value={gameSchool} onChange={e=>{setGameSchool(e.target.value);if(e.target.value)setDayFilter('all')}}><option value="">All schools</option>{schools.map(s=><option key={s.id} value={s.id}>{s.school_name}</option>)}</select></div></div><div className="rounded-xl border border-white/10 overflow-hidden max-h-80 overflow-y-auto">{filteredGames.length?filteredGames.map(g=><button key={g.id} type="button" onClick={()=>handleGame(g.id)} className="w-full text-left p-3 border-b border-white/5 last:border-b-0 hover:bg-white/[0.04]"><div className="text-sm font-semibold text-white">{g.away_name} at {g.home_name}</div><div className="text-xs text-slate-500 mt-1">{g.sport_name} · {dateLabel(g.game_date)} · {timeLabel(g.game_time)}</div></button>):<div className="p-5 text-center text-sm text-slate-500">No games found.</div>}</div></>}</div>
+  {!isBatch&&form.game_id&&items.length<=1&&<PhotoAthleteSuggestor gameId={form.game_id} selected={singleTags} onChange={setSingleTags}/>} 
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">Your Name</label><input className="input" value={form.submitter_name} onChange={e=>set('submitter_name',e.target.value)} placeholder="Optional"/></div><div><label className="label">Your Email</label><input className="input" type="email" value={form.submitter_email} onChange={e=>set('submitter_email',e.target.value)} placeholder="Optional"/></div></div>
+  <div><label className="label">Photographer Credit *</label><input className="input" required value={form.photographer_credit_name} onChange={e=>set('photographer_credit_name',e.target.value)} placeholder="Name to display as credit"/></div>
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">School</label><select className="input" value={form.school_id} onChange={e=>set('school_id',e.target.value)}><option value="">Select school...</option>{schools.map(s=><option key={s.id} value={s.id}>{s.school_name}</option>)}</select></div><div><label className="label">Sport</label><select className="input" value={form.sport_id} onChange={e=>set('sport_id',e.target.value)}><option value="">Select sport...</option>{sports.map(s=><option key={s.id} value={s.id}>{s.sport_name}</option>)}</select></div></div>
+  <div><label className="label">Shared Caption</label><textarea className="input" rows={2} value={form.caption} onChange={e=>set('caption',e.target.value)} placeholder={contributor?'Optional caption applied to every photo in this batch':'Describe the photo...'}/></div>
+  <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg bg-white/[0.025] border border-white/10"><input type="checkbox" required checked={permission} onChange={e=>setPermission(e.target.checked)} className="mt-0.5"/><span className="text-sm text-slate-400">I confirm I took these photos or have permission to submit them, and I allow Section X Scoreboard to display them with credit.</span></label>
+  {loading&&<div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3"><div className="flex justify-between text-xs text-blue-200 mb-2"><span>Uploading batch…</span><span>{progress.done}/{progress.total}</span></div><div className="h-2 rounded-full bg-black/30 overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{width:`${progress.total?(progress.done/progress.total)*100:0}%`}}/></div></div>}
+  {items.some(i=>i.status==='ready'||i.status==='failed')&&<button type="submit" className="btn-primary w-full py-3" disabled={loading||!permission}>{loading?'Uploading...':failed.length?`Retry ${failed.length} Failed Photo${failed.length===1?'':'s'}`:`Upload ${items.length} Photo${items.length===1?'':'s'}`}</button>}
+  {contributor&&uploaded.length>0&&form.game_id&&<section className="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-4"><div><div className="text-xs uppercase tracking-widest text-blue-300 font-black">Post-upload tagging</div><h3 className="text-lg font-black text-white mt-1">Tag athletes photo by photo</h3><p className="text-xs text-slate-500 mt-1">Upload is complete. Tags remain private until admin approval.</p></div>{uploaded.map(item=><div key={item.key} className="rounded-xl border border-white/10 p-3 grid md:grid-cols-[180px_1fr] gap-3"><img src={item.preview} alt="Uploaded" className="w-full aspect-square object-cover rounded-lg"/><div className="space-y-3"><PhotoAthleteSuggestor gameId={form.game_id} selected={item.tags} onChange={tags=>setItems(p=>p.map(i=>i.key===item.key?{...i,tags,tagsSaved:false}:i))}/><button type="button" disabled={item.tagsSaved||!item.tags.length} onClick={()=>saveItemTags(item)} className="btn-primary px-4 py-2 disabled:opacity-50">{item.tagsSaved?'Tags Saved':item.tags.length?`Save ${item.tags.length} Tag${item.tags.length===1?'':'s'}`:'Select Athletes'}</button></div></div>)}</section>}
+  {uploaded.length>0&&!loading&&<button type="button" onClick={reset} className="w-full rounded-lg border border-white/10 py-3 text-sm text-slate-300 hover:bg-white/5">Start New Batch</button>}
+ </form>
 }
