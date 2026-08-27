@@ -17,13 +17,21 @@ export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: strin
   async function load() {
     if (!gameId) return
     setLoading(true)
-    const [{ data: game }, { data: tags }, suggestions] = await Promise.all([
+    const [gameResult, tagsResult, suggestionResult] = await Promise.all([
       supabase.from('games').select('home_team_id, away_team_id, season_id').eq('id', gameId).single(),
       supabase.from('photo_athletes').select('athlete_id').eq('photo_id', photoId),
-      supabase.from('photo_tag_suggestions').select('athlete_id,status').eq('photo_id', photoId).eq('status','pending'),
+      fetch(`/api/admin/photos/tag-suggestions?photoId=${encodeURIComponent(photoId)}`, { credentials: 'include', cache: 'no-store' })
+        .then(async r => {
+          const j = await r.json().catch(() => ({}))
+          if (!r.ok) throw new Error(j.error || 'Could not load tag suggestions')
+          return j
+        })
+        .catch(() => ({ suggestions: [] })),
     ])
+    const game = gameResult.data
+    const tags = tagsResult.data
     setTagged(new Set((tags || []).map((tag: any) => tag.athlete_id)))
-    setSuggested(new Set((suggestions.data || []).map((tag: any) => tag.athlete_id)))
+    setSuggested(new Set((suggestionResult.suggestions || []).map((tag: any) => tag.athlete_id)))
     if (!game) { setLoading(false); return }
     const teamIds = [game.home_team_id, game.away_team_id].filter(Boolean)
     if (!teamIds.length) { setLoading(false); return }
@@ -47,9 +55,7 @@ export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: strin
   }, [athletes, search])
 
   async function approveSuggestion(athleteId:string) {
-    try {
-      await adminDb.update('photo_tag_suggestions', { status:'approved', reviewed_at:new Date().toISOString(), reviewed_by:'admin' }, { photo_id:photoId, athlete_id:athleteId })
-    } catch {}
+    await adminDb.update('photo_tag_suggestions', { status:'approved', reviewed_at:new Date().toISOString(), reviewed_by:'admin' }, { photo_id:photoId, athlete_id:athleteId })
     setSuggested(prev => { const next=new Set(prev); next.delete(athleteId); return next })
   }
 
