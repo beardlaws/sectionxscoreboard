@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import AdminLayout from '@/components/layout/AdminLayout'
 import { createClient } from '@/lib/supabase/server'
 import ScheduleIntelligence from './ScheduleIntelligence'
@@ -33,6 +34,11 @@ export default async function ScheduleIntelligencePage() {
 
   return (
     <AdminLayout>
+      <div className="px-4 pt-4 max-w-6xl">
+        <Link href="/admin/schedule-intelligence/preflight" className="admin-action-btn inline-flex">
+          Season Adoption Preflight →
+        </Link>
+      </div>
       <ScheduleIntelligence seasons={seasons} />
     </AdminLayout>
   )
