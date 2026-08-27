@@ -1,0 +1,47 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
+
+function one(v:any){return Array.isArray(v)?v[0]:v}
+function sportName(v:any){const s=one(v); if(!s)return 'Sport'; return s.gender&&s.gender!=='Both'?`${s.gender} ${s.sport_name}`:s.sport_name}
+function teamName(v:any,fallback:string){const t=one(v); return t?.team_name||fallback}
+
+function GameCard({ assignment, canLive, onMessage }: { assignment:any; canLive:boolean; onMessage:(m:string)=>void }) {
+  const game=one(assignment.game)
+  const [home,setHome]=useState(Number(game?.home_score||0)),[away,setAway]=useState(Number(game?.away_score||0)),[status,setStatus]=useState(game?.status==='Final'?'Final':'Live'),[saving,setSaving]=useState(false)
+  if(!game)return null
+  const homeName=teamName(game.home_team,'Home'),awayName=teamName(game.away_team,'Away')
+  async function send(){
+    setSaving(true); onMessage('')
+    try{
+      const r=await fetch('/api/contributor/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:game.id,homeScore:home,awayScore:away,status})})
+      const j=await r.json(); if(!r.ok)throw new Error(j.error||'Could not submit score')
+      onMessage(j.published?'Scoreboard updated and audit logged.':'Score report submitted for admin review.')
+    }catch(e:any){onMessage(e.message||'Could not submit score')}finally{setSaving(false)}
+  }
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 space-y-4">
+    <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] uppercase tracking-widest text-blue-300 font-black">{assignment.assignment_role.replace(/-/g,' ')}</div><div className="text-lg font-black text-white mt-1">{awayName} at {homeName}</div><div className="text-xs text-slate-500 mt-1">{sportName(game.sport)} · {game.game_date} {game.game_time?`· ${String(game.game_time).slice(0,5)}`:''}</div></div><Link href={`/game-center/${game.id}`} className="text-xs text-blue-300">Game Center →</Link></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div className="rounded-xl bg-black/20 p-3"><div className="text-xs text-slate-500">Away</div><div className="font-bold text-white mt-1 truncate">{awayName}</div><div className="flex items-center gap-2 mt-3"><button onClick={()=>setAway(Math.max(0,away-1))} className="w-10 h-10 rounded-lg bg-white/5 text-white">−</button><div className="text-3xl font-black text-white min-w-10 text-center">{away}</div><button onClick={()=>setAway(away+1)} className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-200">+</button></div></div>
+      <div className="rounded-xl bg-black/20 p-3"><div className="text-xs text-slate-500">Home</div><div className="font-bold text-white mt-1 truncate">{homeName}</div><div className="flex items-center gap-2 mt-3"><button onClick={()=>setHome(Math.max(0,home-1))} className="w-10 h-10 rounded-lg bg-white/5 text-white">−</button><div className="text-3xl font-black text-white min-w-10 text-center">{home}</div><button onClick={()=>setHome(home+1)} className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-200">+</button></div></div>
+    </div>
+    <div className="grid grid-cols-2 gap-2"><button onClick={()=>setStatus('Live')} className={`rounded-lg p-2 text-sm font-bold border ${status==='Live'?'border-blue-500 bg-blue-500/10 text-blue-200':'border-white/10 text-slate-400'}`}>Live</button><button onClick={()=>setStatus('Final')} className={`rounded-lg p-2 text-sm font-bold border ${status==='Final'?'border-emerald-500 bg-emerald-500/10 text-emerald-200':'border-white/10 text-slate-400'}`}>Final</button></div>
+    <button onClick={send} disabled={saving} className="btn-primary w-full py-3">{saving?'Sending…':canLive?'Update Scoreboard':'Submit Score for Review'}</button>
+    <Link href={`/submit-photo?game=${game.id}`} className="block text-center text-sm text-slate-400 hover:text-white">Upload photos from this game</Link>
+  </div>
+}
+
+export default function ContributorDashboard({profile,assignments,recent}:{profile:any;assignments:any[];recent:any[]}){
+  const supabase=createClient(); const [message,setMessage]=useState('')
+  const assigned=useMemo(()=>assignments.filter(a=>a.active),[assignments])
+  async function signOut(){await supabase.auth.signOut();window.location.href='/contribute'}
+  return <main className="max-w-5xl mx-auto px-4 py-8 space-y-5">
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-transparent p-6 flex flex-col md:flex-row md:items-center justify-between gap-4"><div><div className="text-xs uppercase tracking-widest text-blue-300 font-black">Contributor Dashboard</div><h1 className="text-4xl font-black text-white mt-1" style={{fontFamily:'var(--font-display)'}}>{profile.public_credit_name||profile.display_name}</h1><div className="flex flex-wrap gap-2 mt-3"><span className="text-xs rounded-full bg-emerald-500/10 text-emerald-300 px-2 py-1">Approved</span><span className="text-xs rounded-full bg-white/5 text-slate-300 px-2 py-1">{profile.trust_level}</span>{profile.can_live_score&&<span className="text-xs rounded-full bg-blue-500/10 text-blue-300 px-2 py-1">Live Scoring Enabled</span>}</div></div><button onClick={signOut} className="admin-action-btn justify-center">Sign Out</button></div>
+    {message&&<div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-blue-200 text-sm">{message}</div>}
+    <div className="grid md:grid-cols-4 gap-3"><div className="card p-4"><div className="text-2xl font-black text-white">{assigned.length}</div><div className="text-xs text-slate-500">Active assignments</div></div><div className="card p-4"><div className="text-2xl font-black text-white">{profile.submissions_count||0}</div><div className="text-xs text-slate-500">Submissions</div></div><div className="card p-4"><div className="text-2xl font-black text-white">{profile.verified_count||0}</div><div className="text-xs text-slate-500">Verified</div></div><div className="card p-4"><div className="text-2xl font-black text-white">{profile.roles?.length||0}</div><div className="text-xs text-slate-500">Coverage roles</div></div></div>
+    <section><div className="flex items-center justify-between mb-3"><h2 className="text-xl font-black text-white">Assigned Games</h2><Link href="/submit-photo" className="text-sm text-blue-300">Submit Photos →</Link></div>{assigned.length?<div className="grid lg:grid-cols-2 gap-3">{assigned.map(a=><GameCard key={a.id} assignment={a} canLive={Boolean(profile.can_live_score)} onMessage={setMessage}/>)}</div>:<div className="card p-6 text-slate-500 text-sm">No active game assignments yet. You can still use normal photo and score submission tools while an admin assigns coverage.</div>}</section>
+    <section className="card p-4"><h2 className="font-black text-white mb-3">Recent Score Activity</h2>{recent.length?<div className="space-y-2">{recent.map(r=><div key={r.id} className="flex items-center justify-between gap-3 rounded-lg bg-black/20 p-3 text-sm"><div><div className="text-white font-bold">{r.away_score} - {r.home_score} · {r.game_status}</div><div className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</div></div><span className={`text-xs font-bold ${r.publication_status==='published'?'text-emerald-300':'text-amber-300'}`}>{r.publication_status}</span></div>)}</div>:<div className="text-sm text-slate-500">No contributor score activity yet.</div>}</section>
+  </main>
+}
