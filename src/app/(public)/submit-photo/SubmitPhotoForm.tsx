@@ -1,8 +1,8 @@
 // src/app/(public)/submit-photo/SubmitPhotoForm.tsx
-// Mobile photo flow v3: today-first picker, game roster tagging, and moderated athlete connections.
+// Mobile photo flow v4: game picker, roster tagging, contributor attribution, moderated athlete connections.
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Sport } from '@/types'
 import PhotoAthleteSuggestor from './PhotoAthleteSuggestor'
@@ -44,6 +44,7 @@ function timeLabel(value: string | null) {
 function dateLabel(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
 
 export default function SubmitPhotoForm({ schools, sports, games, initialGameId = '' }: Props) {
+  const supabase = createClient()
   const initialGame = games.find(g => g.id === initialGameId)
   const [form, setForm] = useState({
     submitter_name: '', submitter_email: '', photographer_credit_name: '',
@@ -55,8 +56,28 @@ export default function SubmitPhotoForm({ schools, sports, games, initialGameId 
   const [error, setError] = useState(''), [dayFilter, setDayFilter] = useState<DayFilter>(initialGame ? 'all' : 'today')
   const [gameSearch, setGameSearch] = useState(''), [gameSport, setGameSport] = useState(''), [gameSchool, setGameSchool] = useState('')
   const [athleteIds, setAthleteIds] = useState<string[]>([]), [tagCount, setTagCount] = useState(0)
+  const [contributor, setContributor] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const selectedGame = games.find(g => g.id === form.game_id)
+
+  useEffect(() => {
+    let active = true
+    async function loadContributor() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!active || !user) return
+      const { data } = await supabase.from('contributor_profiles').select('id,user_id,display_name,public_credit_name,email,status,can_submit_photos,can_tag_photos').eq('user_id', user.id).maybeSingle()
+      if (!active || !data || data.status !== 'approved' || !data.can_submit_photos) return
+      setContributor(data)
+      setForm(prev => ({
+        ...prev,
+        submitter_name: prev.submitter_name || data.display_name || '',
+        submitter_email: prev.submitter_email || data.email || user.email || '',
+        photographer_credit_name: prev.photographer_credit_name || data.public_credit_name || data.display_name || '',
+      }))
+    }
+    void loadContributor()
+    return () => { active = false }
+  }, [])
 
   const filteredGames = useMemo(() => {
     const dayMap: Record<Exclude<DayFilter, 'all'>, string> = { yesterday: localDateKey(-1), today: localDateKey(0), tomorrow: localDateKey(1) }
@@ -83,32 +104,45 @@ export default function SubmitPhotoForm({ schools, sports, games, initialGameId 
     e.preventDefault()
     if (!file || !permission || !form.photographer_credit_name) { setError('Please select a photo, enter photographer credit, and confirm permission.'); return }
     setLoading(true); setError('')
-    const supabase = createClient(), ext = file.name.split('.').pop() || 'jpg', filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`, storagePath = `submissions/${filename}`
+    const ext = file.name.split('.').pop() || 'jpg', filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`, storagePath = `submissions/${filename}`
     const { error: uploadErr } = await supabase.storage.from('photos').upload(storagePath, file, { cacheControl: '3600', upsert: false })
     if (uploadErr) { setError('Upload failed. Please try again.'); setLoading(false); return }
     const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(storagePath), game = games.find(g => g.id === form.game_id)
-    const { data: created, error: dbErr } = await supabase.from('photos').insert({
+    const photoRow:any = {
       submitter_name: form.submitter_name || 'Anonymous', submitter_email: form.submitter_email || null,
       photographer_credit_name: form.photographer_credit_name, school_id: form.school_id || null,
       team_id: game && form.school_id === game.home_school_id ? game.home_team_id : game && form.school_id === game.away_school_id ? game.away_team_id : null,
       game_id: form.game_id || null, sport_id: form.sport_id || null, caption: form.caption || null,
       photo_url: publicUrl, permission_confirmed: true, approved: false, featured: false,
-    }).select('id').single()
+    }
+    if (contributor) {
+      photoRow.contributor_id = contributor.id
+      photoRow.contributor_user_id = contributor.user_id
+    }
+    const { data: created, error: dbErr } = await supabase.from('photos').insert(photoRow).select('id').single()
     if (dbErr || !created?.id) { await supabase.storage.from('photos').remove([storagePath]); setError('Submission failed. Please try again.'); setLoading(false); return }
 
     let tagsSaved = 0
     if (athleteIds.length && form.game_id) {
-      const { error: tagErr } = await supabase.from('photo_tag_suggestions').insert(athleteIds.map(athlete_id => ({ photo_id: created.id, athlete_id, contributor_id: null, source_type: 'public', status: 'pending' })))
+      const contributorTags = Boolean(contributor?.can_tag_photos)
+      const { error: tagErr } = await supabase.from('photo_tag_suggestions').insert(athleteIds.map(athlete_id => ({
+        photo_id: created.id,
+        athlete_id,
+        contributor_id: contributorTags ? contributor.id : null,
+        source_type: contributorTags ? 'contributor' : 'public',
+        status: 'pending',
+      })))
       if (!tagErr) tagsSaved = athleteIds.length
     }
     setTagCount(tagsSaved); setSubmitted(true); setLoading(false)
   }
 
-  if (submitted) return <div className="card p-8 text-center"><div className="text-5xl mb-4">📷</div><h2 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-display)' }}>Photo Submitted!</h2><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Your photo is in the review queue. {tagCount ? `${tagCount} athlete tag suggestion${tagCount===1?'':'s'} will be reviewed with it. ` : ''}Once approved, the photo can appear on its game, team, school, sport, and tagged athlete profiles.</p></div>
+  if (submitted) return <div className="card p-8 text-center"><div className="text-5xl mb-4">📷</div><h2 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-display)' }}>Photo Submitted!</h2><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Your photo is in the review queue. {tagCount ? `${tagCount} athlete tag suggestion${tagCount===1?'':'s'} will be reviewed with it. ` : ''}Once approved, the photo can appear on its game, team, school, sport, and tagged athlete profiles.</p>{contributor&&<div className="mt-3 text-xs text-blue-300">Submitted as contributor: {contributor.public_credit_name || contributor.display_name}</div>}</div>
 
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
   return <form onSubmit={handleSubmit} className="card p-4 sm:p-6 space-y-5">
     {error && <div className="rounded-lg px-4 py-3 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>{error}</div>}
+    {contributor&&<div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200">Signed in as approved contributor <b>{contributor.public_credit_name || contributor.display_name}</b>. Your submission will be tied to your contributor history.</div>}
 
     <div><label className="label">Photo *</label><div className="rounded-xl border-2 border-dashed p-5 text-center cursor-pointer transition-colors" style={{ borderColor: 'var(--border)' }} onClick={() => fileRef.current?.click()}>{preview ? <img src={preview} alt="Preview" className="max-h-64 mx-auto rounded-lg" /> : <div><div className="text-3xl mb-2">📸</div><p className="text-sm font-semibold text-white">Choose a photo</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>JPG, PNG, HEIC accepted</p></div>}<input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} /></div></div>
 
