@@ -63,7 +63,7 @@ export async function generateMetadata({
 
   return {
     title: `${athlete.display_name} | ${school?.school_name || 'Section X'} Athlete`,
-    description: `${athlete.display_name} team and roster history on Section X Scoreboard.`,
+    description: `${athlete.display_name} teams, roster history, and approved photos on Section X Scoreboard.`,
   }
 }
 
@@ -102,38 +102,53 @@ export default async function AthletePage({
 
   const school = normalizeJoinedRecord<any>((athlete as any).school)
 
-  const { data: rosterRows } = await supabase
-    .from('roster_entries')
-    .select(`
-      id,
-      jersey_number,
-      class_year,
-      position,
-      height,
-      active,
-      imported_at,
-      team:teams(
+  const [{ data: rosterRows }, { data: photoTags }] = await Promise.all([
+    supabase
+      .from('roster_entries')
+      .select(`
         id,
-        team_name,
-        slug,
-        sport:sports(
+        jersey_number,
+        class_year,
+        position,
+        height,
+        active,
+        imported_at,
+        team:teams(
           id,
-          sport_name,
-          gender,
+          team_name,
           slug,
-          season_type
+          sport:sports(
+            id,
+            sport_name,
+            gender,
+            slug,
+            season_type
+          )
+        ),
+        season:seasons(
+          id,
+          name,
+          year,
+          season_type,
+          is_active
         )
-      ),
-      season:seasons(
-        id,
-        name,
-        year,
-        season_type,
-        is_active
-      )
-    `)
-    .eq('athlete_id', athlete.id)
-    .order('created_at', { ascending: false })
+      `)
+      .eq('athlete_id', athlete.id)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('photo_athletes')
+      .select(`
+        photo:photos(
+          id,
+          photo_url,
+          caption,
+          photographer_credit_name,
+          game_id,
+          created_at
+        )
+      `)
+      .eq('athlete_id', athlete.id),
+  ])
 
   const memberships = (rosterRows || [])
     .map((row: any) => {
@@ -169,6 +184,11 @@ export default async function AthletePage({
   const history = memberships.filter(
     (row: any) => !row.season?.is_active || !row.active
   )
+
+  const photos = (photoTags || [])
+    .map((row: any) => normalizeJoinedRecord<any>(row.photo))
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
 
   const colors = {
     primary: school?.primary_color || '#1e3a5f',
@@ -211,6 +231,11 @@ export default async function AthletePage({
                   {school.mascot}
                 </p>
               )}
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                <span className="text-xs rounded-full px-3 py-1 bg-black/20 text-white/70">{currentMemberships.length} current team{currentMemberships.length === 1 ? '' : 's'}</span>
+                <span className="text-xs rounded-full px-3 py-1 bg-black/20 text-white/70">{photos.length} approved photo{photos.length === 1 ? '' : 's'}</span>
+              </div>
             </div>
 
             {school?.logo_url && (
@@ -271,37 +296,49 @@ export default async function AthletePage({
                         #{row.jersey_number}
                       </span>
                     )}
-
-                    {row.class_year && (
-                      <span className="text-xs rounded-full px-2 py-1 bg-white/5 text-slate-400">
-                        {row.class_year}
-                      </span>
-                    )}
-
-                    {row.position && (
-                      <span className="text-xs rounded-full px-2 py-1 bg-white/5 text-slate-400">
-                        {row.position}
-                      </span>
-                    )}
-
-                    {row.height && (
-                      <span className="text-xs rounded-full px-2 py-1 bg-white/5 text-slate-400">
-                        {row.height}
-                      </span>
-                    )}
+                    {row.class_year && <span className="text-xs rounded-full px-2 py-1 bg-white/5 text-slate-400">{row.class_year}</span>}
+                    {row.position && <span className="text-xs rounded-full px-2 py-1 bg-white/5 text-slate-400">{row.position}</span>}
+                    {row.height && <span className="text-xs rounded-full px-2 py-1 bg-white/5 text-slate-400">{row.height}</span>}
                   </div>
                 </Link>
               ))}
             </div>
           ) : (
-            <div
-              className="rounded-xl p-6 text-sm text-slate-500"
-              style={{
-                background: 'rgba(8,12,20,0.55)',
-                border: '1px solid rgba(255,255,255,0.06)',
-              }}
-            >
+            <div className="rounded-xl p-6 text-sm text-slate-500" style={{ background: 'rgba(8,12,20,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}>
               No current team membership is published yet.
+            </div>
+          )}
+        </section>
+
+        <section className="mb-7">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-black uppercase tracking-widest text-blue-400" style={{ fontFamily: 'var(--font-display)' }}>
+              Photo Gallery
+            </h2>
+            <div className="flex-1 h-px bg-white/[0.06]" />
+            <span className="text-xs text-slate-500">{photos.length}</span>
+          </div>
+
+          {photos.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {photos.map((photo: any) => {
+                const card = (
+                  <div className="group rounded-xl overflow-hidden border border-white/10 bg-white/[0.02] h-full">
+                    <div className="aspect-[4/3] overflow-hidden bg-black/30">
+                      <img src={photo.photo_url} alt={photo.caption || `${athlete.display_name} photo`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                    </div>
+                    <div className="p-3">
+                      {photo.caption && <div className="text-xs text-slate-300 line-clamp-2">{photo.caption}</div>}
+                      <div className="text-[10px] text-slate-500 mt-1">Photo: {photo.photographer_credit_name || 'Section X contributor'}</div>
+                    </div>
+                  </div>
+                )
+                return photo.game_id ? <Link key={photo.id} href={`/game-center/${photo.game_id}`}>{card}</Link> : <div key={photo.id}>{card}</div>
+              })}
+            </div>
+          ) : (
+            <div className="rounded-xl p-6 text-sm text-slate-500" style={{ background: 'rgba(8,12,20,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              No approved photos are tagged to this athlete yet. Approved game photos will appear here automatically when the athlete is tagged.
             </div>
           )}
         </section>
@@ -309,56 +346,23 @@ export default async function AthletePage({
         {history.length > 0 && (
           <section className="mb-7">
             <div className="flex items-center gap-2 mb-3">
-              <h2
-                className="text-sm font-black uppercase tracking-widest text-slate-400"
-                style={{ fontFamily: 'var(--font-display)' }}
-              >
-                Team History
-              </h2>
+              <h2 className="text-sm font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: 'var(--font-display)' }}>Team History</h2>
               <div className="flex-1 h-px bg-white/[0.06]" />
             </div>
 
-            <div
-              className="rounded-xl overflow-hidden"
-              style={{
-                background: 'rgba(8,12,20,0.55)',
-                border: '1px solid rgba(255,255,255,0.06)',
-              }}
-            >
+            <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(8,12,20,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}>
               {history.map((row: any) => (
-                <Link
-                  key={row.id}
-                  href={`/teams/${row.team.slug}`}
-                  className="flex items-center justify-between gap-4 px-4 py-3 border-b border-white/[0.05] last:border-0 hover:bg-white/[0.025]"
-                >
-                  <div>
-                    <div className="font-bold text-white">
-                      {sportDisplayName(row.sport)}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {row.season.name}
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-slate-500">
-                    {row.class_year || ''}
-                  </div>
+                <Link key={row.id} href={`/teams/${row.team.slug}`} className="flex items-center justify-between gap-4 px-4 py-3 border-b border-white/[0.05] last:border-0 hover:bg-white/[0.025]">
+                  <div><div className="font-bold text-white">{sportDisplayName(row.sport)}</div><div className="text-xs text-slate-500">{row.season.name}</div></div>
+                  <div className="text-xs text-slate-500">{row.class_year || ''}</div>
                 </Link>
               ))}
             </div>
           </section>
         )}
 
-        <div
-          className="rounded-xl p-4 text-xs text-slate-600"
-          style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.05)',
-          }}
-        >
-          Athlete information shown here comes from publicly published team
-          rosters. Stats, awards, photos, and additional profile features can
-          be added as Section X Scoreboard expands.
+        <div className="rounded-xl p-4 text-xs text-slate-600" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          Athlete information comes from publicly published team rosters. Only approved photos and approved athlete tags are shown publicly.
         </div>
       </div>
     </PublicLayout>
