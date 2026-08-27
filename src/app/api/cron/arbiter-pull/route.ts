@@ -51,7 +51,7 @@ export async function GET(req:NextRequest){
       if(!['stable-id-match','stable-id-update'].includes(row.bucket))continue
 
       if(row.bucket==='stable-id-update'&&row.safelyActionable){
-        const current=row.existing||{}
+        const current:any=row.existing||{}
         const patch:any={}
         if(row.date&&current.gameDate!==row.date)patch.game_date=row.date
         if(row.time&&String(current.gameTime||'').slice(0,5)!==row.time)patch.game_time=row.time
