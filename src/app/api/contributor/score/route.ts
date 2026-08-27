@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { getContributorUser } from '@/lib/contributorAuth'
 
 const ALLOWED_STATUS = new Set(['Scheduled','Live','Final','Halftime','Postponed','Canceled'])
 const score = (v:any) => Number.isInteger(Number(v)) && Number(v) >= 0 ? Number(v) : null
 
 export async function POST(req: NextRequest) {
-  const auth = createClient()
-  const { data: { user } } = await auth.auth.getUser()
+  const user = await getContributorUser(req)
   if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 })
 
   const body = await req.json()

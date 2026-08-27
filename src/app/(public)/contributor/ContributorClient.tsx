@@ -13,11 +13,13 @@ export default function ContributorClient() {
   const [assignments, setAssignments] = useState<any[]>([])
   const [recent, setRecent] = useState<any[]>([])
   const [coverageRequests,setCoverageRequests]=useState<any[]>([])
+  const [coverageWarning,setCoverageWarning]=useState('')
   const [signedIn, setSignedIn] = useState(false)
 
   async function load() {
     setLoading(true)
     setError('')
+    setCoverageWarning('')
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError) throw userError
@@ -29,18 +31,23 @@ export default function ContributorClient() {
       setProfile(p || null)
       if (!p) return
 
+      const {data:{session}}=await supabase.auth.getSession()
+      const token=session?.access_token
+      const coverageFetch=fetch('/api/contributor/coverage',{cache:'no-store',headers:token?{Authorization:`Bearer ${token}`}:{}})
       const [{ data: a, error: assignmentError }, { data: r, error: recentError },coverageResponse] = await Promise.all([
         supabase.from('contributor_game_assignments').select(`id,assignment_role,notes,active,game:games(id,game_date,game_time,status,home_score,away_score,home_team:teams!games_home_team_id_fkey(team_name),away_team:teams!games_away_team_id_fkey(team_name),sport:sports(sport_name,gender))`).eq('contributor_id', p.id).eq('active', true).order('created_at', { ascending: false }),
         supabase.from('contributor_score_updates').select('id,game_id,home_score,away_score,game_status,publication_status,created_at').eq('contributor_id', p.id).order('created_at', { ascending: false }).limit(20),
-        fetch('/api/contributor/coverage',{cache:'no-store'}),
+        coverageFetch,
       ])
       if (assignmentError) throw assignmentError
       if (recentError) throw recentError
-      const coverageBody=await coverageResponse.json()
-      if(!coverageResponse.ok)throw new Error(coverageBody?.error||'Could not load coverage opportunities.')
       setAssignments(a || [])
       setRecent(r || [])
-      setCoverageRequests(coverageBody?.requests||[])
+      try{
+        const coverageBody=await coverageResponse.json()
+        if(!coverageResponse.ok){setCoverageRequests([]);setCoverageWarning(coverageBody?.error||'Coverage opportunities are temporarily unavailable.')}
+        else setCoverageRequests(coverageBody?.requests||[])
+      }catch{setCoverageRequests([]);setCoverageWarning('Coverage opportunities are temporarily unavailable.')}
     } catch (e: any) { setError(e.message || 'Could not load contributor dashboard.') }
     finally { setLoading(false) }
   }
@@ -52,5 +59,5 @@ export default function ContributorClient() {
   if (!signedIn || !profile) return <main className="max-w-4xl mx-auto px-4 py-10"><div className="card p-8 text-center space-y-4"><h1 className="text-3xl font-black text-white">Contributor Sign In Required</h1><p className="text-slate-400">Sign in to your contributor account to open the game-day dashboard.</p><Link href="/contribute" className="btn-primary inline-block px-5 py-3">Go to Contributor Sign In</Link></div></main>
   if (profile.status !== 'approved') return <main className="max-w-4xl mx-auto px-4 py-10"><div className="card p-8 text-center space-y-4"><div className="text-xs uppercase tracking-widest text-amber-300">Contributor Status</div><h1 className="text-3xl font-black text-white">{profile.status === 'pending' ? 'Application Under Review' : `Account ${profile.status}`}</h1><p className="text-slate-400">Contributor tools stay locked until an admin approves your account.</p><Link href="/contribute" className="btn-primary inline-block px-5 py-3">View Account</Link></div></main>
 
-  return <ContributorDashboard profile={profile} assignments={assignments} recent={recent} coverageRequests={coverageRequests} />
+  return <ContributorDashboard profile={profile} assignments={assignments} recent={recent} coverageRequests={coverageRequests} coverageWarning={coverageWarning} />
 }

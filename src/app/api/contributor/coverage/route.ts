@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { getContributorUser } from '@/lib/contributorAuth'
 
 function allowed(profile:any,role:string){
   if(role==='photographer')return Boolean(profile.can_submit_photos)
@@ -8,9 +9,8 @@ function allowed(profile:any,role:string){
   return Boolean(profile.can_submit_photos||profile.can_submit_scores)
 }
 
-export async function GET(){
-  const auth=createClient()
-  const {data:{user}}=await auth.auth.getUser()
+export async function GET(req:NextRequest){
+  const user=await getContributorUser(req)
   if(!user)return NextResponse.json({error:'Sign in required.'},{status:401})
   const db=createAdminClient()
   const {data:profile}=await db.from('contributor_profiles').select('*').eq('user_id',user.id).maybeSingle()
@@ -22,8 +22,7 @@ export async function GET(){
 }
 
 export async function POST(req:NextRequest){
-  const auth=createClient()
-  const {data:{user}}=await auth.auth.getUser()
+  const user=await getContributorUser(req)
   if(!user)return NextResponse.json({error:'Sign in required.'},{status:401})
   const body=await req.json(),requestId=String(body?.requestId||'')
   if(!requestId)return NextResponse.json({error:'Coverage request is required.'},{status:400})
