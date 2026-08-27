@@ -72,6 +72,9 @@ export async function GET(req:NextRequest){
   const db=createAdminClient()
   try{
     const seasonId=req.nextUrl.searchParams.get('seasonId')
+    const requestedOffset=Math.max(0,Number(req.nextUrl.searchParams.get('teamOffset')||0)||0)
+    const rawLimit=req.nextUrl.searchParams.get('teamLimit')
+    const requestedLimit=rawLimit===null?null:Math.max(1,Math.min(20,Number(rawLimit)||8))
     let season:any=null
     if(seasonId){const {data,error}=await db.from('seasons').select('id,name,season_type,year,is_active').eq('id',seasonId).single();if(error)throw new Error(error.message);season=data}else{const {data,error}=await db.from('seasons').select('id,name,season_type,year,is_active').eq('is_active',true).single();if(error)throw new Error(error.message);season=data}
     const [{data:schools,error:se},{data:teams,error:te},{data:sports,error:spe},{data:teamSeasons,error:tse},{data:existingRosters,error:re},arbiterSportsRaw,arbiterLevelsRaw]=await Promise.all([
@@ -83,14 +86,19 @@ export async function GET(req:NextRequest){
       arbiterApi.sports().catch(()=>null),arbiterApi.levels().catch(()=>null),
     ])
     const err=se||te||spe||tse||re;if(err)throw new Error(err.message)
-    const arbiterSportNames=extractReferences(arbiterSportsRaw,'sport'),arbiterLevelNames=extractReferences(arbiterLevelsRaw,'level'),schoolIds=(schools||[]).map((s:any)=>Number(s.arbiter_entity_id)).filter(Number.isFinite),window=seasonWindow(season)
-    const gameRaw=await arbiterApi.games({SchoolIds:schoolIds,DateFilter:'Range',GameStartDate:window.start,GameEndDate:window.end,IncludeDeletedGames:false,IncludePendingInformation:false}).catch(()=>null)
-    const observations=scheduleObservations(gameRaw)
+    const arbiterSportNames=extractReferences(arbiterSportsRaw,'sport'),arbiterLevelNames=extractReferences(arbiterLevelsRaw,'level')
     const schoolById=new Map((schools||[]).map((s:any)=>[s.id,s])),sportById=new Map((sports||[]).map((s:any)=>[s.id,s])),activeIds=new Set((teamSeasons||[]).map((x:any)=>x.team_id)),rosterCount=new Map<string,number>()
     for(const r of existingRosters||[])rosterCount.set(r.team_id,(rosterCount.get(r.team_id)||0)+1)
-    const varsity=(teams||[]).filter((t:any)=>activeIds.has(t.id)&&varsityLevel(t.level))
+    const allVarsity=(teams||[]).filter((t:any)=>activeIds.has(t.id)&&varsityLevel(t.level)).sort((a:any,b:any)=>String(a.id).localeCompare(String(b.id)))
+    const effectiveLimit=requestedLimit??Math.max(allVarsity.length,1)
+    const varsity=allVarsity.slice(requestedOffset,requestedOffset+effectiveLimit)
+    const batchSchoolIds=[...new Set(varstiySchoolIds(varstiySchools(varstiy,schoolById)))]
+    const batchSchools=(schools||[]).filter((s:any)=>batchSchoolIds.includes(Number(s.arbiter_entity_id)))
+    const window=seasonWindow(season)
+    const gameRaw=batchSchoolIds.length?await arbiterApi.games({SchoolIds:batchSchoolIds,DateFilter:'Range',GameStartDate:window.start,GameEndDate:window.end,IncludeDeletedGames:false,IncludePendingInformation:false}).catch(()=>null):null
+    const observations=scheduleObservations(gameRaw)
     const arbiterTeamsBySchool=new Map<number,any[]>(),schoolDiagnostics=new Map<number,any>()
-    for(let i=0;i<(schools||[]).length;i+=6){const batch=(schools||[]).slice(i,i+6),fetched=await Promise.all(batch.map(async(s:any)=>{const sid=Number(s.arbiter_entity_id),result=await fetchSchoolTeams(sid,arbiterSportNames,arbiterLevelNames);return{s,sid,result}}));for(const f of fetched){arbiterTeamsBySchool.set(f.sid,f.result.teams);schoolDiagnostics.set(f.sid,{school:f.s.school_name,schoolId:f.sid,...f.result})}}
+    for(let i=0;i<batchSchools.length;i+=6){const batch=batchSchools.slice(i,i+6),fetched=await Promise.all(batch.map(async(s:any)=>{const sid=Number(s.arbiter_entity_id),result=await fetchSchoolTeams(sid,arbiterSportNames,arbiterLevelNames);return{s,sid,result}}));for(const f of fetched){arbiterTeamsBySchool.set(f.sid,f.result.teams);schoolDiagnostics.set(f.sid,{school:f.s.school_name,schoolId:f.sid,...f.result})}}
 
     const matches:any[]=[]
     for(const team of varsity){
@@ -120,8 +128,12 @@ export async function GET(req:NextRequest){
     }
     for(const m of matches.filter(m=>!m.best))rows.push({teamId:m.team.id,teamName:m.team.team_name,school:m.school?.school_name,sport:m.sport?.sport_name,gender:m.sport?.gender,arbiterTeamId:null,existingRosterCount:m.existingRosterCount,rosterFound:false,rosterCount:0,coachesFound:false,coachCount:0,status:m.ambiguous?'ambiguous-team-match':m.reason==='arbiter-no-teams-returned'?'arbiter-no-teams':'team-not-matched',diagnosticReason:m.reason,arbiterCandidateCount:m.arbiterCandidateCount,observedTeamIds:m.observedTeamIds,candidates:m.candidates.map((c:any)=>({teamId:c.teamId,teamName:c.teamName,sportName:c.sportName,gender:c.gender,level:c.level,identitySource:c.identitySource||'team-endpoint'}))})
     rows.sort((a,b)=>String(a.school).localeCompare(String(b.school))||String(a.sport).localeCompare(String(b.sport)))
-    const counts={teams:rows.length,available:rows.filter(r=>r.status==='available').length,noRosterPublished:rows.filter(r=>r.status==='no-roster-published').length,arbiterNoTeams:rows.filter(r=>r.status==='arbiter-no-teams').length,teamNotFound:rows.filter(r=>r.status==='team-not-matched').length,ambiguous:rows.filter(r=>r.status==='ambiguous-team-match').length,errors:rows.filter(r=>r.status==='roster-fetch-error').length,alreadyLoaded:rows.filter(r=>r.existingRosterCount>0).length,importPayloads:importPayloads.length,matchedBySchedule:rows.filter(r=>r.identitySource==='schedule-observation').length,matchedByTeamEndpoint:rows.filter(r=>r.identitySource==='team-endpoint').length}
-    const diagnostics={scheduleObservations:observations.length,uniqueObservedTeamIds:new Set(observations.map(o=>o.teamId)).size,arbiterReferenceData:{sports:[...arbiterSportNames.entries()].map(([id,name])=>({id,name})),levels:[...arbiterLevelNames.entries()].map(([id,name])=>({id,name}))},schools:(schools||[]).map((s:any)=>{const d=schoolDiagnostics.get(Number(s.arbiter_entity_id));return{school:s.school_name,arbiterSchoolId:Number(s.arbiter_entity_id),teamsFound:d?.teams?.length||0,attempts:d?.diagnostics||[],error:d?.error||null}}),schoolsWithTeams:[...schoolDiagnostics.values()].filter((d:any)=>d.teams?.length).length,schoolsWithoutTeams:[...schoolDiagnostics.values()].filter((d:any)=>!d.teams?.length).length,totalArbiterTeams:[...arbiterTeamsBySchool.values()].reduce((n,a)=>n+a.length,0)}
+    const processed=rows.length,nextOffset=Math.min(allVarsity.length,requestedOffset+processed),hasMore=nextOffset<allVarsity.length
+    const counts={teams:rows.length,totalVarsity:allVarsity.length,batchOffset:requestedOffset,batchLimit:effectiveLimit,processed,nextOffset,hasMore,available:rows.filter(r=>r.status==='available').length,noRosterPublished:rows.filter(r=>r.status==='no-roster-published').length,arbiterNoTeams:rows.filter(r=>r.status==='arbiter-no-teams').length,teamNotFound:rows.filter(r=>r.status==='team-not-matched').length,ambiguous:rows.filter(r=>r.status==='ambiguous-team-match').length,errors:rows.filter(r=>r.status==='roster-fetch-error').length,alreadyLoaded:rows.filter(r=>r.existingRosterCount>0).length,importPayloads:importPayloads.length,matchedBySchedule:rows.filter(r=>r.identitySource==='schedule-observation').length,matchedByTeamEndpoint:rows.filter(r=>r.identitySource==='team-endpoint').length}
+    const diagnostics={scheduleObservations:observations.length,uniqueObservedTeamIds:new Set(observations.map(o=>o.teamId)).size,arbiterReferenceData:{sports:[...arbiterSportNames.entries()].map(([id,name])=>({id,name})),levels:[...arbiterLevelNames.entries()].map(([id,name])=>({id,name}))},schools:batchSchools.map((s:any)=>{const d=schoolDiagnostics.get(Number(s.arbiter_entity_id));return{school:s.school_name,arbiterSchoolId:Number(s.arbiter_entity_id),teamsFound:d?.teams?.length||0,attempts:d?.diagnostics||[],error:d?.error||null}}),schoolsWithTeams:[...schoolDiagnostics.values()].filter((d:any)=>d.teams?.length).length,schoolsWithoutTeams:[...schoolDiagnostics.values()].filter((d:any)=>!d.teams?.length).length,totalArbiterTeams:[...arbiterTeamsBySchool.values()].reduce((n,a)=>n+a.length,0)}
     return NextResponse.json({ok:true,readOnly:true,season,counts,rows,importPayloads,diagnostics})
   }catch(error){console.error('Partner API roster scan failed:',error);return NextResponse.json({ok:false,readOnly:true,error:error instanceof Error?error.message:'Unknown error'},{status:500})}
 }
+
+function varstiySchools(teams:any[],schoolById:Map<any,any>){return teams.map((t:any)=>schoolById.get(t.school_id)).filter(Boolean)}
+function varstiySchoolIds(schools:any[]){return schools.map((s:any)=>Number(s.arbiter_entity_id)).filter(Number.isFinite)}

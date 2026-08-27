@@ -4,22 +4,18 @@ import { GET as scanRosters } from '@/app/api/admin/arbiter-api/roster-scan/rout
 import { POST as importRosters } from '@/app/api/admin/arbiter-rosters/route'
 
 export const dynamic='force-dynamic'
-export const maxDuration=300
+export const maxDuration=240
 
-const norm=(v:unknown)=>String(v??'')
-  .toLowerCase()
-  .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/g,'')
-  .replace(/[^a-z0-9]+/g,' ')
-  .replace(/\s+/g,' ')
-  .trim()
+const BATCH_SIZE=8
+const STALE_MINUTES=12
 
+const norm=(v:unknown)=>String(v??'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()
 const val=(v:unknown)=>String(v??'').replace(/\s+/g,' ').trim()
+const nowIso=()=>new Date().toISOString()
+const heartbeatMs=(run:any)=>new Date(run?.summary?.progress?.heartbeatAt||run?.started_at||0).getTime()
+const isStale=(run:any)=>Date.now()-heartbeatMs(run)>STALE_MINUTES*60_000
 
-function rosterRecord(row:any){
-  const athlete=Array.isArray(row?.athlete)?row.athlete[0]:row?.athlete
-  return {name:norm(athlete?.display_name),jersey:val(row?.jersey_number),classYear:val(row?.class_year),position:val(row?.position),height:val(row?.height)}
-}
+function rosterRecord(row:any){const athlete=Array.isArray(row?.athlete)?row.athlete[0]:row?.athlete;return{name:norm(athlete?.display_name),jersey:val(row?.jersey_number),classYear:val(row?.class_year),position:val(row?.position),height:val(row?.height)}}
 function incomingRosterRecord(row:any){return{name:norm(row?.displayName),jersey:val(row?.jerseyNumber),classYear:val(row?.classYear),position:val(row?.position),height:val(row?.height)}}
 function coachRecord(row:any){const coach=Array.isArray(row?.coach)?row.coach[0]:row?.coach;return{name:norm(coach?.display_name),title:val(row?.title)}}
 function incomingCoachRecord(row:any){return{name:norm(row?.displayName),title:val(row?.title)}}
@@ -32,20 +28,69 @@ function comparePeople(current:any[],incoming:any[],type:'roster'|'coach'){
   return{safe,changed,removed,added,dupes,metadataChanged,implausible,currentCount:currentClean.length,incomingCount:incomingClean.length}
 }
 
+function mergeSummary(base:any,batch:any){
+  const prior=base||{},warnings=prior.scanWarnings||{},progress=prior.progress||{}
+  return{
+    ...prior,
+    scanned:Number(prior.scanned||0)+Number(batch.scanned||0),
+    published:Number(prior.published||0)+Number(batch.published||0),
+    alreadyLoaded:Number(prior.alreadyLoaded||0)+Number(batch.alreadyLoaded||0),
+    teamsUpdated:Number(prior.teamsUpdated||0)+Number(batch.teamsUpdated||0),
+    safeTeams:Number(prior.safeTeams||0)+Number(batch.safeTeams||0),
+    unchanged:Number(prior.unchanged||0)+Number(batch.unchanged||0),
+    athletesAdded:Number(prior.athletesAdded||0)+Number(batch.athletesAdded||0),
+    athleteMetadataUpdated:Number(prior.athleteMetadataUpdated||0)+Number(batch.athleteMetadataUpdated||0),
+    coachesAdded:Number(prior.coachesAdded||0)+Number(batch.coachesAdded||0),
+    coachMetadataUpdated:Number(prior.coachMetadataUpdated||0)+Number(batch.coachMetadataUpdated||0),
+    quarantined:Number(prior.quarantined||0)+Number(batch.quarantined||0),
+    failed:Number(prior.failed||0)+Number(batch.failed||0),
+    scanWarnings:{notPublished:Number(warnings.notPublished||0)+Number(batch.scanWarnings?.notPublished||0),unmatched:Number(warnings.unmatched||0)+Number(batch.scanWarnings?.unmatched||0),ambiguous:Number(warnings.ambiguous||0)+Number(batch.scanWarnings?.ambiguous||0),apiErrors:Number(warnings.apiErrors||0)+Number(batch.scanWarnings?.apiErrors||0)},
+    actions:[...(prior.actions||[]),...(batch.actions||[])].slice(-100),
+    quarantines:[...(prior.quarantines||[]),...(batch.quarantines||[])].slice(-100),
+    failures:[...(prior.failures||[]),...(batch.failures||[])].slice(-100),
+    progress:{...progress,...batch.progress}
+  }
+}
+
+async function markStale(db:any,run:any){
+  const summary={...(run.summary||{}),error:'Roster automation heartbeat expired before completion.',stale:true,staleDetectedAt:nowIso(),progress:{...(run.summary?.progress||{}),phase:'stale',heartbeatAt:run.summary?.progress?.heartbeatAt||run.started_at}}
+  await db.from('arbiter_roster_automation_runs').update({status:'failed',summary,finished_at:nowIso()}).eq('id',run.id).eq('status','running')
+}
+
 export async function GET(req:NextRequest){
   const db=createAdminClient(),token=req.headers.get('x-sectionx-automation-key')||''
   const {data:allowed,error:authError}=await db.rpc('verify_sectionx_automation_key',{p_token:token})
   if(authError||allowed!==true)return NextResponse.json({ok:false,error:'Unauthorized'},{status:401})
-  const staleCutoff=new Date(Date.now()-20*60_000).toISOString(),{data:running}=await db.from('arbiter_roster_automation_runs').select('id,started_at').eq('status','running').gte('started_at',staleCutoff).order('started_at',{ascending:false}).limit(1).maybeSingle()
-  if(running?.id)return NextResponse.json({ok:false,error:'An automated roster reconciliation is already running.',runId:running.id},{status:409})
-  const {data:run,error:runError}=await db.from('arbiter_roster_automation_runs').insert({status:'running',trigger_source:'supabase-roster-cron'}).select('id').single()
-  if(runError)return NextResponse.json({ok:false,error:`Could not start roster automation: ${runError.message}`},{status:500})
+
+  const {data:latestRunning,error:runningError}=await db.from('arbiter_roster_automation_runs').select('id,season_id,status,summary,started_at').eq('status','running').order('started_at',{ascending:false}).limit(1).maybeSingle()
+  if(runningError)return NextResponse.json({ok:false,error:runningError.message},{status:500})
+
+  let run:any=latestRunning||null
+  if(run&&isStale(run)){await markStale(db,run);run=null}
+  if(run&&run.summary?.progress?.phase!=='queued-next')return NextResponse.json({ok:true,automated:true,runId:run.id,status:'running',message:'Roster worker already active.',progress:run.summary?.progress||{}},{status:202})
+
+  if(!run){
+    const initial={progress:{phase:'queued-next',cursor:0,processed:0,total:0,batchSize:BATCH_SIZE,batchNumber:0,heartbeatAt:nowIso(),lastBatchStartedAt:null,lastBatchFinishedAt:null}}
+    const {data:newRun,error:runError}=await db.from('arbiter_roster_automation_runs').insert({status:'running',trigger_source:'supabase-roster-cron',summary:initial}).select('id,season_id,status,summary,started_at').single()
+    if(runError)return NextResponse.json({ok:false,error:`Could not start roster automation: ${runError.message}`},{status:500})
+    run=newRun
+  }
+
+  const cursor=Math.max(0,Number(run.summary?.progress?.cursor||0))
+  const currentSummary=run.summary||{}
+  const claimedSummary={...currentSummary,progress:{...(currentSummary.progress||{}),phase:'processing',cursor,batchSize:BATCH_SIZE,heartbeatAt:nowIso(),lastBatchStartedAt:nowIso()}}
+  const {data:claimed,error:claimError}=await db.from('arbiter_roster_automation_runs').update({summary:claimedSummary}).eq('id',run.id).eq('status','running').eq('summary->progress->>phase','queued-next').eq('summary->progress->>cursor',String(cursor)).select('id').maybeSingle()
+  if(claimError)return NextResponse.json({ok:false,error:`Could not claim roster batch: ${claimError.message}`},{status:500})
+  if(!claimed)return NextResponse.json({ok:true,automated:true,runId:run.id,status:'running',message:'Another roster worker claimed this batch.'},{status:202})
+
   const runId=run.id
   try{
-    const {data:season,error:seasonError}=await db.from('seasons').select('id,name,season_type,year,is_active').eq('is_active',true).limit(1).maybeSingle()
+    const {data:season,error:seasonError}=run.season_id?await db.from('seasons').select('id,name,season_type,year,is_active').eq('id',run.season_id).single():await db.from('seasons').select('id,name,season_type,year,is_active').eq('is_active',true).limit(1).maybeSingle()
     if(seasonError||!season)throw new Error(seasonError?.message||'No active season found.')
-    const scanReq=new NextRequest(`http://sectionx.internal/api/admin/arbiter-api/roster-scan?seasonId=${encodeURIComponent(season.id)}`),scanResponse=await scanRosters(scanReq),scan:any=await scanResponse.json()
+    const scanReq=new NextRequest(`http://sectionx.internal/api/admin/arbiter-api/roster-scan?seasonId=${encodeURIComponent(season.id)}&teamOffset=${cursor}&teamLimit=${BATCH_SIZE}`)
+    const scanResponse=await scanRosters(scanReq),scan:any=await scanResponse.json()
     if(!scanResponse.ok||!scan?.ok)throw new Error(scan?.error||`Roster scan failed with HTTP ${scanResponse.status}.`)
+
     const payloads:any[]=Array.isArray(scan.importPayloads)?scan.importPayloads:[],teamIds=payloads.map((p:any)=>p.team_id).filter(Boolean)
     const [{data:currentRoster,error:rosterError},{data:currentCoaches,error:coachError}]=await Promise.all([
       teamIds.length?db.from('roster_entries').select('team_id,jersey_number,class_year,position,height,athlete:athletes(display_name)').eq('season_id',season.id).eq('source','arbiter').eq('active',true).in('team_id',teamIds):Promise.resolve({data:[],error:null} as any),
@@ -53,9 +98,11 @@ export async function GET(req:NextRequest){
     ])
     if(rosterError)throw new Error(`Current roster read failed: ${rosterError.message}`)
     if(coachError)throw new Error(`Current coach read failed: ${coachError.message}`)
+
     const rosterByTeam=new Map<string,any[]>(),coachesByTeam=new Map<string,any[]>()
     for(const row of currentRoster||[]){const list=rosterByTeam.get((row as any).team_id)||[];list.push(rosterRecord(row));rosterByTeam.set((row as any).team_id,list)}
     for(const row of currentCoaches||[]){const list=coachesByTeam.get((row as any).team_id)||[];list.push(coachRecord(row));coachesByTeam.set((row as any).team_id,list)}
+
     const safePayloads:any[]=[],actions:any[]=[],quarantines:any[]=[]
     let unchanged=0,athletesAdded=0,athleteMetadataUpdated=0,coachesAdded=0,coachMetadataUpdated=0
     for(const payload of payloads){
@@ -70,6 +117,7 @@ export async function GET(req:NextRequest){
       athletesAdded+=rosterWrite?rosterCmp.added.length:0;athleteMetadataUpdated+=rosterWrite?rosterCmp.metadataChanged.length:0;coachesAdded+=coachWrite?coachCmp.added.length:0;coachMetadataUpdated+=coachWrite?coachCmp.metadataChanged.length:0
       actions.push({teamId:payload.team_id,roster:rosterWrite?{added:rosterCmp.added.length,metadataUpdated:rosterCmp.metadataChanged.length,newCount:rosterCmp.incomingCount}:null,coaches:coachWrite?{added:coachCmp.added.length,metadataUpdated:coachCmp.metadataChanged.length,newCount:coachCmp.incomingCount}:null})
     }
+
     let teamsUpdated=0,failed=0;const failures:any[]=[]
     for(let i=0;i<safePayloads.length;i+=3){
       const batch=safePayloads.slice(i,i+3),importReq=new NextRequest('http://sectionx.internal/api/admin/arbiter-rosters',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({teams:batch})}),response=await importRosters(importReq),result:any=await response.json(),resultRows=Array.isArray(result?.results)?result.results:[]
@@ -77,14 +125,27 @@ export async function GET(req:NextRequest){
       const batchErrors=[...(Array.isArray(result?.errors)?result.errors:[]),...resultRows.flatMap((r:any)=>(r.errors||[]).map((message:string)=>({teamId:r.team_id,message})))]
       if(!response.ok||result?.success===false||batchErrors.length){failed+=Math.max(1,batchErrors.length);failures.push(...batchErrors.slice(0,25))}
     }
-    const summary={season:{id:season.id,name:season.name},scanned:Number(scan.counts?.teams||0),published:Number(scan.counts?.available||0),alreadyLoaded:Number(scan.counts?.alreadyLoaded||0),teamsUpdated,safeTeams:safePayloads.length,unchanged,athletesAdded,athleteMetadataUpdated,coachesAdded,coachMetadataUpdated,quarantined:quarantines.length,failed,scanWarnings:{notPublished:Number(scan.counts?.noRosterPublished||0),unmatched:Number(scan.counts?.teamNotFound||0)+Number(scan.counts?.arbiterNoTeams||0),ambiguous:Number(scan.counts?.ambiguous||0),apiErrors:Number(scan.counts?.errors||0)},actions:actions.slice(0,50),quarantines:quarantines.slice(0,50),failures:failures.slice(0,50)}
-    const status=failed?'completed-with-errors':'completed'
-    await db.from('arbiter_roster_automation_runs').update({status,season_id:season.id,summary,finished_at:new Date().toISOString()}).eq('id',runId)
-    return NextResponse.json({ok:failed===0,automated:true,runId,...summary},{status:failed?207:200})
+
+    const processed=Number(scan.counts?.processed||scan.counts?.teams||0),total=Number(scan.counts?.totalVarsity||0),nextOffset=Number(scan.counts?.nextOffset??cursor+processed),hasMore=Boolean(scan.counts?.hasMore)
+    const batchSummary={scanned:processed,published:Number(scan.counts?.available||0),alreadyLoaded:Number(scan.counts?.alreadyLoaded||0),teamsUpdated,safeTeams:safePayloads.length,unchanged,athletesAdded,athleteMetadataUpdated,coachesAdded,coachMetadataUpdated,quarantined:quarantines.length,failed,scanWarnings:{notPublished:Number(scan.counts?.noRosterPublished||0),unmatched:Number(scan.counts?.teamNotFound||0)+Number(scan.counts?.arbiterNoTeams||0),ambiguous:Number(scan.counts?.ambiguous||0),apiErrors:Number(scan.counts?.errors||0)},actions,quarantines,failures,progress:{phase:hasMore?'queued-next':'complete',cursor:nextOffset,processed:Math.min(nextOffset,total),total,batchSize:BATCH_SIZE,batchNumber:Number(currentSummary.progress?.batchNumber||0)+1,heartbeatAt:nowIso(),lastBatchStartedAt:claimedSummary.progress.lastBatchStartedAt,lastBatchFinishedAt:nowIso(),hasMore}}
+    const merged=mergeSummary({...currentSummary,season:{id:season.id,name:season.name}},batchSummary)
+
+    if(hasMore){
+      await db.from('arbiter_roster_automation_runs').update({season_id:season.id,status:'running',summary:merged}).eq('id',runId).eq('status','running')
+      const {error:queueError}=await db.rpc('trigger_sectionx_arbiter_rosters')
+      if(queueError){const failedSummary={...merged,error:`Could not queue next roster batch: ${queueError.message}`,progress:{...merged.progress,phase:'failed',heartbeatAt:nowIso()}};await db.from('arbiter_roster_automation_runs').update({status:'failed',summary:failedSummary,finished_at:nowIso()}).eq('id',runId);return NextResponse.json({ok:false,automated:true,runId,error:failedSummary.error},{status:500})}
+      return NextResponse.json({ok:true,automated:true,runId,status:'running',progress:merged.progress,batch:{offset:cursor,processed,teamsUpdated,athletesAdded,quarantined:quarantines.length,failed}},{status:202})
+    }
+
+    const finalStatus=Number(merged.failed||0)>0?'completed-with-errors':'completed'
+    await db.from('arbiter_roster_automation_runs').update({status:finalStatus,season_id:season.id,summary:merged,finished_at:nowIso()}).eq('id',runId)
+    return NextResponse.json({ok:finalStatus==='completed',automated:true,runId,status:finalStatus,...merged},{status:finalStatus==='completed'?200:207})
   }catch(error){
     const message=error instanceof Error?error.message:String(error)
-    console.error('Automated Arbiter roster reconciliation failed:',error)
-    await db.from('arbiter_roster_automation_runs').update({status:'failed',summary:{error:message},finished_at:new Date().toISOString()}).eq('id',runId)
+    console.error('Automated Arbiter roster reconciliation batch failed:',error)
+    const {data:current}=await db.from('arbiter_roster_automation_runs').select('summary').eq('id',runId).maybeSingle()
+    const failedSummary={...(current?.summary||{}),error:message,progress:{...(current?.summary?.progress||{}),phase:'failed',heartbeatAt:nowIso()}}
+    await db.from('arbiter_roster_automation_runs').update({status:'failed',summary:failedSummary,finished_at:nowIso()}).eq('id',runId)
     return NextResponse.json({ok:false,automated:true,runId,error:message},{status:500})
   }
 }
