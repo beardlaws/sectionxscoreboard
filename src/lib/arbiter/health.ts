@@ -18,7 +18,8 @@ function compactRow(row:any){
 
 function healthStatus(audit:any){
   if((audit.comparison.trueBlockers||0)>0||!audit.comparison.writerReady)return'blocked'
-  if((audit.comparison.pendingChanges||0)>0||(audit.comparison.quarantined||0)>0)return'attention'
+  if((audit.comparison.pendingChanges||0)>0)return'attention'
+  if((audit.comparison.quarantined||0)>0)return'healthy-with-exclusions'
   return'healthy'
 }
 
