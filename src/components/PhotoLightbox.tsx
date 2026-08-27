@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
-import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { X, ChevronLeft, ChevronRight, Share2, Check, Expand } from 'lucide-react'
 
 interface Photo {
   id: string
@@ -8,6 +8,7 @@ interface Photo {
   caption?: string | null
   photographer_credit_name?: string | null
   submitter_name?: string
+  game_id?: string | null
 }
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
 
 export function PhotoLightbox({ photos, initialIndex = 0, onClose }: Props) {
   const [index, setIndex] = useState(initialIndex)
+  const [copied, setCopied] = useState(false)
+  const touchStart = useRef<number | null>(null)
   const photo = photos[index]
 
   const prev = useCallback(() => setIndex(i => (i - 1 + photos.length) % photos.length), [photos.length])
@@ -37,65 +40,118 @@ export function PhotoLightbox({ photos, initialIndex = 0, onClose }: Props) {
     }
   }, [onClose, prev, next])
 
+  async function sharePhoto() {
+    const base = photo.game_id ? `${window.location.origin}/game-center/${photo.game_id}` : window.location.href.split('#')[0]
+    const url = `${base}#photo-${photo.id}`
+    const title = photo.caption || 'Section X sports photo'
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, url })
+        return
+      }
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Share cancellation is harmless.
+    }
+  }
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStart.current = e.touches[0]?.clientX ?? null
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    if (touchStart.current == null || photos.length < 2) return
+    const end = e.changedTouches[0]?.clientX ?? touchStart.current
+    const delta = end - touchStart.current
+    touchStart.current = null
+    if (Math.abs(delta) < 45) return
+    if (delta > 0) prev()
+    else next()
+  }
+
+  if (!photo) return null
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.95)', backdropFilter: 'blur(8px)' }}
-      onClick={onClose}>
-
-      {/* Close */}
-      <button className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white transition-colors hover:bg-white/10"
-        onClick={onClose}>
-        <X size={20} />
-      </button>
-
-      {/* Counter */}
-      {photos.length > 1 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 text-xs text-white/50"
-          style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.96)', backdropFilter: 'blur(10px)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Photo viewer"
+    >
+      <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between gap-3">
+        <div className="rounded-full bg-black/45 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-white/60">
           {index + 1} / {photos.length}
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-2 rounded-full bg-black/45 px-3 text-xs font-bold text-white/80 hover:bg-white/10"
+            onClick={e => { e.stopPropagation(); sharePhoto() }}
+          >
+            {copied ? <Check size={16} /> : <Share2 size={16} />}
+            <span className="hidden sm:inline">{copied ? 'Copied' : 'Share'}</span>
+          </button>
+          <button
+            type="button"
+            className="w-10 h-10 rounded-full flex items-center justify-center bg-black/45 text-white hover:bg-white/10"
+            onClick={e => { e.stopPropagation(); onClose() }}
+            aria-label="Close photo viewer"
+          >
+            <X size={20} />
+          </button>
+        </div>
+      </div>
 
-      {/* Prev */}
       {photos.length > 1 && (
-        <button className="absolute left-4 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition-colors"
-          onClick={e => { e.stopPropagation(); prev() }}>
-          <ChevronLeft size={24} />
+        <button
+          type="button"
+          className="absolute left-2 sm:left-4 z-10 w-11 h-11 rounded-full flex items-center justify-center bg-black/40 text-white hover:bg-white/10"
+          onClick={e => { e.stopPropagation(); prev() }}
+          aria-label="Previous photo"
+        >
+          <ChevronLeft size={26} />
         </button>
       )}
 
-      {/* Image */}
-      <div className="relative max-w-5xl max-h-[85vh] w-full mx-16 flex flex-col items-center"
-        onClick={e => e.stopPropagation()}>
+      <div
+        className="relative max-w-6xl max-h-[92vh] w-full px-4 sm:px-16 flex flex-col items-center"
+        onClick={e => e.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
         <img
           src={photo.photo_url}
-          alt={photo.caption || 'Sports photo'}
-          className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-2xl"
+          alt={photo.caption || 'Section X sports photo'}
+          className="max-h-[78vh] w-auto max-w-full object-contain rounded-lg shadow-2xl select-none"
+          draggable={false}
         />
-        {(photo.caption || photo.photographer_credit_name || photo.submitter_name) && (
-          <div className="mt-3 text-center">
-            {photo.caption && (
-              <p className="text-white font-semibold text-sm">{photo.caption}</p>
-            )}
-            <p className="text-white/40 text-xs mt-1">
-              📷 {photo.photographer_credit_name || photo.submitter_name}
-            </p>
-          </div>
-        )}
+        <div className="mt-3 min-h-[44px] text-center px-6">
+          {photo.caption && <p className="text-white font-semibold text-sm sm:text-base">{photo.caption}</p>}
+          {(photo.photographer_credit_name || photo.submitter_name) && (
+            <p className="text-white/45 text-xs mt-1">Photo: {photo.photographer_credit_name || photo.submitter_name}</p>
+          )}
+          {photos.length > 1 && <p className="sm:hidden text-white/25 text-[10px] mt-2 uppercase tracking-widest">Swipe for more</p>}
+        </div>
       </div>
 
-      {/* Next */}
       {photos.length > 1 && (
-        <button className="absolute right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition-colors"
-          onClick={e => { e.stopPropagation(); next() }}>
-          <ChevronRight size={24} />
+        <button
+          type="button"
+          className="absolute right-2 sm:right-4 z-10 w-11 h-11 rounded-full flex items-center justify-center bg-black/40 text-white hover:bg-white/10"
+          onClick={e => { e.stopPropagation(); next() }}
+          aria-label="Next photo"
+        >
+          <ChevronRight size={26} />
         </button>
       )}
     </div>
   )
 }
 
-// Gallery grid with built-in lightbox
 export function PhotoGalleryGrid({ photos }: { photos: Photo[] }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
@@ -103,31 +159,32 @@ export function PhotoGalleryGrid({ photos }: { photos: Photo[] }) {
     <>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {photos.map((photo, i) => (
-          <button key={photo.id} onClick={() => setLightboxIndex(i)}
-            className="group relative aspect-video rounded-xl overflow-hidden bg-white/5 cursor-pointer">
-            <img src={photo.photo_url} alt={photo.caption || 'Sports photo'}
+          <button
+            id={`photo-${photo.id}`}
+            key={photo.id}
+            type="button"
+            onClick={() => setLightboxIndex(i)}
+            className="group relative aspect-video rounded-xl overflow-hidden bg-white/5 cursor-pointer border border-white/[0.06] hover:border-yellow-300/25 transition-colors"
+          >
+            <img
+              src={photo.photo_url}
+              alt={photo.caption || 'Section X sports photo'}
               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-              loading="lazy" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2">
-              {photo.caption && (
-                <p className="text-white text-xs font-semibold truncate">{photo.caption}</p>
-              )}
-              <p className="text-white/60 text-xs">📷 {photo.photographer_credit_name || photo.submitter_name}</p>
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent opacity-70 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 text-left">
+              {photo.caption && <p className="text-white text-xs font-semibold truncate">{photo.caption}</p>}
+              {(photo.photographer_credit_name || photo.submitter_name) && <p className="text-white/60 text-[10px] truncate">Photo: {photo.photographer_credit_name || photo.submitter_name}</p>}
             </div>
-            {/* Expand icon */}
-            <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <span className="text-white text-xs">⛶</span>
+            <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/55 flex items-center justify-center text-white/80 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+              <Expand size={13} />
             </div>
           </button>
         ))}
       </div>
 
       {lightboxIndex !== null && (
-        <PhotoLightbox
-          photos={photos}
-          initialIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-        />
+        <PhotoLightbox photos={photos} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
       )}
     </>
   )
