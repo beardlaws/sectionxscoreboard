@@ -27,7 +27,10 @@ function candidateTeam(raw:any,schoolId:number){
     raw,
     teamId:num(val(raw,'teamId','teamID','TeamId','TeamID','id','Id','ID')??nested(raw,'team.id','team.teamId','team.teamID')),
     schoolId:num(val(raw,'schoolId','schoolID','SchoolId','SchoolID')??nested(raw,'school.id','school.schoolId'))??schoolId,
-    teamName:text(val(raw,'teamName','TeamName','name','Name','team')??nested(raw,'team.name','team.teamName')),
+    teamName:text(val(raw,'teamName','TeamName','name','Name','title','Title','teamTitle','TeamTitle')??nested(raw,'team.name','team.teamName','team.title')),
+    sportId:num(val(raw,'genericSportId','genericSportID','GenericSportId','GenericSportID','sportId','sportID','SportId','SportID')??nested(raw,'genericSport.id','genericSport.sportId','sport.id','sport.sportId')),
+    levelId:num(val(raw,'levelId','levelID','LevelId','LevelID')??nested(raw,'level.id','level.levelId')),
+    genderId:num(val(raw,'genderId','genderID','GenderId','GenderID')??nested(raw,'gender.id','gender.genderId')),
     sportName:text(val(raw,'sportName','SportName','genericSportName','GenericSportName','sport')??nested(raw,'sport.name','genericSport.name','genericSport.sportName')),
     gender:text(val(raw,'gender','Gender','genderName','GenderName')??nested(raw,'gender.name','gender.description')),
     level:text(val(raw,'levelName','LevelName','level','Level','levelDescription','LevelDescription')??nested(raw,'level.name','level.levelName','level.description')),
@@ -36,7 +39,7 @@ function candidateTeam(raw:any,schoolId:number){
 function looksLikeTeamObject(raw:any){
   if(!raw||typeof raw!=='object'||Array.isArray(raw))return false
   const c=candidateTeam(raw,0)
-  return Boolean(c.teamId&&(c.teamName||c.sportName||c.level))
+  return Boolean(c.teamId&&(c.teamName||c.sportName||c.sportId||c.level||c.levelId))
 }
 function extractTeamCandidates(root:any,schoolId:number){
   const out:any[]=[],seenObj=new Set<any>(),q=[root]
@@ -52,28 +55,71 @@ function extractTeamCandidates(root:any,schoolId:number){
   for(const c of out)if(c.teamId&&!byId.has(c.teamId))byId.set(c.teamId,c)
   return[...byId.values()]
 }
+function extractReferences(root:any,kind:'sport'|'level'){
+  const rows:any[]=[],seen=new Set<any>(),q=[root]
+  while(q.length){
+    const cur=q.shift()
+    if(!cur||typeof cur!=='object'||seen.has(cur))continue
+    seen.add(cur)
+    if(Array.isArray(cur)){for(const x of cur)q.push(x);continue}
+    const id=kind==='sport'
+      ?num(val(cur,'genericSportId','genericSportID','GenericSportId','GenericSportID','sportId','sportID','SportId','SportID','id','Id','ID'))
+      :num(val(cur,'levelId','levelID','LevelId','LevelID','id','Id','ID'))
+    const name=kind==='sport'
+      ?text(val(cur,'genericSportName','GenericSportName','sportName','SportName','name','Name','description','Description'))
+      :text(val(cur,'levelName','LevelName','name','Name','description','Description'))
+    if(id!==null&&name)rows.push({id,name})
+    for(const v of Object.values(cur))if(v&&typeof v==='object')q.push(v)
+  }
+  const map=new Map<number,string>()
+  for(const r of rows)if(!map.has(r.id))map.set(r.id,r.name)
+  return map
+}
+function sportEquivalent(a:unknown,b:unknown){
+  const x=clean(a),y=clean(b)
+  if(!x||!y)return false
+  if(x===y||x.includes(y)||y.includes(x))return true
+  const normalize=(s:string)=>s
+    .replace(/girls|boys|mens|womens|male|female/g,'')
+    .replace(/association football/g,'soccer')
+    .replace(/crosscountry/g,'cross country')
+    .replace(/volley ball/g,'volleyball')
+    .replace(/swim ming/g,'swimming')
+    .replace(/\s+/g,' ').trim()
+  return normalize(x)===normalize(y)
+}
+function enrichCandidate(c:any,sportNames:Map<number,string>,levelNames:Map<number,string>){
+  return{...c,sportName:c.sportName||sportNames.get(c.sportId)||'',level:c.level||levelNames.get(c.levelId)||''}
+}
 function sportScore(c:any,s:any){
   const cs=clean(c.sportName),cn=clean(c.teamName),ds=clean(s?.sport_name),dg=clean(s?.gender),cg=clean(c.gender),cl=clean(c.level)
   let score=0
-  if(cs&&ds&&(cs===ds||cs.includes(ds)||ds.includes(cs)))score+=4
+  if(sportEquivalent(cs,ds))score+=6
   if(ds&&cn.includes(ds))score+=2
   if(dg&&(cg===dg||cn.includes(dg)))score+=2
   if(!dg||!cg||cg===dg||cn.includes(dg))score+=1
-  if(cl.includes('varsity')&&!cl.includes('junior'))score+=2
+  if(cl.includes('varsity')&&!cl.includes('junior'))score+=3
   return score
 }
 function genderCompatible(c:any,s:any){
   const dg=clean(s?.gender),cg=clean(c.gender),cn=clean(c.teamName)
   if(!dg)return true
-  if(cg)return cg===dg
-  return cn.includes(dg)||(!cn.includes('boys')&&!cn.includes('girls')&&!cn.includes('mens')&&!cn.includes('womens'))
+  if(cg)return cg===dg||cg.startsWith(dg)||dg.startsWith(cg)
+  if(cn.includes('boys')||cn.includes('mens'))return dg.includes('boy')||dg.includes('men')||dg.includes('male')
+  if(cn.includes('girls')||cn.includes('womens'))return dg.includes('girl')||dg.includes('women')||dg.includes('female')
+  return true
 }
-function varsityCompatible(c:any){const cl=clean(c.level),cn=clean(c.teamName);return cl?cl.includes('varsity')&&!cl.includes('junior'):!cn.includes('junior varsity')&&!cn.includes(' jv ')}
+function varsityCompatible(c:any){
+  const cl=clean(c.level),cn=` ${clean(c.teamName)} `
+  if(cl)return cl.includes('varsity')&&!cl.includes('junior')
+  if(c.levelId===1)return true
+  return !cn.includes(' junior varsity ')&&!cn.includes(' jv ')&&!cn.includes(' modified ')&&!cn.includes(' middle school ')
+}
 function fullName(p:any){return text(val(p,'displayName','fullName','name'))||text([val(p,'firstName','first_name'),val(p,'lastName','last_name')].filter(Boolean).join(' '))}
 function normalizePlayer(p:any){const displayName=fullName(p);return{jerseyNumber:text(val(p,'jerseyNumber','jersey','number')),rawName:displayName,displayName,firstName:text(val(p,'firstName','first_name')),lastName:text(val(p,'lastName','last_name')),classYear:text(val(p,'classYear','class','grade','graduationYear')),position:text(val(p,'position','positionName')),height:text(val(p,'height'))}}
 function normalizeCoach(p:any){const displayName=fullName(p);return{rawName:displayName,displayName,firstName:text(val(p,'firstName','first_name')),lastName:text(val(p,'lastName','last_name')),title:text(val(p,'title','role','position'))}}
 
-async function fetchSchoolTeams(sid:number){
+async function fetchSchoolTeams(sid:number,sportNames:Map<number,string>,levelNames:Map<number,string>){
   const attempts:[string,any][]=[
     ['SchoolId',{SchoolId:sid}],
     ['schoolId',{schoolId:sid}],
@@ -84,7 +130,7 @@ async function fetchSchoolTeams(sid:number){
   for(const [variant,query] of attempts){
     try{
       const raw=await arbiterApi.teams(query)
-      const teams=extractTeamCandidates(raw,sid)
+      const teams=extractTeamCandidates(raw,sid).map(c=>enrichCandidate(c,sportNames,levelNames))
       diagnostics.push({variant,shape:responseShape(raw),teamsFound:teams.length})
       if(teams.length)return{teams,diagnostics,error:null}
     }catch(error){diagnostics.push({variant,error:error instanceof Error?error.message:String(error),teamsFound:0})}
@@ -98,28 +144,31 @@ export async function GET(req:NextRequest){
     const seasonId=req.nextUrl.searchParams.get('seasonId')
     let season:any=null
     if(seasonId){const {data,error}=await db.from('seasons').select('id,name,season_type,year,is_active').eq('id',seasonId).single();if(error)throw new Error(error.message);season=data}else{const {data,error}=await db.from('seasons').select('id,name,season_type,year,is_active').eq('is_active',true).single();if(error)throw new Error(error.message);season=data}
-    const [{data:schools,error:se},{data:teams,error:te},{data:sports,error:spe},{data:teamSeasons,error:tse},{data:existingRosters,error:re}]=await Promise.all([
+    const [{data:schools,error:se},{data:teams,error:te},{data:sports,error:spe},{data:teamSeasons,error:tse},{data:existingRosters,error:re},arbiterSportsRaw,arbiterLevelsRaw]=await Promise.all([
       db.from('schools').select('id,school_name,arbiter_entity_id').eq('active',true).not('arbiter_entity_id','is',null),
       db.from('teams').select('id,school_id,sport_id,team_name,level,active').eq('active',true),
       db.from('sports').select('id,sport_name,gender,season_type,slug'),
       db.from('team_seasons').select('team_id,season_id,active_for_season').eq('season_id',season.id).eq('active_for_season',true),
       db.from('roster_entries').select('team_id,season_id,active').eq('season_id',season.id).eq('active',true),
+      arbiterApi.sports().catch(()=>null),
+      arbiterApi.levels().catch(()=>null),
     ])
     const err=se||te||spe||tse||re;if(err)throw new Error(err.message)
+    const arbiterSportNames=extractReferences(arbiterSportsRaw,'sport'),arbiterLevelNames=extractReferences(arbiterLevelsRaw,'level')
     const schoolById=new Map((schools||[]).map((s:any)=>[s.id,s])),sportById=new Map((sports||[]).map((s:any)=>[s.id,s])),activeIds=new Set((teamSeasons||[]).map((x:any)=>x.team_id)),rosterCount=new Map<string,number>()
     for(const r of existingRosters||[])rosterCount.set(r.team_id,(rosterCount.get(r.team_id)||0)+1)
     const varsity=(teams||[]).filter((t:any)=>activeIds.has(t.id)&&clean(t.level).includes('varsity')&&!clean(t.level).includes('junior'))
     const arbiterTeamsBySchool=new Map<number,any[]>(),schoolDiagnostics=new Map<number,any>()
     for(let i=0;i<(schools||[]).length;i+=6){
       const batch=(schools||[]).slice(i,i+6)
-      const fetched=await Promise.all(batch.map(async(s:any)=>{const sid=Number(s.arbiter_entity_id),result=await fetchSchoolTeams(sid);return{s,sid,result}}))
+      const fetched=await Promise.all(batch.map(async(s:any)=>{const sid=Number(s.arbiter_entity_id),result=await fetchSchoolTeams(sid,arbiterSportNames,arbiterLevelNames);return{s,sid,result}}))
       for(const f of fetched){arbiterTeamsBySchool.set(f.sid,f.result.teams);schoolDiagnostics.set(f.sid,{school:f.s.school_name,schoolId:f.sid,...f.result})}
     }
 
     const matches:any[]=[]
     for(const team of varsity){
       const school=schoolById.get(team.school_id) as any,sport=sportById.get(team.sport_id) as any,sid=Number(school?.arbiter_entity_id),allCandidates=arbiterTeamsBySchool.get(sid)||[]
-      const compatible=allCandidates.filter((c:any)=>c.teamId&&varsityCompatible(c)&&genderCompatible(c,sport)).map((c:any)=>({...c,score:sportScore(c,sport)})).filter((c:any)=>c.score>=4).sort((a:any,b:any)=>b.score-a.score)
+      const compatible=allCandidates.filter((c:any)=>c.teamId&&varsityCompatible(c)&&genderCompatible(c,sport)&&sportEquivalent(c.sportName,sport?.sport_name)).map((c:any)=>({...c,score:sportScore(c,sport)})).sort((a:any,b:any)=>b.score-a.score)
       const best=compatible[0]||null,tied=best?compatible.filter((c:any)=>c.score===best.score):[]
       let reason='matched'
       if(!allCandidates.length)reason='arbiter-no-teams-returned'
@@ -138,23 +187,19 @@ export async function GET(req:NextRequest){
         const roster=(playersRaw||[]).map(normalizePlayer).filter(p=>p.displayName),coaches=(coachesRaw||[]).map(normalizeCoach).filter(p=>p.displayName),rosterFound=playersRaw!==null,coachesFound=coachesRaw!==null
         const normalized={team_id:f.m.team.id,season_id:season.id,source_url:null,roster_found:rosterFound,coaches_found:coachesFound,roster,coaches}
         if(rosterFound||coachesFound)importPayloads.push(normalized)
-        rows.push({teamId:f.m.team.id,teamName:f.m.team.team_name,school:f.m.school.school_name,sport:f.m.sport?.sport_name,gender:f.m.sport?.gender,arbiterTeamId:f.m.best.teamId,arbiterTeamName:f.m.best.teamName,arbiterSportName:f.m.best.sportName,arbiterLevel:f.m.best.level,existingRosterCount:f.m.existingRosterCount,rosterFound,rosterCount:roster.length,coachesFound,coachCount:coaches.length,error:f.error,status:f.error?'roster-fetch-error':rosterFound?'available':'no-roster-published',diagnosticReason:f.error?'roster-fetch-error':rosterFound?'published-roster-found':'team-matched-roster-not-published'})
+        rows.push({teamId:f.m.team.id,teamName:f.m.team.team_name,school:f.m.school.school_name,sport:f.m.sport?.sport_name,gender:f.m.sport?.gender,arbiterTeamId:f.m.best.teamId,arbiterTeamName:f.m.best.teamName,arbiterSportId:f.m.best.sportId,arbiterSportName:f.m.best.sportName,arbiterLevelId:f.m.best.levelId,arbiterLevel:f.m.best.level,existingRosterCount:f.m.existingRosterCount,rosterFound,rosterCount:roster.length,coachesFound,coachCount:coaches.length,error:f.error,status:f.error?'roster-fetch-error':rosterFound?'available':'no-roster-published',diagnosticReason:f.error?'roster-fetch-error':rosterFound?'published-roster-found':'team-matched-roster-not-published'})
       }
     }
-    for(const m of matches.filter(m=>!m.best))rows.push({teamId:m.team.id,teamName:m.team.team_name,school:m.school?.school_name,sport:m.sport?.sport_name,gender:m.sport?.gender,arbiterTeamId:null,existingRosterCount:m.existingRosterCount,rosterFound:false,rosterCount:0,coachesFound:false,coachCount:0,status:m.ambiguous?'ambiguous-team-match':m.reason==='arbiter-no-teams-returned'?'arbiter-no-teams':'team-not-matched',diagnosticReason:m.reason,arbiterCandidateCount:m.arbiterCandidateCount,candidates:m.candidates.map((c:any)=>({teamId:c.teamId,teamName:c.teamName,sportName:c.sportName,gender:c.gender,level:c.level,score:c.score??null}))})
+    for(const m of matches.filter(m=>!m.best))rows.push({teamId:m.team.id,teamName:m.team.team_name,school:m.school?.school_name,sport:m.sport?.sport_name,gender:m.sport?.gender,arbiterTeamId:null,existingRosterCount:m.existingRosterCount,rosterFound:false,rosterCount:0,coachesFound:false,coachCount:0,status:m.ambiguous?'ambiguous-team-match':m.reason==='arbiter-no-teams-returned'?'arbiter-no-teams':'team-not-matched',diagnosticReason:m.reason,arbiterCandidateCount:m.arbiterCandidateCount,candidates:m.candidates.map((c:any)=>({teamId:c.teamId,teamName:c.teamName,sportId:c.sportId,sportName:c.sportName,gender:c.gender,levelId:c.levelId,level:c.level,score:c.score??null}))})
     rows.sort((a,b)=>String(a.school).localeCompare(String(b.school))||String(a.sport).localeCompare(String(b.sport)))
-    const counts={
-      teams:rows.length,
-      available:rows.filter(r=>r.status==='available').length,
-      noRosterPublished:rows.filter(r=>r.status==='no-roster-published').length,
-      arbiterNoTeams:rows.filter(r=>r.status==='arbiter-no-teams').length,
-      teamNotFound:rows.filter(r=>r.status==='team-not-matched').length,
-      ambiguous:rows.filter(r=>r.status==='ambiguous-team-match').length,
-      errors:rows.filter(r=>r.status==='roster-fetch-error').length,
-      alreadyLoaded:rows.filter(r=>r.existingRosterCount>0).length,
-      importPayloads:importPayloads.length,
+    const counts={teams:rows.length,available:rows.filter(r=>r.status==='available').length,noRosterPublished:rows.filter(r=>r.status==='no-roster-published').length,arbiterNoTeams:rows.filter(r=>r.status==='arbiter-no-teams').length,teamNotFound:rows.filter(r=>r.status==='team-not-matched').length,ambiguous:rows.filter(r=>r.status==='ambiguous-team-match').length,errors:rows.filter(r=>r.status==='roster-fetch-error').length,alreadyLoaded:rows.filter(r=>r.existingRosterCount>0).length,importPayloads:importPayloads.length}
+    const diagnostics={
+      arbiterReferenceData:{sports:[...arbiterSportNames.entries()].map(([id,name])=>({id,name})),levels:[...arbiterLevelNames.entries()].map(([id,name])=>({id,name}))},
+      schools:(schools||[]).map((s:any)=>{const d=schoolDiagnostics.get(Number(s.arbiter_entity_id));return{school:s.school_name,arbiterSchoolId:Number(s.arbiter_entity_id),teamsFound:d?.teams?.length||0,attempts:d?.diagnostics||[],error:d?.error||null}}),
+      schoolsWithTeams:[...schoolDiagnostics.values()].filter((d:any)=>d.teams?.length).length,
+      schoolsWithoutTeams:[...schoolDiagnostics.values()].filter((d:any)=>!d.teams?.length).length,
+      totalArbiterTeams:[...arbiterTeamsBySchool.values()].reduce((n,a)=>n+a.length,0)
     }
-    const diagnostics={schools:(schools||[]).map((s:any)=>{const d=schoolDiagnostics.get(Number(s.arbiter_entity_id));return{school:s.school_name,arbiterSchoolId:Number(s.arbiter_entity_id),teamsFound:d?.teams?.length||0,attempts:d?.diagnostics||[],error:d?.error||null}}),schoolsWithTeams:[...schoolDiagnostics.values()].filter((d:any)=>d.teams?.length).length,schoolsWithoutTeams:[...schoolDiagnostics.values()].filter((d:any)=>!d.teams?.length).length,totalArbiterTeams:[...arbiterTeamsBySchool.values()].reduce((n,a)=>n+a.length,0)}
     return NextResponse.json({ok:true,readOnly:true,season,counts,rows,importPayloads,diagnostics})
   }catch(error){
     console.error('Partner API roster scan failed:',error)
