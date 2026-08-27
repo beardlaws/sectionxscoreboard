@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import {
   PlusCircle, Upload, CheckSquare, Image,
-  Calendar, Users, BarChart2, ShieldCheck, Activity
+  Calendar, Users, BarChart2, ShieldCheck, Activity, ClipboardList
 } from 'lucide-react'
 
 export const revalidate = 0
@@ -73,6 +73,8 @@ export default async function AdminDashboard() {
 
   const quickActions = [
     { href: '/admin/fall-operations', icon: Activity, label: 'Fall Operations', desc: 'Schedules · scores · rosters · exceptions' },
+    { href: '/admin/score-intelligence/today', icon: ClipboardList, label: "Today's Results", desc: 'Finals · reported · missing results' },
+    { href: '/admin/score-intelligence', icon: ShieldCheck, label: 'Score Intelligence', desc: 'Match and review backup score sources' },
     { href: '/admin/schedule-intelligence', icon: ShieldCheck, label: 'Schedule Intelligence', desc: scheduleDesc },
     { href: '/admin/scores/entry', icon: PlusCircle, label: 'Enter Score', desc: 'Add a single game result' },
     { href: '/admin/scores/manage', icon: BarChart2, label: 'Manage Games', desc: 'Edit or delete games' },
