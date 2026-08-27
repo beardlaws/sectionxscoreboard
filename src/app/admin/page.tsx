@@ -1,5 +1,5 @@
 // src/app/admin/page.tsx
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import AdminLayout from '@/components/layout/AdminLayout'
 import Link from 'next/link'
 import { format } from 'date-fns'
@@ -32,7 +32,34 @@ export default async function AdminDashboard() {
     supabase.from('schools').select('*', { count: 'exact', head: true }).eq('active', true),
   ])
 
+  let latestScheduleHealth:any=null
+  if((activeSeason as any)?.id){
+    const admin=createAdminClient()
+    const {data}=await admin.from('arbiter_health_checks')
+      .select('status,summary,created_at')
+      .eq('season_id',(activeSeason as any).id)
+      .order('created_at',{ascending:false})
+      .limit(1)
+      .maybeSingle()
+    latestScheduleHealth=data||null
+  }
+
+  const schedulePending=Number(latestScheduleHealth?.summary?.pendingChanges||0)
+  const scheduleBlockers=Number(latestScheduleHealth?.summary?.trueBlockers||0)
+  const scheduleDesc=latestScheduleHealth
+    ? scheduleBlockers>0
+      ? `${scheduleBlockers} blocker${scheduleBlockers===1?'':'s'} need attention`
+      : schedulePending>0
+        ? `${schedulePending} Arbiter change${schedulePending===1?'':'s'} pending`
+        : `Healthy · ${latestScheduleHealth?.summary?.syncedStable||0} stable`
+    : 'Run first full schedule health check'
+
   const alerts = [
+    scheduleBlockers>0
+      ? {label:`Schedule Intelligence has ${scheduleBlockers} global blocker${scheduleBlockers===1?'':'s'}`,href:'/admin/schedule-intelligence',color:'red'}
+      : schedulePending>0
+        ? {label:`${schedulePending} Arbiter schedule change${schedulePending===1?'':'s'} waiting for review`,href:'/admin/schedule-intelligence',color:'amber'}
+        : null,
     pendingSubmissions && pendingSubmissions > 0
       ? { label: `${pendingSubmissions} pending score submission${pendingSubmissions !== 1 ? 's' : ''}`, href: '/admin/submissions', color: 'amber' }
       : null,
@@ -45,7 +72,7 @@ export default async function AdminDashboard() {
   ].filter(Boolean)
 
   const quickActions = [
-    { href: '/admin/schedule-intelligence', icon: ShieldCheck, label: 'Schedule Intelligence', desc: 'Dry-run and controlled Arbiter sync' },
+    { href: '/admin/schedule-intelligence', icon: ShieldCheck, label: 'Schedule Intelligence', desc: scheduleDesc },
     { href: '/admin/scores/entry', icon: PlusCircle, label: 'Enter Score', desc: 'Add a single game result' },
     { href: '/admin/scores/manage', icon: BarChart2, label: 'Manage Games', desc: 'Edit or delete games' },
     { href: '/admin/import', icon: Upload, label: 'Import Center', desc: 'Paste or upload scores/schedules' },
@@ -59,9 +86,7 @@ export default async function AdminDashboard() {
     <AdminLayout>
       <div className="p-4 max-w-4xl">
         <div className="mb-5">
-          <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'var(--font-display)' }}>
-            Admin Dashboard
-          </h1>
+          <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'var(--font-display)' }}>Admin Dashboard</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             {(activeSeason as any)?.name || 'No active season'} · {format(new Date(), 'EEEE, MMMM d')}
           </p>
@@ -69,19 +94,13 @@ export default async function AdminDashboard() {
 
         {alerts.length > 0 && (
           <div className="space-y-2 mb-5">
-            {alerts.map((alert, i) => alert && (
-              <Link
-                key={i}
-                href={alert.href}
-                className="flex items-center justify-between p-3 rounded-lg text-sm"
-                style={{
-                  background: alert.color === 'amber' ? 'rgba(251,191,36,0.1)' : alert.color === 'red' ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)',
-                  border: `1px solid ${alert.color === 'amber' ? 'rgba(251,191,36,0.3)' : alert.color === 'red' ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)'}`,
-                  color: alert.color === 'amber' ? '#fbbf24' : alert.color === 'red' ? '#f87171' : '#93c5fd',
-                }}
-              >
-                <span>⚠️ {alert.label}</span>
-                <span className="text-xs opacity-70">Review →</span>
+            {alerts.map((alert:any, i) => alert && (
+              <Link key={i} href={alert.href} className="flex items-center justify-between p-3 rounded-lg text-sm" style={{
+                background: alert.color === 'amber' ? 'rgba(251,191,36,0.1)' : alert.color === 'red' ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)',
+                border: `1px solid ${alert.color === 'amber' ? 'rgba(251,191,36,0.3)' : alert.color === 'red' ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)'}`,
+                color: alert.color === 'amber' ? '#fbbf24' : alert.color === 'red' ? '#f87171' : '#93c5fd',
+              }}>
+                <span>⚠️ {alert.label}</span><span className="text-xs opacity-70">Review →</span>
               </Link>
             ))}
           </div>
@@ -108,10 +127,7 @@ export default async function AdminDashboard() {
             return (
               <Link key={action.href} href={action.href} className="admin-action-btn">
                 <Icon size={22} style={{ color: 'var(--accent-bright)' }} />
-                <div>
-                  <div className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>{action.label}</div>
-                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{action.desc}</div>
-                </div>
+                <div><div className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>{action.label}</div><div className="text-xs" style={{ color: 'var(--text-muted)' }}>{action.desc}</div></div>
               </Link>
             )
           })}
