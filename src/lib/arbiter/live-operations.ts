@@ -16,6 +16,13 @@ function orientScores(row:any,game:any){
   return null
 }
 
+function scheduleSeverity(bucket:unknown){
+  const b=clean(bucket)
+  if(b==='orphaned link')return 'blocker'
+  if(b==='source cancelled')return 'info'
+  return 'review'
+}
+
 export async function runLiveOperationsCheck(seasonId?:string|null){
   const db=createAdminClient()
   const audit=await runScheduleAudit(seasonId?{seasonId}:{})
@@ -65,10 +72,16 @@ export async function runLiveOperationsCheck(seasonId?:string|null){
 
   const schedule={syncedStable:audit.comparison.counts?.['stable-id-match']||0,pendingChanges:audit.comparison.pendingChanges||0,quarantined:audit.comparison.quarantined||0,blockers:audit.comparison.trueBlockers||0,writerReady:Boolean(audit.comparison.writerReady)}
   const exceptions=[
-    ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season').map((r:any)=>({kind:'schedule',severity:r.bucket==='orphaned-link'?'blocker':'review',bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),arbiterGameId:r.uniqueGameId})),
-    ...scoreRows.filter(r=>r.bucket==='score-conflict'||r.bucket==='score-review').map(r=>({kind:'score',severity:'review',bucket:r.bucket,title:`${r.away} at ${r.home}`,detail:`Arbiter ${r.arbiter.away}-${r.arbiter.home}; Section X ${r.sectionX.away??'—'}-${r.sectionX.home??'—'}`,arbiterGameId:r.arbiterGameId})),
+    ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season').map((r:any)=>({kind:'schedule',severity:scheduleSeverity(r.bucket),bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),arbiterGameId:r.uniqueGameId,gameId:r.existingGameId||null})),
+    ...scoreRows.filter(r=>r.bucket==='score-conflict'||r.bucket==='score-review').map(r=>({kind:'score',severity:'review',bucket:r.bucket,title:`${r.away} at ${r.home}`,detail:`Arbiter ${r.arbiter.away}-${r.arbiter.home}; Section X ${r.sectionX.away??'—'}-${r.sectionX.home??'—'}`,arbiterGameId:r.arbiterGameId,gameId:r.gameId})),
     ...missingRosters.map(r=>({kind:'roster',severity:'info',bucket:'roster-missing',title:r.teamName,detail:`${r.sport}${r.gender?` · ${r.gender}`:''}`}))
   ]
+  const exceptionSummary={
+    blockers:exceptions.filter((x:any)=>x.severity==='blocker').length,
+    review:exceptions.filter((x:any)=>x.severity==='review').length,
+    info:exceptions.filter((x:any)=>x.severity==='info').length,
+    total:exceptions.length,
+  }
 
-  return{ok:true,readOnly:true,checkedAt:new Date().toISOString(),season:audit.season,schedule,scores:{counts:scoreCounts,safeToApply:scoreRows.filter(r=>r.safeToApply).length,conflicts:scoreCounts['score-conflict']||0,rows:scoreRows},rosters:{varsityTeams:rosterRows.length,loaded:rosterRows.length-missingRosters.length,missing:missingRosters.length,rows:rosterRows},exceptions,audit}
+  return{ok:true,readOnly:true,checkedAt:new Date().toISOString(),season:audit.season,schedule,scores:{counts:scoreCounts,safeToApply:scoreRows.filter(r=>r.safeToApply).length,conflicts:scoreCounts['score-conflict']||0,rows:scoreRows},rosters:{varsityTeams:rosterRows.length,loaded:rosterRows.length-missingRosters.length,missing:missingRosters.length,rows:rosterRows},exceptions,exceptionSummary,audit}
 }

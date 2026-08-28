@@ -11,6 +11,11 @@ function joined<T = any>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] || null : value || null
 }
 
+function isVarsity(level: unknown) {
+  const value = String(level || '').toLowerCase()
+  return value.includes('varsity') && !value.includes('junior')
+}
+
 export default async function FallOperationsPage() {
   const supabase = createClient()
   const admin = createAdminClient()
@@ -21,7 +26,7 @@ export default async function FallOperationsPage() {
     { data: cronRows },
     { data: rosterRuns },
     { data: rosterCronRows },
-    { data: rosterPublicationRows },
+    { data: publicationViewRows, error: publicationViewError },
     { data: followRows },
     { data: healthChecks },
     { data: alertEvents },
@@ -45,9 +50,52 @@ export default async function FallOperationsPage() {
   const activeRuns = (runs || []).filter((r: any) => !active?.id || !r.season_id || r.season_id === active.id)
   const activeRosterRuns = (rosterRuns || []).filter((r: any) => !active?.id || !r.season_id || r.season_id === active.id)
   const activeChecks = (healthChecks || []).filter((r: any) => !active?.id || !r.season_id || r.season_id === active.id)
-  const activeRosterPublicationRows = (rosterPublicationRows || []).filter((r: any) => !active?.id || r.season_id === active.id)
   const cron = Array.isArray(cronRows) ? cronRows[0] || null : cronRows || null
   const rosterCron = Array.isArray(rosterCronRows) ? rosterCronRows[0] || null : rosterCronRows || null
+
+  let activeRosterPublicationRows = (publicationViewRows || []).filter((r: any) => !active?.id || r.season_id === active.id)
+  let rosterPublicationSource = publicationViewError ? 'fallback' : 'view'
+
+  // The production publication view is intentionally restrictive. If it returns no rows,
+  // rebuild the admin-only intelligence population from canonical tables with the service role.
+  // This does NOT change the public RLS publication guard.
+  if (active?.id && activeRosterPublicationRows.length === 0) {
+    const [teamSeasonResult, freshnessResult, rosterResult, coachResult] = await Promise.all([
+      admin.from('team_seasons').select('team_id,active_for_season,team:teams(id,team_name,level,active)').eq('season_id', active.id).eq('active_for_season', true),
+      admin.from('arbiter_roster_freshness').select('team_id,status,verified,reason,checked_at').eq('season_id', active.id),
+      admin.from('roster_entries').select('team_id').eq('season_id', active.id).eq('active', true).eq('source', 'arbiter'),
+      admin.from('team_coaches').select('team_id').eq('season_id', active.id).eq('active', true).eq('source', 'arbiter'),
+    ])
+
+    const freshnessByTeam = new Map((freshnessResult.data || []).map((row: any) => [row.team_id, row]))
+    const rosterCounts = new Map<string, number>()
+    const coachCounts = new Map<string, number>()
+    for (const row of rosterResult.data || []) rosterCounts.set(row.team_id, (rosterCounts.get(row.team_id) || 0) + 1)
+    for (const row of coachResult.data || []) coachCounts.set(row.team_id, (coachCounts.get(row.team_id) || 0) + 1)
+
+    activeRosterPublicationRows = (teamSeasonResult.data || [])
+      .map((row: any) => ({ row, team: joined<any>(row.team) }))
+      .filter(({ team }: any) => team?.active !== false && isVarsity(team?.level))
+      .map(({ row, team }: any) => {
+        const freshness: any = freshnessByTeam.get(row.team_id) || null
+        const status = freshness?.status || null
+        const verified = freshness?.verified === true
+        return {
+          team_id: row.team_id,
+          team_name: team?.team_name || 'Unknown team',
+          season_id: active.id,
+          season_name: active.name,
+          status,
+          verified,
+          reason: freshness?.reason || 'Not scanned for current-season Arbiter roster freshness yet.',
+          checked_at: freshness?.checked_at || null,
+          active_arbiter_roster_entries: rosterCounts.get(row.team_id) || 0,
+          active_arbiter_coaches: coachCounts.get(row.team_id) || 0,
+          publicly_visible: verified && status === 'current-verified',
+        }
+      })
+    rosterPublicationSource = 'canonical-fallback'
+  }
 
   const scheduleGameIds = new Set<string>()
   for (const run of activeRuns) {
@@ -108,7 +156,7 @@ export default async function FallOperationsPage() {
       <FallOperations season={active} />
       <div className="p-4 pt-0 max-w-6xl space-y-4">
         <div className="grid xl:grid-cols-2 gap-4">
-          <RosterIntelligence rows={activeRosterPublicationRows} />
+          <RosterIntelligence rows={activeRosterPublicationRows} source={rosterPublicationSource} />
           <FollowIntelligence rows={followRows || []} />
         </div>
         <AutomationPanel runs={activeRuns} cron={cron} rosterRuns={activeRosterRuns} rosterCron={rosterCron} healthByRunId={healthByRunId} gameLabels={gameLabels} teamLabels={teamLabels} alertSummary={alertSummary} />
