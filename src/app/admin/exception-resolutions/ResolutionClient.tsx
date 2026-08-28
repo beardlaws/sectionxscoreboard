@@ -1,0 +1,27 @@
+'use client'
+
+import { useEffect,useState } from 'react'
+import Link from 'next/link'
+import { AlertTriangle,CheckCircle2,ExternalLink,RefreshCw,ShieldCheck } from 'lucide-react'
+
+const readable=(v:any)=>String(v||'').replace(/-/g,' ').replace(/\b\w/g,m=>m.toUpperCase())
+
+export default function ResolutionClient({season}:{season:any}){
+  const [data,setData]=useState<any>(null),[loading,setLoading]=useState(false),[saving,setSaving]=useState<string|null>(null),[error,setError]=useState<string|null>(null),[message,setMessage]=useState<string|null>(null)
+  const seasonId=season?.id
+  async function load(){if(!seasonId)return;setLoading(true);setError(null);try{const r=await fetch(`/api/admin/arbiter-api/live-ops?seasonId=${encodeURIComponent(seasonId)}`,{cache:'no-store'}),j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Could not load exceptions');setData(j)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setLoading(false)}}
+  useEffect(()=>{void load()},[seasonId])
+  const review=(data?.exceptions||[]).filter((x:any)=>x.severity==='review'||x.resolution)
+  async function resolve(x:any,resolution:'confirm-scrimmage'|'keep-quarantined'){
+    if(resolution==='confirm-scrimmage'&&!confirm(`Confirm ${x.title} as a SCRIMMAGE in Section X? This does not change Arbiter. Section X will exclude it from automated scores and standings while the current Arbiter evidence remains unchanged.`))return
+    setSaving(String(x.arbiterGameId));setError(null);setMessage(null)
+    try{const r=await fetch('/api/admin/exception-resolutions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seasonId,arbiterGameId:x.arbiterGameId,gameId:x.gameId,bucket:x.bucket,resolution,note:resolution==='confirm-scrimmage'?'Verified by Section X admin against Arbiter event description.':null,evidenceFingerprint:x.evidenceFingerprint,evidence:{title:x.title,detail:x.detail,bucket:x.bucket}})}),j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Resolution failed');setMessage(resolution==='confirm-scrimmage'?'Confirmed as scrimmage. Audit decision saved.':'Left quarantined. Audit decision saved.');await load()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setSaving(null)}}
+  return <div className="space-y-5">
+    <div className="flex flex-wrap justify-between gap-3"><div><div className="flex items-center gap-2"><ShieldCheck className="text-sky-300"/><h1 className="text-2xl font-bold text-white">Exception Resolutions</h1></div><p className="text-sm mt-1" style={{color:'var(--text-secondary)'}}>Human decisions for genuine Arbiter contradictions. Decisions are audited and automatically stop applying if the Arbiter evidence materially changes.</p></div><button className="admin-action-btn" onClick={load} disabled={loading}><RefreshCw size={16} className={loading?'animate-spin':''}/>Refresh</button></div>
+    {error&&<div className="rounded border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"><AlertTriangle size={15} className="inline mr-2"/>{error}</div>}{message&&<div className="rounded border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300"><CheckCircle2 size={15} className="inline mr-2"/>{message}</div>}
+    <div className="card p-4"><div className="flex justify-between gap-3 mb-3"><div><h2 className="font-semibold text-white">{season?.name||'Active season'} decision queue</h2><p className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Only genuine review items appear here. Informational TBA/event-sport holds remain safely quarantined without creating busywork.</p></div><div className="text-amber-300 font-bold">{review.filter((x:any)=>x.severity==='review').length} open</div></div>
+      <div className="space-y-3">{!data?<div className="text-sm text-slate-400">Loading…</div>:review.length===0?<div className="rounded border border-emerald-500/20 bg-emerald-500/5 p-4 text-emerald-300">No human decisions are currently required.</div>:review.map((x:any)=><div key={`${x.arbiterGameId}-${x.bucket}`} className="rounded border border-white/10 bg-black/20 p-4 space-y-3"><div className="flex flex-wrap justify-between gap-2"><div><b className="text-white">{x.title}</b><div className="text-xs text-amber-300 mt-1">{readable(x.bucket)}</div>{x.detail&&<div className="text-xs mt-1" style={{color:'var(--text-muted)'}}>{x.detail}</div>}</div>{x.gameId&&<Link href={`/admin/game-center/${x.gameId}`} className="text-xs text-sky-300 inline-flex gap-1 items-center">Open game <ExternalLink size={11}/></Link>}</div>{x.resolution?<div className="rounded border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-emerald-300">Resolved: {readable(x.resolution.resolution)}{x.resolution.note?` · ${x.resolution.note}`:''}</div>:x.resolutionEligible?<div className="flex flex-wrap gap-2"><button disabled={saving===String(x.arbiterGameId)} onClick={()=>resolve(x,'confirm-scrimmage')} className="admin-action-btn disabled:opacity-40">Confirm as Scrimmage</button><button disabled={saving===String(x.arbiterGameId)} onClick={()=>resolve(x,'keep-quarantined')} className="admin-action-btn disabled:opacity-40">Keep Quarantined</button></div>:<div className="text-xs text-slate-400">This exception remains review-only; no safe resolution shortcut is defined for this category.</div>}</div>)}</div>
+    </div>
+    <Link href="/admin/fall-operations" className="inline-flex text-sm text-sky-300">← Back to Fall Operations</Link>
+  </div>
+}
