@@ -23,17 +23,20 @@ export async function POST(req: NextRequest) {
       alert_photos: body?.preferences?.photos !== false,
     }
 
-    let lookup = supabase.from('fan_follow_preferences').select('id').ilike('email', email)
+    let lookup = supabase.from('fan_follow_preferences').select('id,manage_token').ilike('email', email)
     lookup = teamId ? lookup.eq('team_id', teamId) : lookup.eq('athlete_id', athleteId)
     const { data: existing, error: lookupError } = await lookup.maybeSingle()
     if (lookupError) throw lookupError
 
+    let manageToken = existing?.manage_token || null
     if (existing?.id) {
-      const { error } = await supabase.from('fan_follow_preferences').update({ email, ...prefs, active: true }).eq('id', existing.id)
+      const { data, error } = await supabase.from('fan_follow_preferences').update({ email, ...prefs, active: true }).eq('id', existing.id).select('manage_token').single()
       if (error) throw error
+      manageToken = data?.manage_token || manageToken
     } else {
-      const { error } = await supabase.from('fan_follow_preferences').insert({ email, team_id: teamId, athlete_id: athleteId, ...prefs, active: true })
+      const { data, error } = await supabase.from('fan_follow_preferences').insert({ email, team_id: teamId, athlete_id: athleteId, ...prefs, active: true }).select('manage_token').single()
       if (error) throw error
+      manageToken = data?.manage_token || null
     }
 
     if (teamId && prefs.alert_finals) {
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, manageToken })
   } catch (error: any) {
     console.error('follow api', error)
     return NextResponse.json({ error: 'Could not save your follow right now.' }, { status: 500 })
