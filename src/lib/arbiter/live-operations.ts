@@ -19,7 +19,10 @@ function orientScores(row:any,game:any){
 function scheduleSeverity(bucket:unknown){
   const b=clean(bucket)
   if(b==='orphaned link')return 'blocker'
-  if(b==='source cancelled')return 'info'
+  // These are intentionally quarantined by Schedule Intelligence, but they do not
+  // require an admin decision. Arbiter must resolve TBA opponents, event sports are
+  // handled outside head-to-head game creation, and source cancellations remain audit-only.
+  if(['source cancelled','manual review','event sport'].includes(b))return 'info'
   return 'review'
 }
 

@@ -37,7 +37,7 @@ export default function FollowIntelligence({ rows }: { rows: any[] }) {
     </div>
 
     <div className="mt-4 rounded-lg border border-sky-500/20 bg-sky-500/[.06] p-3 text-xs text-sky-100/70">
-      Delivery audit: final-score follows connect to the existing school score-alert subscription list. Schedule-change, live-update and photo preferences are being stored safely, but no outbound dispatcher for those channels exists yet, so the public follow UI does not promise immediate delivery for them.
+      Delivery audit: fan alert preferences feed the protected notification queue and outbound email dispatcher. Final-score, schedule-change, live-update and photo events are deduplicated, audited and delivered only to matching active follows; delivery health is shown below.
     </div>
   </div>
 }
