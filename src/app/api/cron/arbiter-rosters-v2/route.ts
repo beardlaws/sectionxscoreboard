@@ -9,15 +9,27 @@ export const maxDuration = 120
 const clean = (v: unknown) => String(v ?? '').trim()
 const norm = (v: unknown) => clean(v).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
 
-function findNamedArray(root: any, names: string[]) {
-  const wanted = new Set(names.map(norm)), seen = new Set<any>(), queue = [root]
+type ArrayContext = { values: any[]; path: string[]; ancestors: any[] }
+type SeasonEvidence = { key: string; value: string; scope: number }
+
+function findNamedArrayContext(root: any, names: string[]): ArrayContext | null {
+  const wanted = new Set(names.map(norm))
+  const seen = new Set<any>()
+  const queue: Array<{ value: any; path: string[]; ancestors: any[] }> = [{ value: root, path: [], ancestors: [] }]
+
   while (queue.length) {
-    const cur = queue.shift()
+    const item = queue.shift()!
+    const cur = item.value
     if (!cur || typeof cur !== 'object' || seen.has(cur)) continue
     seen.add(cur)
+
     for (const [key, value] of Object.entries(cur)) {
-      if (wanted.has(norm(key)) && Array.isArray(value)) return value as any[]
-      if (value && typeof value === 'object') queue.push(value)
+      if (wanted.has(norm(key)) && Array.isArray(value)) {
+        return { values: value as any[], path: [...item.path, key], ancestors: [cur, ...item.ancestors] }
+      }
+      if (value && typeof value === 'object') {
+        queue.push({ value, path: [...item.path, key], ancestors: [cur, ...item.ancestors] })
+      }
     }
   }
   return null
@@ -27,34 +39,48 @@ function fullName(p: any) { return clean(p?.displayName || p?.fullName || p?.nam
 function player(p: any) { const displayName = fullName(p); return { jerseyNumber: clean(p?.jerseyNumber || p?.jersey || p?.number), rawName: displayName, displayName, firstName: clean(p?.firstName), lastName: clean(p?.lastName), classYear: clean(p?.classYear || p?.class || p?.grade || p?.graduationYear), position: clean(p?.position || p?.positionName), height: clean(p?.height) } }
 function coach(p: any) { const displayName = fullName(p); return { rawName: displayName, displayName, firstName: clean(p?.firstName), lastName: clean(p?.lastName), title: clean(p?.title || p?.role || p?.position) } }
 
-function seasonMarkers(root: any) {
-  const evidence: string[] = [], seen = new Set<any>(), queue = [root]
+function directSeasonEvidence(ancestors: any[]): SeasonEvidence[] {
+  const evidence: SeasonEvidence[] = []
   const keys = new Set(['season','seasonname','schoolyear','academicyear','seasonyear'])
-  while (queue.length && evidence.length < 30) {
-    const cur = queue.shift()
-    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue
-    seen.add(cur)
-    for (const [key, value] of Object.entries(cur)) {
-      if (keys.has(norm(key).replace(/ /g,'')) && (typeof value === 'string' || typeof value === 'number')) evidence.push(clean(value))
-      if (value && typeof value === 'object') queue.push(value)
+
+  // Only inspect primitive season fields on the roster container and its direct
+  // ancestors. Never recurse into sibling/history objects: that was the source
+  // of false verification when one response contained several school years.
+  ancestors.slice(0, 5).forEach((obj, scope) => {
+    if (!obj || typeof obj !== 'object') return
+    for (const [key, value] of Object.entries(obj)) {
+      if (!keys.has(norm(key).replace(/ /g, ''))) continue
+      if (typeof value !== 'string' && typeof value !== 'number') continue
+      const text = clean(value)
+      if (text) evidence.push({ key, value: text, scope })
     }
-  }
-  return [...new Set(evidence.filter(Boolean))]
+  })
+
+  return evidence.filter((item, index, all) =>
+    all.findIndex(other => norm(other.key) === norm(item.key) && other.value === item.value && other.scope === item.scope) === index
+  )
 }
 
-function evidenceYear(value: string) { return value.match(/20\d{2}/g)?.map(Number) || [] }
-
-function markerClass(value: string, season: any) {
-  const years = evidenceYear(value)
+function markerClass(marker: SeasonEvidence, season: any): 'current' | 'prior' | 'unknown' {
   const target = Number(season.year)
-  if (!years.length) return 'unknown'
-  // Fall/Spring 2026 belongs to the 2026-27 school year. A bare "SY 2026"
-  // is intentionally not accepted as proof because Arbiter payloads have shown
-  // it beside 2025-26 data.
-  if (season.season_type === 'winter') {
-    if (years.includes(target) && years.includes(target + 1)) return 'current'
-  } else if (years.includes(target) && years.includes(target + 1)) return 'current'
-  if (years.includes(target - 1) && years.includes(target)) return 'prior'
+  const text = marker.value.replace(/[–—]/g, '-')
+  const pair = text.match(/\b(20\d{2})\s*[-/]\s*(\d{2}|20\d{2})\b/)
+
+  if (pair) {
+    const start = Number(pair[1])
+    const end = pair[2].length === 2 ? Number(String(start).slice(0, 2) + pair[2]) : Number(pair[2])
+    if (start === target && end === target + 1) return 'current'
+    if (start === target - 1 && end === target) return 'prior'
+    return 'unknown'
+  }
+
+  const years = text.match(/20\d{2}/g)?.map(Number) || []
+  const looksLikeSchoolYear = /\bsy\b/i.test(text) || ['schoolyear','academicyear','seasonyear'].includes(norm(marker.key).replace(/ /g, ''))
+  if (years.length === 1 && looksLikeSchoolYear) {
+    if (years[0] === target + 1) return 'current'
+    if (years[0] === target) return 'prior'
+  }
+
   return 'unknown'
 }
 
@@ -66,9 +92,9 @@ function overlap(incoming: string[], previous: string[]) {
   return matches / Math.min(a.size, b.size)
 }
 
-function freshness(payload: any, roster: any[], previousNames: string[], season: any) {
-  const evidence = seasonMarkers(payload)
-  const classes = evidence.map(v => markerClass(v, season))
+function freshness(roster: any[], previousNames: string[], season: any, rosterContext: ArrayContext | null) {
+  const evidence = directSeasonEvidence(rosterContext?.ancestors || [])
+  const classes = evidence.map(item => markerClass(item, season))
   const hasCurrent = classes.includes('current')
   const hasPrior = classes.includes('prior')
   const names = roster.map(r => r.displayName).filter(Boolean)
@@ -76,11 +102,11 @@ function freshness(payload: any, roster: any[], previousNames: string[], season:
   const exactPriorCarryover = previousNames.length >= 5 && names.length === previousNames.length && priorOverlap >= 0.95
 
   if (!names.length) return { status: 'awaiting-current-roster', verified: false, reason: 'Arbiter has not published a non-empty roster.', evidence, priorOverlap }
-  if (hasCurrent && hasPrior) return { status: 'review-needed', verified: false, reason: 'Arbiter payload contains conflicting current- and prior-school-year markers; roster season is ambiguous.', evidence, priorOverlap }
-  if (hasPrior && !hasCurrent) return { status: 'prior-season-roster', verified: false, reason: 'Arbiter payload points to the prior school year, not the active season.', evidence, priorOverlap }
+  if (hasCurrent && hasPrior) return { status: 'review-needed', verified: false, reason: 'Roster-local Arbiter metadata contains conflicting current- and prior-school-year markers.', evidence, priorOverlap }
+  if (hasPrior && !hasCurrent) return { status: 'prior-season-roster', verified: false, reason: 'Roster-local Arbiter metadata points to the prior school year.', evidence, priorOverlap }
   if (exactPriorCarryover) return { status: 'possible-prior-season-roster', verified: false, reason: 'Incoming roster is essentially identical to the previous season; held even if metadata looks current.', evidence, priorOverlap }
-  if (hasCurrent) return { status: 'current-verified', verified: true, reason: 'Arbiter payload contains an unambiguous active school-year marker and no prior-year marker.', evidence, priorOverlap }
-  return { status: 'review-needed', verified: false, reason: 'Arbiter supplied a roster but did not provide unambiguous active-school-year provenance. Held from import.', evidence, priorOverlap }
+  if (hasCurrent) return { status: 'current-verified', verified: true, reason: 'Roster-local Arbiter metadata identifies the active school year with no prior-year conflict.', evidence, priorOverlap }
+  return { status: 'review-needed', verified: false, reason: 'Arbiter supplied a roster but no unambiguous active-school-year marker exists beside that roster. Held from import.', evidence, priorOverlap }
 }
 
 export async function GET(req: NextRequest) {
@@ -117,13 +143,29 @@ export async function GET(req: NextRequest) {
       }))
       for (const item of results) {
         if (item.error) { failures.push({ teamId: item.team.id, teamName: item.team.team_name, error: item.error }); continue }
-        const playersRaw = findNamedArray(item.payload, ['roster','rosters','players','athletes','studentAthletes'])
-        const coachesRaw = findNamedArray(item.payload, ['coaches','coachingStaff','staff'])
-        const roster = (playersRaw || []).map(player).filter((p: any) => p.displayName)
-        const coaches = (coachesRaw || []).map(coach).filter((p: any) => p.displayName)
-        const check = freshness(item.payload, roster, previousByTeam.get(item.team.id) || [], season)
-        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { seasonMarkers: check.evidence, policy: 'strict-school-year-v2' }, checked_at: new Date().toISOString() })
-        if (check.verified) verifiedPayloads.push({ team_id: item.team.id, season_id: season.id, source_url: null, roster_found: playersRaw !== null, coaches_found: coachesRaw !== null, roster, coaches })
+        const rosterContext = findNamedArrayContext(item.payload, ['roster','rosters','players','athletes','studentAthletes'])
+        const coachesContext = findNamedArrayContext(item.payload, ['coaches','coachingStaff','staff'])
+        const roster = (rosterContext?.values || []).map(player).filter((p: any) => p.displayName)
+        const coaches = (coachesContext?.values || []).map(coach).filter((p: any) => p.displayName)
+        const check = freshness(roster, previousByTeam.get(item.team.id) || [], season, rosterContext)
+        audits.push({
+          team_id: item.team.id,
+          season_id: season.id,
+          arbiter_team_id: Number(item.link.arbiter_team_id),
+          status: check.status,
+          verified: check.verified,
+          reason: check.reason,
+          incoming_count: roster.length,
+          previous_count: (previousByTeam.get(item.team.id) || []).length,
+          previous_overlap: Number(check.priorOverlap.toFixed(4)),
+          evidence: {
+            policy: 'roster-local-school-year-v3',
+            rosterPath: rosterContext?.path || null,
+            seasonFields: check.evidence,
+          },
+          checked_at: new Date().toISOString()
+        })
+        if (check.verified) verifiedPayloads.push({ team_id: item.team.id, season_id: season.id, source_url: null, roster_found: rosterContext !== null, coaches_found: coachesContext !== null, roster, coaches })
       }
     }
 
