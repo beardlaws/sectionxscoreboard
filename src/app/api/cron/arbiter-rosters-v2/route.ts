@@ -8,7 +8,6 @@ export const maxDuration = 120
 
 const clean = (v: unknown) => String(v ?? '').trim()
 const norm = (v: unknown) => clean(v).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
-const arr = (v: any): any[] => Array.isArray(v) ? v : v == null ? [] : [v]
 
 function findNamedArray(root: any, names: string[]) {
   const wanted = new Set(names.map(norm)), seen = new Set<any>(), queue = [root]
@@ -28,9 +27,9 @@ function fullName(p: any) { return clean(p?.displayName || p?.fullName || p?.nam
 function player(p: any) { const displayName = fullName(p); return { jerseyNumber: clean(p?.jerseyNumber || p?.jersey || p?.number), rawName: displayName, displayName, firstName: clean(p?.firstName), lastName: clean(p?.lastName), classYear: clean(p?.classYear || p?.class || p?.grade || p?.graduationYear), position: clean(p?.position || p?.positionName), height: clean(p?.height) } }
 function coach(p: any) { const displayName = fullName(p); return { rawName: displayName, displayName, firstName: clean(p?.firstName), lastName: clean(p?.lastName), title: clean(p?.title || p?.role || p?.position) } }
 
-function collectSeasonEvidence(root: any) {
+function seasonMarkers(root: any) {
   const evidence: string[] = [], seen = new Set<any>(), queue = [root]
-  const keys = new Set(['season','seasonname','schoolyear','academicyear','year','seasonyear'])
+  const keys = new Set(['season','seasonname','schoolyear','academicyear','seasonyear'])
   while (queue.length && evidence.length < 30) {
     const cur = queue.shift()
     if (!cur || typeof cur !== 'object' || seen.has(cur)) continue
@@ -43,9 +42,20 @@ function collectSeasonEvidence(root: any) {
   return [...new Set(evidence.filter(Boolean))]
 }
 
-function evidenceYear(value: string) {
-  const years = value.match(/20\d{2}/g)?.map(Number) || []
-  return years
+function evidenceYear(value: string) { return value.match(/20\d{2}/g)?.map(Number) || [] }
+
+function markerClass(value: string, season: any) {
+  const years = evidenceYear(value)
+  const target = Number(season.year)
+  if (!years.length) return 'unknown'
+  // Fall/Spring 2026 belongs to the 2026-27 school year. A bare "SY 2026"
+  // is intentionally not accepted as proof because Arbiter payloads have shown
+  // it beside 2025-26 data.
+  if (season.season_type === 'winter') {
+    if (years.includes(target) && years.includes(target + 1)) return 'current'
+  } else if (years.includes(target) && years.includes(target + 1)) return 'current'
+  if (years.includes(target - 1) && years.includes(target)) return 'prior'
+  return 'unknown'
 }
 
 function overlap(incoming: string[], previous: string[]) {
@@ -57,23 +67,20 @@ function overlap(incoming: string[], previous: string[]) {
 }
 
 function freshness(payload: any, roster: any[], previousNames: string[], season: any) {
-  const target = Number(season.year), evidence = collectSeasonEvidence(payload), years = [...new Set(evidence.flatMap(evidenceYear))]
-  const explicitCurrent = years.includes(target) || (season.season_type === 'winter' && years.includes(target + 1))
-  const explicitPrior = years.length > 0 && !explicitCurrent && years.every(y => y < target)
+  const evidence = seasonMarkers(payload)
+  const classes = evidence.map(v => markerClass(v, season))
+  const hasCurrent = classes.includes('current')
+  const hasPrior = classes.includes('prior')
   const names = roster.map(r => r.displayName).filter(Boolean)
   const priorOverlap = overlap(names, previousNames)
-  const classYears = roster.flatMap(r => evidenceYear(clean(r.classYear)))
-  const hasGraduatedClass = classYears.some(y => y <= target)
   const exactPriorCarryover = previousNames.length >= 5 && names.length === previousNames.length && priorOverlap >= 0.95
 
   if (!names.length) return { status: 'awaiting-current-roster', verified: false, reason: 'Arbiter has not published a non-empty roster.', evidence, priorOverlap }
-  if (explicitPrior) return { status: 'prior-season-roster', verified: false, reason: 'Arbiter roster metadata points to a prior season.', evidence, priorOverlap }
-  if (hasGraduatedClass && !explicitCurrent) return { status: 'possible-prior-season-roster', verified: false, reason: `Roster contains a class year that should already be graduated for ${season.name}.`, evidence, priorOverlap }
-  if (exactPriorCarryover && !explicitCurrent) return { status: 'possible-prior-season-roster', verified: false, reason: 'Incoming roster is essentially identical to the previous season and has no current-season marker.', evidence, priorOverlap }
-  if (explicitCurrent) return { status: 'current-verified', verified: true, reason: 'Arbiter payload contains current-season evidence.', evidence, priorOverlap }
-  if (previousNames.length === 0) return { status: 'review-needed', verified: false, reason: 'No prior roster exists for comparison and Arbiter supplied no current-season marker.', evidence, priorOverlap }
-  if (priorOverlap < 0.95) return { status: 'current-probable', verified: true, reason: 'Roster materially differs from the previous season and has no stale-season indicators.', evidence, priorOverlap }
-  return { status: 'review-needed', verified: false, reason: 'Roster freshness cannot be established safely.', evidence, priorOverlap }
+  if (hasCurrent && hasPrior) return { status: 'review-needed', verified: false, reason: 'Arbiter payload contains conflicting current- and prior-school-year markers; roster season is ambiguous.', evidence, priorOverlap }
+  if (hasPrior && !hasCurrent) return { status: 'prior-season-roster', verified: false, reason: 'Arbiter payload points to the prior school year, not the active season.', evidence, priorOverlap }
+  if (exactPriorCarryover) return { status: 'possible-prior-season-roster', verified: false, reason: 'Incoming roster is essentially identical to the previous season; held even if metadata looks current.', evidence, priorOverlap }
+  if (hasCurrent) return { status: 'current-verified', verified: true, reason: 'Arbiter payload contains an unambiguous active school-year marker and no prior-year marker.', evidence, priorOverlap }
+  return { status: 'review-needed', verified: false, reason: 'Arbiter supplied a roster but did not provide unambiguous active-school-year provenance. Held from import.', evidence, priorOverlap }
 }
 
 export async function GET(req: NextRequest) {
@@ -115,7 +122,7 @@ export async function GET(req: NextRequest) {
         const roster = (playersRaw || []).map(player).filter((p: any) => p.displayName)
         const coaches = (coachesRaw || []).map(coach).filter((p: any) => p.displayName)
         const check = freshness(item.payload, roster, previousByTeam.get(item.team.id) || [], season)
-        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { seasonMarkers: check.evidence }, checked_at: new Date().toISOString() })
+        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { seasonMarkers: check.evidence, policy: 'strict-school-year-v2' }, checked_at: new Date().toISOString() })
         if (check.verified) verifiedPayloads.push({ team_id: item.team.id, season_id: season.id, source_url: null, roster_found: playersRaw !== null, coaches_found: coachesRaw !== null, roster, coaches })
       }
     }
