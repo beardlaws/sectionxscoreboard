@@ -1,22 +1,22 @@
 # Fan Experience 2.0
 
-Current fan platform direction: **Follow → Live → Discover → Remember**.
+## Live foundation
+- Universal school/team/athlete search
+- Team and athlete follows without requiring accounts
+- Explicit Game Center live-state refresh
+- Roster publication intelligence and fan follow intelligence
+- Public roster quarantine for unverified active-season Arbiter data
 
-## Shipped foundation
-- Universal search across schools, teams and athletes.
-- Athlete follows with email preferences and no required account.
-- Team follows available contextually on team pages and inside Game Center.
-- Follow submissions are private and written server-side with service-role access only.
-- Existing school final-score alert subscriptions are reused for compatible team follows.
-- Explicit Game Center live state comes from game data, not DOM text; live pages refresh every 20 seconds while visible.
-- Roster publication intelligence keeps unverified active-season Arbiter rosters hidden while retaining source rows for audit.
-- Fall Operations shows roster-publication and fan-follow intelligence without exposing subscriber emails.
+## Fan alert delivery package
+- Private per-follow management tokens
+- `/following?token=...` preference/unsubscribe center
+- Event queue for finals, live starts, schedule changes and approved photos
+- Per-follow delivery audit table
+- Provider abstraction supporting Resend or Brevo through environment variables
+- Guarded `/api/cron/fan-alerts` dispatcher authenticated with the existing Section X automation key
+- Supabase 5-minute scheduler trigger
+- Team iCalendar feed at `/api/calendar/team/[id]`
+- Team pages surface Add Calendar through the contextual fan bar
+- Game Center follow buttons identify the team by name
 
-## Delivery truth
-Final-score team follows can feed the existing school score-alert subscription list. Schedule-change, live-update and photo preferences are stored now, but an outbound dispatcher for those channels is not yet implemented. UI copy must not promise delivery until that pipeline exists.
-
-## Next logical fan work
-- Notification dispatcher + unsubscribe/preferences management.
-- Calendar/ICS follows.
-- Athlete career timeline and deeper photo galleries.
-- Public contributor portfolios through a safe server/view boundary.
+Email sending is intentionally fail-closed: the queue can be installed before a provider key exists, but no outbound mail is attempted until `RESEND_API_KEY` or `BREVO_API_KEY` is configured.
