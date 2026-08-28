@@ -45,7 +45,6 @@ export async function GET(req: NextRequest) {
     verified: true,
     reason: 'Emergency publication restore: active-season team identity verified by current Section X season membership; Arbiter reconciliation immediately re-queued.',
     checked_at: checkedAt,
-    updated_at: checkedAt,
   }))
 
   const { error: freshnessError } = await db
