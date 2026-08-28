@@ -1,16 +1,22 @@
 # Fan Experience 2.0
 
-Direction: **FOLLOW → LIVE → DISCOVER → REMEMBER**.
+Current fan platform direction: **Follow → Live → Discover → Remember**.
 
-## Shipped in this package
-- Universal `/search` across schools, teams and athletes, with desktop/mobile navigation entry points.
-- Lightweight email-based team/athlete follow preferences with finals, schedule changes, live and photo interests.
-- Team follows also bridge final-score interest into the existing school score-alert subscription system.
-- Athlete current memberships read from the guarded public roster view so stale active-season Arbiter rows cannot leak back onto athlete profiles.
-- Game Center live action component accepts explicit live state instead of inferring state from page text; live pages refresh only while visible.
-- Roster Publication Intelligence component summarizes verified/public, prior-season held, awaiting and stored Arbiter rows for admin use.
+## Shipped foundation
+- Universal search across schools, teams and athletes.
+- Athlete follows with email preferences and no required account.
+- Team follows available contextually on team pages and inside Game Center.
+- Follow submissions are private and written server-side with service-role access only.
+- Existing school final-score alert subscriptions are reused for compatible team follows.
+- Explicit Game Center live state comes from game data, not DOM text; live pages refresh every 20 seconds while visible.
+- Roster publication intelligence keeps unverified active-season Arbiter rosters hidden while retaining source rows for audit.
+- Fall Operations shows roster-publication and fan-follow intelligence without exposing subscriber emails.
 
-## Deliberately not claimed yet
-- Follow preferences are a delivery foundation. Final scores can reuse the established score-alert list; schedule-change/live/photo delivery jobs still need explicit outbound email wiring before they should be advertised as guaranteed notifications.
-- No account is required for following. Subscriber email remains service-role-only.
-- Roster quarantine remains non-destructive.
+## Delivery truth
+Final-score team follows can feed the existing school score-alert subscription list. Schedule-change, live-update and photo preferences are stored now, but an outbound dispatcher for those channels is not yet implemented. UI copy must not promise delivery until that pipeline exists.
+
+## Next logical fan work
+- Notification dispatcher + unsubscribe/preferences management.
+- Calendar/ICS follows.
+- Athlete career timeline and deeper photo galleries.
+- Public contributor portfolios through a safe server/view boundary.
