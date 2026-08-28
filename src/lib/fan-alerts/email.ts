@@ -11,7 +11,7 @@ type SendEmailResult = {
   error?: string
 }
 
-const fromAddress = () => process.env.FAN_ALERTS_FROM || 'Section X Scoreboard <alerts@sectionxscoreboard.com>'
+const fromAddress = () => process.env.FAN_ALERTS_FROM || 'Section X Scoreboard <alerts@updates.sectionxscoreboard.com>'
 
 export function fanEmailConfigured() {
   return Boolean(process.env.RESEND_API_KEY || process.env.BREVO_API_KEY)
