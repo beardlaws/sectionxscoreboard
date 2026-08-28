@@ -70,6 +70,7 @@ const navSections = [
       { href: '/admin/sponsors', label: 'Sponsors', icon: BarChart2 },
       { href: '/admin/sponsors/analytics', label: 'Sponsor Analytics', icon: BarChart2 },
       { href: '/admin/alerts', label: 'Score Alerts', icon: Bell },
+      { href: '/admin/notifications', label: 'Notification Health', icon: Bell },
     ],
   },
   {
