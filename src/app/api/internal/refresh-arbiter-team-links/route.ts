@@ -66,16 +66,7 @@ function scheduleObservations(raw: any) {
       const teamId = Number(team?.teamId)
       const schoolId = Number(team?.schoolId)
       if (!Number.isFinite(teamId) || !Number.isFinite(schoolId) || !teamId || !schoolId) continue
-      observations.push({
-        teamId,
-        schoolId,
-        teamName: clean(team?.teamName),
-        schoolName: clean(team?.schoolName),
-        sportName,
-        gender,
-        level,
-        gameId: Number(team?.uniqueGameId || game?.uniqueGameId) || null,
-      })
+      observations.push({ teamId, schoolId, teamName: clean(team?.teamName), schoolName: clean(team?.schoolName), sportName, gender, level })
     }
   }
   return observations
@@ -94,12 +85,7 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
   try {
-    const { data: season, error: seasonError } = await db
-      .from('seasons')
-      .select('id,name,season_type,year,is_active')
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle()
+    const { data: season, error: seasonError } = await db.from('seasons').select('id,name,season_type,year,is_active').eq('is_active', true).limit(1).maybeSingle()
     if (seasonError || !season) throw new Error(seasonError?.message || 'No active season found.')
 
     const [{ data: teamSeasons, error: tsError }, { data: teams, error: teamsError }, { data: schools, error: schoolsError }, { data: sports, error: sportsError }, { data: existingLinks, error: linksError }] = await Promise.all([
@@ -117,19 +103,17 @@ export async function GET(req: NextRequest) {
     const schoolById = new Map((schools || []).map((s: any) => [s.id, s]))
     const sportById = new Map((sports || []).map((s: any) => [s.id, s]))
     const existingByTeam = new Map((existingLinks || []).map((l: any) => [l.team_id, l]))
-    const arbiterSchoolIds = [...new Set(varsit ySchoolIds(varsity, schoolById))]
+    const arbiterSchoolIds = [...new Set(varsitySchoolIds(varsity, schoolById))]
 
     const window = seasonWindow(season)
-    const gameRaw = arbiterSchoolIds.length
-      ? await arbiterApi.games({
-          SchoolIds: arbiterSchoolIds,
-          DateFilter: 'Range',
-          GameStartDate: window.start,
-          GameEndDate: window.end,
-          IncludeDeletedGames: false,
-          IncludePendingInformation: false,
-        })
-      : []
+    const gameRaw = arbiterSchoolIds.length ? await arbiterApi.games({
+      SchoolIds: arbiterSchoolIds,
+      DateFilter: 'Range',
+      GameStartDate: window.start,
+      GameEndDate: window.end,
+      IncludeDeletedGames: false,
+      IncludePendingInformation: false,
+    }) : []
     const observations = scheduleObservations(gameRaw)
 
     const updates: any[] = []
