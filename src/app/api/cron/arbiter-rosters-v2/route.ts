@@ -8,6 +8,7 @@ export const maxDuration = 120
 
 const REPAIR_KEY = 'sx-roster-repair-20260828-7f3c91'
 const BATCH_SIZE = 4
+const IMPORT_SCHOOL_CONCURRENCY = 4
 const POLICY = 'current-academic-year-roster-instance-v11'
 const nowIso = () => new Date().toISOString()
 const clean = (v: unknown) => String(v ?? '').trim()
@@ -309,7 +310,7 @@ export async function GET(req: NextRequest) {
 
     const [{ data: teamSeasons }, { data: teams }, { data: links }] = await Promise.all([
       db.from('team_seasons').select('team_id').eq('season_id', season.id).eq('active_for_season', true),
-      db.from('teams').select('id,team_name,level,active').eq('active', true),
+      db.from('teams').select('id,team_name,level,active,school_id').eq('active', true),
       db.from('arbiter_team_links').select('team_id,arbiter_team_id,arbiter_school_id,last_seen_at'),
     ])
 
@@ -397,6 +398,7 @@ export async function GET(req: NextRequest) {
         if (check.verified) {
           verifiedPayloads.push({
             team_id: item.team.id,
+            school_id: item.team.school_id,
             season_id: season.id,
             source_url: null,
             roster_found: rosterContext !== null,
@@ -447,23 +449,64 @@ export async function GET(req: NextRequest) {
     if (verifiedPayloads.length) {
       runSummary = {
         ...runSummary,
-        progress: { ...runSummary.progress, phase: 'importing', processed: varsity.length, heartbeatAt: nowIso() },
+        progress: { ...runSummary.progress, phase: 'importing', processed: 0, importTotal: verifiedPayloads.length, heartbeatAt: nowIso() },
       }
       await updateRun(db, runId, runSummary)
 
-      const importReq = new NextRequest('http://sectionx.internal/api/admin/arbiter-rosters', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ teams: verifiedPayloads }),
-      })
-      const response = await importRosters(importReq)
-      const result: any = await response.json()
-      if (!response.ok || result?.success === false) throw new Error(result?.error || 'Verified roster import failed.')
+      const bySchool = new Map<string, any[]>()
+      for (const payload of verifiedPayloads) {
+        const key = clean(payload.school_id) || payload.team_id
+        const group = bySchool.get(key) || []
+        group.push(payload)
+        bySchool.set(key, group)
+      }
 
-      imported = Array.isArray(result?.results) ? result.results.length : verifiedPayloads.length
-      actions = Array.isArray(result?.results)
-        ? result.results.map((x: any) => ({ teamId: x.team_id || x.teamId, roster: x.roster || null, coaches: x.coaches || null }))
-        : []
+      const schoolGroups = [...bySchool.values()]
+      const allResults: any[] = []
+
+      for (let i = 0; i < schoolGroups.length; i += IMPORT_SCHOOL_CONCURRENCY) {
+        const wave = schoolGroups.slice(i, i + IMPORT_SCHOOL_CONCURRENCY)
+        const waveResults = await Promise.all(
+          wave.map(async group => {
+            const importReq = new NextRequest('http://sectionx.internal/api/admin/arbiter-rosters', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ teams: group }),
+            })
+            const response = await importRosters(importReq)
+            const result: any = await response.json()
+            if (!response.ok || result?.success === false) {
+              throw new Error(result?.error || 'Verified roster import failed.')
+            }
+            return Array.isArray(result?.results) ? result.results : []
+          })
+        )
+
+        const completedResults = waveResults.flat()
+        allResults.push(...completedResults)
+        imported = allResults.length
+        runSummary = {
+          ...runSummary,
+          teamsUpdated: imported,
+          progress: {
+            ...runSummary.progress,
+            phase: 'importing',
+            processed: imported,
+            importTotal: verifiedPayloads.length,
+            heartbeatAt: nowIso(),
+          },
+        }
+        await updateRun(db, runId, runSummary)
+      }
+
+      actions = allResults.map((x: any) => ({
+        teamId: x.team_id || x.teamId,
+        rosterImported: x.rosterImported ?? null,
+        rosterDeactivated: x.rosterDeactivated ?? null,
+        coachesImported: x.coachesImported ?? null,
+        coachesDeactivated: x.coachesDeactivated ?? null,
+        errors: x.errors || [],
+      }))
     }
 
     const statuses = audits.reduce((acc: any, a: any) => {
