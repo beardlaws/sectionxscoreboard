@@ -105,14 +105,29 @@ function freshness(roster: any[], previousNames: string[], season: any, rosterCo
   const exactPriorCarryover = previousNames.length >= 5 && names.length === previousNames.length && priorOverlap >= 0.95
 
   if (!names.length) return { status: 'awaiting-current-roster', verified: false, reason: 'Arbiter has not published a non-empty roster.', evidence, priorOverlap, classification: 'awaiting-current-roster' }
-  if (nearestCurrent && nearestPrior) return { status: 'review-needed', verified: false, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} conflicts between current and prior school years.`, evidence, priorOverlap, classification: 'mixed-nearest-season-evidence' }
-  if (nearestPrior && !nearestCurrent) return { status: 'review-needed', verified: false, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} points to the prior school year.`, evidence, priorOverlap, classification: 'prior-season-roster' }
-  if (exactPriorCarryover) return { status: 'review-needed', verified: false, reason: 'Incoming roster is essentially identical to the previous season and is held to prevent stale carryover.', evidence, priorOverlap, classification: 'possible-prior-season-roster' }
-  if (nearestCurrent) return { status: 'current-verified', verified: true, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} identifies the active school year; outer metadata is ignored.`, evidence, priorOverlap, classification: 'current-verified-nearest-scope' }
+
+  if (exactPriorCarryover) {
+    return { status: 'review-needed', verified: false, reason: 'Incoming roster is essentially identical to the previous season and is held to prevent stale carryover.', evidence, priorOverlap, classification: 'possible-prior-season-roster' }
+  }
+
+  if (nearestCurrent) {
+    return {
+      status: 'current-verified',
+      verified: true,
+      reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} includes the active school year; stale prior-year metadata at the same or outer scope is ignored.`,
+      evidence,
+      priorOverlap,
+      classification: nearestPrior ? 'current-wins-mixed-nearest-scope' : 'current-verified-nearest-scope',
+    }
+  }
+
+  if (nearestPrior && !nearestCurrent) {
+    return { status: 'review-needed', verified: false, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} points only to the prior school year.`, evidence, priorOverlap, classification: 'prior-season-roster' }
+  }
 
   return {
     status: 'current-verified', verified: true,
-    reason: 'Non-empty roster returned from the stable current-season Arbiter team identity with no nearest-scope prior-year marker or exact prior-season carryover.',
+    reason: 'Non-empty roster returned from the stable current-season Arbiter team identity with no roster-local prior-year-only marker or exact prior-season carryover.',
     evidence, priorOverlap, classification: 'current-linked-team-roster',
   }
 }
@@ -189,7 +204,7 @@ export async function GET(req: NextRequest) {
         const coaches = (coachesContext?.values || []).map(coach).filter((p: any) => p.displayName)
         const check = freshness(roster, previousByTeam.get(item.team.id) || [], season, rosterContext)
 
-        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.verified ? 'current-verified' : check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { policy: 'nearest-roster-season-v9', rosterPath: rosterContext?.path || null, seasonFields: check.evidence, classification: check.classification || check.status }, checked_at: nowIso() })
+        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.verified ? 'current-verified' : check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { policy: 'current-wins-nearest-roster-season-v10', rosterPath: rosterContext?.path || null, seasonFields: check.evidence, classification: check.classification || check.status }, checked_at: nowIso() })
 
         if (check.verified) verifiedPayloads.push({ team_id: item.team.id, season_id: season.id, source_url: null, roster_found: rosterContext !== null, coaches_found: coachesContext !== null, roster, coaches })
         else quarantines.push({ teamId: item.team.id, teamName: item.team.team_name, area: 'roster', reason: check.classification || check.status, incomingCount: roster.length, currentCount: (previousByTeam.get(item.team.id) || []).length, detail: check.reason })
