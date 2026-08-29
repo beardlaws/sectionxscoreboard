@@ -96,21 +96,23 @@ function overlap(incoming: string[], previous: string[]) {
 function freshness(roster: any[], previousNames: string[], season: any, rosterContext: ArrayContext | null) {
   const evidence = directSeasonEvidence(rosterContext?.ancestors || [])
   const classified = evidence.map(item => ({ item, cls: markerClass(item, season) })).filter(x => x.cls !== 'unknown')
-  const currentEvidence = classified.filter(x => x.cls === 'current')
-  const priorEvidence = classified.filter(x => x.cls === 'prior')
+  const nearestScope = classified.length ? Math.min(...classified.map(x => x.item.scope)) : null
+  const nearest = nearestScope === null ? [] : classified.filter(x => x.item.scope === nearestScope)
+  const nearestCurrent = nearest.some(x => x.cls === 'current')
+  const nearestPrior = nearest.some(x => x.cls === 'prior')
   const names = roster.map(r => r.displayName).filter(Boolean)
   const priorOverlap = overlap(names, previousNames)
   const exactPriorCarryover = previousNames.length >= 5 && names.length === previousNames.length && priorOverlap >= 0.95
 
   if (!names.length) return { status: 'awaiting-current-roster', verified: false, reason: 'Arbiter has not published a non-empty roster.', evidence, priorOverlap, classification: 'awaiting-current-roster' }
-  if (currentEvidence.length && priorEvidence.length) return { status: 'review-needed', verified: false, reason: 'Arbiter returned both current- and prior-school-year markers around the roster. Held to prevent stale carryover.', evidence, priorOverlap, classification: 'mixed-season-evidence' }
-  if (priorEvidence.length) return { status: 'review-needed', verified: false, reason: 'Roster-local Arbiter metadata points to the prior school year.', evidence, priorOverlap, classification: 'prior-season-roster' }
+  if (nearestCurrent && nearestPrior) return { status: 'review-needed', verified: false, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} conflicts between current and prior school years.`, evidence, priorOverlap, classification: 'mixed-nearest-season-evidence' }
+  if (nearestPrior && !nearestCurrent) return { status: 'review-needed', verified: false, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} points to the prior school year.`, evidence, priorOverlap, classification: 'prior-season-roster' }
   if (exactPriorCarryover) return { status: 'review-needed', verified: false, reason: 'Incoming roster is essentially identical to the previous season and is held to prevent stale carryover.', evidence, priorOverlap, classification: 'possible-prior-season-roster' }
-  if (currentEvidence.length) return { status: 'current-verified', verified: true, reason: 'Arbiter roster metadata unambiguously identifies the active school year.', evidence, priorOverlap, classification: 'current-verified' }
+  if (nearestCurrent) return { status: 'current-verified', verified: true, reason: `Nearest roster-local Arbiter metadata at scope ${nearestScope} identifies the active school year; outer metadata is ignored.`, evidence, priorOverlap, classification: 'current-verified-nearest-scope' }
 
   return {
     status: 'current-verified', verified: true,
-    reason: 'Non-empty roster returned from the stable current-season Arbiter team identity with no prior-year marker or exact prior-season carryover.',
+    reason: 'Non-empty roster returned from the stable current-season Arbiter team identity with no nearest-scope prior-year marker or exact prior-season carryover.',
     evidence, priorOverlap, classification: 'current-linked-team-roster',
   }
 }
@@ -164,7 +166,11 @@ export async function GET(req: NextRequest) {
 
     runSummary = { ...runSummary, season: season.name, previousSeason: previousSeason?.name || null, progress: { ...runSummary.progress, phase: 'scanning', total: varsity.length, heartbeatAt: nowIso() } }
     await updateRun(db, runId, runSummary)
-    const audits: any[] = []; const verifiedPayloads: any[] = []; const failures: any[] = []; const quarantines: any[] = []
+
+    const audits: any[] = []
+    const verifiedPayloads: any[] = []
+    const failures: any[] = []
+    const quarantines: any[] = []
 
     for (let i = 0; i < varsity.length; i += BATCH_SIZE) {
       const slice = varsity.slice(i, i + BATCH_SIZE)
@@ -183,7 +189,8 @@ export async function GET(req: NextRequest) {
         const coaches = (coachesContext?.values || []).map(coach).filter((p: any) => p.displayName)
         const check = freshness(roster, previousByTeam.get(item.team.id) || [], season, rosterContext)
 
-        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.verified ? 'current-verified' : check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { policy: 'stable-current-team-v9', rosterPath: rosterContext?.path || null, seasonFields: check.evidence, classification: check.classification || check.status }, checked_at: nowIso() })
+        audits.push({ team_id: item.team.id, season_id: season.id, arbiter_team_id: Number(item.link.arbiter_team_id), status: check.verified ? 'current-verified' : check.status, verified: check.verified, reason: check.reason, incoming_count: roster.length, previous_count: (previousByTeam.get(item.team.id) || []).length, previous_overlap: Number(check.priorOverlap.toFixed(4)), evidence: { policy: 'nearest-roster-season-v9', rosterPath: rosterContext?.path || null, seasonFields: check.evidence, classification: check.classification || check.status }, checked_at: nowIso() })
+
         if (check.verified) verifiedPayloads.push({ team_id: item.team.id, season_id: season.id, source_url: null, roster_found: rosterContext !== null, coaches_found: coachesContext !== null, roster, coaches })
         else quarantines.push({ teamId: item.team.id, teamName: item.team.team_name, area: 'roster', reason: check.classification || check.status, incomingCount: roster.length, currentCount: (previousByTeam.get(item.team.id) || []).length, detail: check.reason })
       }
@@ -197,7 +204,8 @@ export async function GET(req: NextRequest) {
       if (auditError) throw new Error(`Roster freshness audit write failed: ${auditError.message}`)
     }
 
-    let imported = 0; let actions: any[] = []
+    let imported = 0
+    let actions: any[] = []
     if (verifiedPayloads.length) {
       runSummary = { ...runSummary, progress: { ...runSummary.progress, phase: 'importing', processed: varsity.length, heartbeatAt: nowIso() } }
       await updateRun(db, runId, runSummary)
