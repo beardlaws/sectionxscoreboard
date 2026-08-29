@@ -129,43 +129,40 @@ function freshness(roster: any[], previousNames: string[], season: any, rosterCo
   const exactPriorCarryover = previousNames.length >= 5 && names.length === previousNames.length && priorOverlap >= 0.95
 
   if (!names.length) {
-    return { status: 'awaiting-current-roster', verified: false, reason: 'Arbiter has not published a non-empty roster.', evidence, priorOverlap }
+    return { status: 'awaiting-current-roster', verified: false, reason: 'Arbiter has not published a non-empty roster.', evidence, priorOverlap, classification: 'awaiting-current-roster' }
   }
 
-  // Fail closed. A TeamWithRoster response can contain the active team wrapper while
-  // the nested roster still belongs to a previous school year. If both school years
-  // appear anywhere in the roster ancestry, we do not publish it automatically.
   if (currentEvidence.length && priorEvidence.length) {
     return {
-      status: 'mixed-season-evidence',
+      status: 'review-needed',
       verified: false,
       reason: 'Arbiter returned both current- and prior-school-year markers around the roster. Held to prevent stale carryover.',
       evidence,
       priorOverlap,
+      classification: 'mixed-season-evidence',
     }
   }
 
   if (priorEvidence.length) {
-    return { status: 'prior-season-roster', verified: false, reason: 'Roster-local Arbiter metadata points to the prior school year.', evidence, priorOverlap }
+    return { status: 'review-needed', verified: false, reason: 'Roster-local Arbiter metadata points to the prior school year.', evidence, priorOverlap, classification: 'prior-season-roster' }
   }
 
   if (exactPriorCarryover) {
-    return { status: 'possible-prior-season-roster', verified: false, reason: 'Incoming roster is essentially identical to the previous season and is held to prevent stale carryover.', evidence, priorOverlap }
+    return { status: 'review-needed', verified: false, reason: 'Incoming roster is essentially identical to the previous season and is held to prevent stale carryover.', evidence, priorOverlap, classification: 'possible-prior-season-roster' }
   }
 
-  // We no longer infer freshness merely because the stable current team ID returned
-  // a non-empty roster. Current season evidence must be explicit.
   if (!currentEvidence.length) {
     return {
-      status: 'unverified-season',
+      status: 'review-needed',
       verified: false,
       reason: 'Roster is non-empty, but Arbiter did not provide unambiguous current-season evidence.',
       evidence,
       priorOverlap,
+      classification: 'unverified-season',
     }
   }
 
-  return { status: 'current-verified', verified: true, reason: 'Arbiter roster metadata unambiguously identifies the active school year.', evidence, priorOverlap }
+  return { status: 'current-verified', verified: true, reason: 'Arbiter roster metadata unambiguously identifies the active school year.', evidence, priorOverlap, classification: 'current-verified' }
 }
 
 async function updateRun(db: any, runId: string | null, patch: any, status?: string, finished = false) {
@@ -297,10 +294,10 @@ export async function GET(req: NextRequest) {
           previous_count: (previousByTeam.get(item.team.id) || []).length,
           previous_overlap: Number(check.priorOverlap.toFixed(4)),
           evidence: {
-            policy: 'fail-closed-mixed-season-v7',
+            policy: 'fail-closed-mixed-season-v8',
             rosterPath: rosterContext?.path || null,
             seasonFields: check.evidence,
-            classification: check.status,
+            classification: check.classification || check.status,
           },
           checked_at: nowIso(),
         })
@@ -320,7 +317,7 @@ export async function GET(req: NextRequest) {
             teamId: item.team.id,
             teamName: item.team.team_name,
             area: 'roster',
-            reason: check.status,
+            reason: check.classification || check.status,
             incomingCount: roster.length,
             currentCount: (previousByTeam.get(item.team.id) || []).length,
             detail: check.reason,
