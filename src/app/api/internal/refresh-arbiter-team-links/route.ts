@@ -81,6 +81,12 @@ function scheduleObservations(raw: any) {
   return observations
 }
 
+function varsitySchoolIds(varsity: any[], schoolById: Map<any, any>) {
+  return varsity
+    .map((team: any) => Number((schoolById.get(team.school_id) as any)?.arbiter_entity_id))
+    .filter((id: number) => Number.isFinite(id) && id > 0)
+}
+
 export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get('key') !== REPAIR_KEY) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
@@ -198,10 +204,4 @@ export async function GET(req: NextRequest) {
     const message = error instanceof Error ? error.message : String(error)
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
-}
-
-function varsitySchoolIds(varsity: any[], schoolById: Map<any, any>) {
-  return varsity
-    .map((team: any) => Number((schoolById.get(team.school_id) as any)?.arbiter_entity_id))
-    .filter((id: number) => Number.isFinite(id) && id > 0)
 }
