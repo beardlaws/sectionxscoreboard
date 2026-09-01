@@ -9,7 +9,7 @@ export const maxDuration = 120
 const REPAIR_KEY = 'sx-roster-repair-20260828-7f3c91'
 const BATCH_SIZE = 4
 const IMPORT_SCHOOL_CONCURRENCY = 4
-const POLICY = 'current-academic-year-roster-instance-v11'
+const POLICY = 'current-academic-year-roster-instance-v12-class-mapping'
 const nowIso = () => new Date().toISOString()
 const clean = (v: unknown) => String(v ?? '').trim()
 const norm = (v: unknown) => clean(v).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
@@ -56,7 +56,14 @@ function player(p: any) {
     displayName,
     firstName: clean(p?.firstName),
     lastName: clean(p?.lastName),
-    classYear: clean(p?.classYear || p?.class || p?.grade || p?.graduationYear),
+    classYear: clean(
+      p?.graduatingClass ||
+      p?.classYear ||
+      p?.class ||
+      p?.grade ||
+      p?.graduatingYear ||
+      p?.graduationYear
+    ),
     position: clean(p?.position || p?.positionName),
     height: clean(p?.height),
   }
