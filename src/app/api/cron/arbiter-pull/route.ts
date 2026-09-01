@@ -57,6 +57,12 @@ export async function GET(req:NextRequest){
       if(row.date&&current.gameDate!==row.date)patch.game_date=row.date
       if(row.time&&String(current.gameTime||'').slice(0,5)!==row.time)patch.game_time=row.time
       if(meaningfulLocation(row.location)&&clean(current.location)!==clean(row.location))patch.location=row.location
+      if((row.driftReasons||[]).includes('home-away-reversed')&&current.homeScore==null&&current.awayScore==null){
+        patch.home_team_id=row.home?.kind==='internal'?row.home.id:null
+        patch.away_team_id=row.away?.kind==='internal'?row.away.id:null
+        patch.external_home_opponent_id=row.home?.kind==='external'?row.home.id:null
+        patch.external_away_opponent_id=row.away?.kind==='external'?row.away.id:null
+      }
       if(sourceStatus(row.status)==='Canceled'&&clean(current.status)!=='canceled')patch.status='Canceled'
       else if(sourceStatus(row.status)==='Scheduled'&&clean(current.status)==='canceled'&&['canceled','cancelled','deleted'].includes(clean(row.linked?.sourceStatus)))patch.status='Scheduled'
       const desiredContest=contestType(row.type)
