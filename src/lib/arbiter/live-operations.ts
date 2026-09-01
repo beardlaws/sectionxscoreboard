@@ -27,8 +27,13 @@ function orientScores(row:any,game:any){
   return null
 }
 function scheduleSeverity(bucket:unknown){const b=clean(bucket);if(b==='orphaned link')return 'blocker';if(['source cancelled','manual review','event sport'].includes(b))return 'info';return 'review'}
-function operationalTriage(kind:unknown,bucket:unknown,severity:unknown){
-  const k=clean(kind),b=clean(bucket),s=clean(severity)
+function operationalTriage(x:any){
+  const k=clean(x?.kind),b=clean(x?.bucket),s=clean(x?.severity),detail=clean(x?.detail),sourceType=clean(x?.sourceType),sourceTitle=clean(x?.sourceTitle)
+  // Some Arbiter event IDs represent a multi-participant event and can surface a
+  // different opponent view depending on the school observation. Never auto-write
+  // that as ordinary opponent drift. Scrimmages and explicitly named relay carnivals
+  // are known safe examples and should remain protected/informational.
+  if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&(sourceType==='scrimmage'||sourceTitle.includes('relay carnival')))return 'informational'
   if(s==='blocker'||s==='review')return 'attention'
   if(b==='manual review'||b==='roster missing')return 'waiting'
   if(b==='event sport'||b==='source cancelled')return 'informational'
@@ -64,10 +69,10 @@ export async function runLiveOperationsCheck(seasonId?:string|null){
   const rosterRows=varsityTeams.map((t:any)=>{const s=sportById.get(t.sport_id) as any,rosterCount=rosterCounts.get(t.id)||0,coachCount=coachCounts.get(t.id)||0;return{teamId:t.id,teamName:t.team_name,sport:s?.sport_name||'Unknown',gender:s?.gender||null,rosterCount,coachCount,lastImportedAt:latestRoster.get(t.id)||null,status:rosterCount>0?'loaded':'missing'}}),missingRosters=rosterRows.filter(r=>r.rosterCount===0)
   const schedule={syncedStable:audit.comparison.counts?.['stable-id-match']||0,pendingChanges:audit.comparison.pendingChanges||0,quarantined:audit.comparison.quarantined||0,blockers:audit.comparison.trueBlockers||0,writerReady:Boolean(audit.comparison.writerReady)}
   const rawExceptions=[
-    ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season'&&resolutionFor(r)?.resolution!=='confirm-scrimmage').map((r:any)=>{const resolution:any=resolutionFor(r);return{kind:'schedule',severity:scheduleSeverity(r.bucket),bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),arbiterGameId:r.uniqueGameId,gameId:r.existingGameId||null,evidenceFingerprint:evidenceFingerprint(r),resolution:resolution||null,resolutionEligible:clean(r.bucket)==='title type conflict'}}),
+    ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season'&&resolutionFor(r)?.resolution!=='confirm-scrimmage').map((r:any)=>{const resolution:any=resolutionFor(r);return{kind:'schedule',severity:scheduleSeverity(r.bucket),bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),sourceType:r.type||null,sourceTitle:r.sourcePayload?.title||null,arbiterGameId:r.uniqueGameId,gameId:r.existingGameId||null,evidenceFingerprint:evidenceFingerprint(r),resolution:resolution||null,resolutionEligible:clean(r.bucket)==='title type conflict'}}),
     ...scoreRows.filter(r=>r.bucket==='score-conflict'||r.bucket==='score-review').map(r=>({kind:'score',severity:'review',bucket:r.bucket,title:`${r.away} at ${r.home}`,detail:`Arbiter ${r.arbiter.away}-${r.arbiter.home}; Section X ${r.sectionX.away??'—'}-${r.sectionX.home??'—'}`,arbiterGameId:r.arbiterGameId,gameId:r.gameId})),
     ...missingRosters.map(r=>({kind:'roster',severity:'info',bucket:'roster-missing',title:r.teamName,detail:`${r.sport}${r.gender?` · ${r.gender}`:''}`}))]
-  const exceptions=rawExceptions.map((x:any)=>({...x,triage:operationalTriage(x.kind,x.bucket,x.severity)}))
+  const exceptions=rawExceptions.map((x:any)=>({...x,triage:operationalTriage(x)}))
   const exceptionSummary={blockers:exceptions.filter((x:any)=>x.severity==='blocker').length,review:exceptions.filter((x:any)=>x.severity==='review').length,info:exceptions.filter((x:any)=>x.severity==='info').length,attention:exceptions.filter((x:any)=>x.triage==='attention').length,waiting:exceptions.filter((x:any)=>x.triage==='waiting').length,informational:exceptions.filter((x:any)=>x.triage==='informational').length,total:exceptions.length,resolved:(resolutions||[]).filter((x:any)=>x.resolution==='confirm-scrimmage').length}
   return{ok:true,readOnly:true,checkedAt:new Date().toISOString(),season:audit.season,schedule,scores:{counts:scoreCounts,safeToApply:scoreRows.filter(r=>r.safeToApply).length,conflicts:scoreCounts['score-conflict']||0,rows:scoreRows},rosters:{varsityTeams:rosterRows.length,loaded:rosterRows.length-missingRosters.length,missing:missingRosters.length,rows:rosterRows},exceptions,exceptionSummary,audit}
 }
