@@ -6,6 +6,7 @@ const scoreNum=(v:unknown)=>v===null||v===undefined||v===''?null:Number.isFinite
 const finalish=(v:unknown)=>{const c=clean(v);return c.includes('final')||c.includes('complete')}
 const gameToken=(g:any,home:boolean)=>{const t=home?g.home_team_id:g.away_team_id;const e=home?g.external_home_opponent_id:g.external_away_opponent_id;return t?`t:${t}`:e?`e:${e}`:'tba'}
 const rowToken=(s:any)=>s?.kind==='internal'&&s?.id?`t:${s.id}`:s?.kind==='external'&&s?.id?`e:${s.id}`:'tba'
+const participantSignature=(r:any)=>[clean(r?.home?.arbiter||r?.home?.mapped||''),clean(r?.away?.arbiter||r?.away?.mapped||'')].filter(Boolean).sort().join('|')
 const evidenceFingerprint=(r:any)=>{
   const base:any={id:r?.uniqueGameId||null,date:r?.date||null,time:r?.time||null,type:r?.type||null,status:r?.status||null,title:r?.sourcePayload?.title||r?.sourcePayload?.eventTitle||r?.sourcePayload?.description||null,warnings:r?.warnings||[],mappingIssues:r?.mappingIssues||[]}
   // Arbiter can return one round-robin/jamboree event ID with different opponent
@@ -29,10 +30,13 @@ function orientScores(row:any,game:any){
 function scheduleSeverity(bucket:unknown){const b=clean(bucket);if(b==='orphaned link')return 'blocker';if(['source cancelled','manual review','event sport'].includes(b))return 'info';return 'review'}
 function operationalTriage(x:any){
   const k=clean(x?.kind),b=clean(x?.bucket),s=clean(x?.severity),detail=clean(x?.detail),sourceType=clean(x?.sourceType),sourceTitle=clean(x?.sourceTitle)
-  // Some Arbiter event IDs represent a multi-participant event and can surface a
-  // different opponent view depending on the school observation. Never auto-write
-  // that as ordinary opponent drift. Scrimmages and explicitly named relay carnivals
-  // are known safe examples and should remain protected/informational.
+  // A shared Arbiter ID can represent several participant views in the same pull.
+  // Treat an opponent mismatch on that ID as protected event metadata, never as a
+  // normal one-game opponent change. The schedule writer already refuses the write;
+  // this keeps Fall Operations from presenting the safe hold as a manual emergency.
+  if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&x?.sharedEventId)return 'informational'
+  // Known multi-participant event shapes stay protected even if Arbiter only returns
+  // one view during a later pull.
   if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&(sourceType==='scrimmage'||sourceTitle.includes('relay carnival')))return 'informational'
   if(s==='blocker'||s==='review')return 'attention'
   if(b==='manual review'||b==='roster missing')return 'waiting'
@@ -43,6 +47,9 @@ function operationalTriage(x:any){
 
 export async function runLiveOperationsCheck(seasonId?:string|null){
   const db=createAdminClient(),audit=await runScheduleAudit(seasonId?{seasonId}:{})
+  const participantViews=new Map<number,Set<string>>()
+  for(const row of audit.rows||[]){const id=Number(row?.uniqueGameId),sig=participantSignature(row);if(!Number.isFinite(id)||!sig)continue;const views=participantViews.get(id)||new Set<string>();views.add(sig);participantViews.set(id,views)}
+  const sharedEventIds=new Set([...participantViews.entries()].filter(([,views])=>views.size>1).map(([id])=>id))
   const gameIds=[...new Set((audit.rows||[]).map((r:any)=>r.existingGameId).filter(Boolean))]
   const [{data:games,error:gameError},{data:teamSeasons,error:tsError},{data:teams,error:teamError},{data:sports,error:sportError},{data:rosters,error:rosterError},{data:coaches,error:coachError},{data:resolutions,error:resolutionError}]=await Promise.all([
     gameIds.length?db.from('games').select('id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,home_score,away_score,status,source,verification_status,contest_type').in('id',gameIds):Promise.resolve({data:[],error:null} as any),
@@ -69,10 +76,10 @@ export async function runLiveOperationsCheck(seasonId?:string|null){
   const rosterRows=varsityTeams.map((t:any)=>{const s=sportById.get(t.sport_id) as any,rosterCount=rosterCounts.get(t.id)||0,coachCount=coachCounts.get(t.id)||0;return{teamId:t.id,teamName:t.team_name,sport:s?.sport_name||'Unknown',gender:s?.gender||null,rosterCount,coachCount,lastImportedAt:latestRoster.get(t.id)||null,status:rosterCount>0?'loaded':'missing'}}),missingRosters=rosterRows.filter(r=>r.rosterCount===0)
   const schedule={syncedStable:audit.comparison.counts?.['stable-id-match']||0,pendingChanges:audit.comparison.pendingChanges||0,quarantined:audit.comparison.quarantined||0,blockers:audit.comparison.trueBlockers||0,writerReady:Boolean(audit.comparison.writerReady)}
   const rawExceptions=[
-    ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season'&&resolutionFor(r)?.resolution!=='confirm-scrimmage').map((r:any)=>{const resolution:any=resolutionFor(r);return{kind:'schedule',severity:scheduleSeverity(r.bucket),bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),sourceType:r.type||null,sourceTitle:r.sourcePayload?.title||null,arbiterGameId:r.uniqueGameId,gameId:r.existingGameId||null,evidenceFingerprint:evidenceFingerprint(r),resolution:resolution||null,resolutionEligible:clean(r.bucket)==='title type conflict'}}),
+    ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season'&&resolutionFor(r)?.resolution!=='confirm-scrimmage').map((r:any)=>{const resolution:any=resolutionFor(r);return{kind:'schedule',severity:scheduleSeverity(r.bucket),bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),sourceType:r.type||null,sourceTitle:r.sourcePayload?.title||null,sharedEventId:sharedEventIds.has(Number(r.uniqueGameId)),arbiterGameId:r.uniqueGameId,gameId:r.existingGameId||null,evidenceFingerprint:evidenceFingerprint(r),resolution:resolution||null,resolutionEligible:clean(r.bucket)==='title type conflict'}}),
     ...scoreRows.filter(r=>r.bucket==='score-conflict'||r.bucket==='score-review').map(r=>({kind:'score',severity:'review',bucket:r.bucket,title:`${r.away} at ${r.home}`,detail:`Arbiter ${r.arbiter.away}-${r.arbiter.home}; Section X ${r.sectionX.away??'—'}-${r.sectionX.home??'—'}`,arbiterGameId:r.arbiterGameId,gameId:r.gameId})),
     ...missingRosters.map(r=>({kind:'roster',severity:'info',bucket:'roster-missing',title:r.teamName,detail:`${r.sport}${r.gender?` · ${r.gender}`:''}`}))]
   const exceptions=rawExceptions.map((x:any)=>({...x,triage:operationalTriage(x)}))
-  const exceptionSummary={blockers:exceptions.filter((x:any)=>x.severity==='blocker').length,review:exceptions.filter((x:any)=>x.severity==='review').length,info:exceptions.filter((x:any)=>x.severity==='info').length,attention:exceptions.filter((x:any)=>x.triage==='attention').length,waiting:exceptions.filter((x:any)=>x.triage==='waiting').length,informational:exceptions.filter((x:any)=>x.triage==='informational').length,total:exceptions.length,resolved:(resolutions||[]).filter((x:any)=>x.resolution==='confirm-scrimmage').length}
+  const exceptionSummary={blockers:exceptions.filter((x:any)=>x.severity==='blocker').length,review:exceptions.filter((x:any)=>x.severity==='review').length,info:exceptions.filter((x:any)=>x.severity==='info').length,attention:exceptions.filter((x:any)=>x.triage==='attention').length,waiting:exceptions.filter((x:any)=>x.triage==='waiting').length,informational:exceptions.filter((x:any)=>x.triage==='informational').length,total:exceptions.length,resolved:(resolutions||[]).filter((x:any)=>x.resolution==='confirm-scrimmage').length,sharedEventIds:sharedEventIds.size}
   return{ok:true,readOnly:true,checkedAt:new Date().toISOString(),season:audit.season,schedule,scores:{counts:scoreCounts,safeToApply:scoreRows.filter(r=>r.safeToApply).length,conflicts:scoreCounts['score-conflict']||0,rows:scoreRows},rosters:{varsityTeams:rosterRows.length,loaded:rosterRows.length-missingRosters.length,missing:missingRosters.length,rows:rosterRows},exceptions,exceptionSummary,audit}
 }
