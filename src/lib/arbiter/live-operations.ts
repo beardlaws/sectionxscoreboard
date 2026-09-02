@@ -9,9 +9,6 @@ const rowToken=(s:any)=>s?.kind==='internal'&&s?.id?`t:${s.id}`:s?.kind==='exter
 const participantSignature=(r:any)=>[clean(r?.home?.arbiter||r?.home?.mapped||''),clean(r?.away?.arbiter||r?.away?.mapped||'')].filter(Boolean).sort().join('|')
 const evidenceFingerprint=(r:any)=>{
   const base:any={id:r?.uniqueGameId||null,date:r?.date||null,time:r?.time||null,type:r?.type||null,status:r?.status||null,title:r?.sourcePayload?.title||r?.sourcePayload?.eventTitle||r?.sourcePayload?.description||null,warnings:r?.warnings||[],mappingIssues:r?.mappingIssues||[]}
-  // Arbiter can return one round-robin/jamboree event ID with different opponent
-  // views depending on which school produced the observation. For title/type
-  // conflicts, the admin is adjudicating the event itself, not one opponent view.
   if(clean(r?.bucket)!=='title type conflict'){
     base.home=r?.home?.arbiter||r?.home?.mapped||null
     base.away=r?.away?.arbiter||r?.away?.mapped||null
@@ -30,13 +27,7 @@ function orientScores(row:any,game:any){
 function scheduleSeverity(bucket:unknown){const b=clean(bucket);if(b==='orphaned link')return 'blocker';if(['source cancelled','manual review','event sport'].includes(b))return 'info';return 'review'}
 function operationalTriage(x:any){
   const k=clean(x?.kind),b=clean(x?.bucket),s=clean(x?.severity),detail=clean(x?.detail),sourceType=clean(x?.sourceType),sourceTitle=clean(x?.sourceTitle)
-  // A shared Arbiter ID can represent several participant views in the same pull.
-  // Treat an opponent mismatch on that ID as protected event metadata, never as a
-  // normal one-game opponent change. The schedule writer already refuses the write;
-  // this keeps Fall Operations from presenting the safe hold as a manual emergency.
   if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&x?.sharedEventId)return 'informational'
-  // Known multi-participant event shapes stay protected even if Arbiter only returns
-  // one view during a later pull.
   if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&(sourceType==='scrimmage'||sourceTitle.includes('relay carnival')))return 'informational'
   if(s==='blocker'||s==='review')return 'attention'
   if(b==='manual review'||b==='roster missing')return 'waiting'
@@ -65,11 +56,18 @@ export async function runLiveOperationsCheck(seasonId?:string|null){
   for(const row of audit.rows||[]){
     const resolution:any=resolutionFor(row);if(!row.existingGameId||clean(row.type)==='scrimmage'||resolution?.resolution==='confirm-scrimmage')continue
     const game=gameById.get(row.existingGameId) as any;if(!game)continue;const oriented=orientScores(row,game);if(!oriented)continue
-    const sourceFinal=finalish(row.status),dbHome=scoreNum(game.home_score),dbAway=scoreNum(game.away_score),same=dbHome===oriented.homeScore&&dbAway===oriented.awayScore,blank=dbHome===null&&dbAway===null,arbiterOwned=clean(game.source).startsWith('arbiter')
-    let bucket='score-review';if(!sourceFinal)bucket='score-reported-not-final';else if(same)bucket='score-synced';else if(blank)bucket='score-fill';else if(arbiterOwned)bucket='score-update';else bucket='score-conflict'
+    const sourceFinal=finalish(row.status),dbHome=scoreNum(game.home_score),dbAway=scoreNum(game.away_score),same=dbHome===oriented.homeScore&&dbAway===oriented.awayScore,blank=dbHome===null&&dbAway===null,arbiterOwned=clean(game.source).startsWith('arbiter'),manualOwned=clean(game.source)==='manual'
+    let bucket='score-review'
+    if(!sourceFinal)bucket='score-reported-not-final'
+    else if(same)bucket='score-synced'
+    else if(blank)bucket='score-fill'
+    else if(arbiterOwned)bucket='score-update'
+    else if(manualOwned)bucket='score-manual-conflict'
+    else bucket='score-conflict'
     scoreRows.push({bucket,arbiterGameId:row.uniqueGameId,gameId:game.id,date:row.date,sport:row.sport,home:row.home?.mapped||row.home?.arbiter,away:row.away?.mapped||row.away?.arbiter,arbiter:{home:oriented.homeScore,away:oriented.awayScore,status:row.status},sectionX:{home:dbHome,away:dbAway,status:game.status,source:game.source,verificationStatus:game.verification_status},safeToApply:['score-fill','score-update'].includes(bucket)})
   }
-  const scoreCounts=Object.fromEntries(['score-synced','score-fill','score-update','score-conflict','score-reported-not-final','score-review'].map(k=>[k,scoreRows.filter(r=>r.bucket===k).length]))
+  const scoreBuckets=['score-synced','score-fill','score-update','score-manual-conflict','score-conflict','score-reported-not-final','score-review']
+  const scoreCounts=Object.fromEntries(scoreBuckets.map(k=>[k,scoreRows.filter(r=>r.bucket===k).length]))
   const sportById=new Map((sports||[]).map((s:any)=>[s.id,s])),seasonTeamIds=new Set((teamSeasons||[]).map((x:any)=>x.team_id)),varsityTeams=(teams||[]).filter((t:any)=>seasonTeamIds.has(t.id)&&clean(t.level).includes('varsity')&&!clean(t.level).includes('junior'))
   const rosterCounts=new Map<string,number>(),coachCounts=new Map<string,number>(),latestRoster=new Map<string,string>()
   for(const r of rosters||[]){rosterCounts.set(r.team_id,(rosterCounts.get(r.team_id)||0)+1);if(r.imported_at&&(!latestRoster.get(r.team_id)||r.imported_at>latestRoster.get(r.team_id)!))latestRoster.set(r.team_id,r.imported_at)};for(const c of coaches||[])coachCounts.set(c.team_id,(coachCounts.get(c.team_id)||0)+1)
@@ -77,9 +75,9 @@ export async function runLiveOperationsCheck(seasonId?:string|null){
   const schedule={syncedStable:audit.comparison.counts?.['stable-id-match']||0,pendingChanges:audit.comparison.pendingChanges||0,quarantined:audit.comparison.quarantined||0,blockers:audit.comparison.trueBlockers||0,writerReady:Boolean(audit.comparison.writerReady)}
   const rawExceptions=[
     ...(audit.rows||[]).filter((r:any)=>r.quarantined&&r.bucket!=='other-season'&&resolutionFor(r)?.resolution!=='confirm-scrimmage').map((r:any)=>{const resolution:any=resolutionFor(r);return{kind:'schedule',severity:scheduleSeverity(r.bucket),bucket:r.bucket,title:`${r.away?.mapped||r.away?.arbiter} at ${r.home?.mapped||r.home?.arbiter}`,detail:[...(r.mappingIssues||[]),...(r.warnings||[])].join(', '),sourceType:r.type||null,sourceTitle:r.sourcePayload?.title||null,sharedEventId:sharedEventIds.has(Number(r.uniqueGameId)),arbiterGameId:r.uniqueGameId,gameId:r.existingGameId||null,evidenceFingerprint:evidenceFingerprint(r),resolution:resolution||null,resolutionEligible:clean(r.bucket)==='title type conflict'}}),
-    ...scoreRows.filter(r=>r.bucket==='score-conflict'||r.bucket==='score-review').map(r=>({kind:'score',severity:'review',bucket:r.bucket,title:`${r.away} at ${r.home}`,detail:`Arbiter ${r.arbiter.away}-${r.arbiter.home}; Section X ${r.sectionX.away??'—'}-${r.sectionX.home??'—'}`,arbiterGameId:r.arbiterGameId,gameId:r.gameId})),
+    ...scoreRows.filter(r=>['score-manual-conflict','score-conflict','score-review'].includes(r.bucket)).map(r=>({kind:'score',severity:'review',bucket:r.bucket,title:`${r.away} at ${r.home}`,detail:`Arbiter ${r.arbiter.away}-${r.arbiter.home}; Section X ${r.sectionX.away??'—'}-${r.sectionX.home??'—'}${r.bucket==='score-manual-conflict'?' · Manual score protected; verify before changing.':''}`,arbiterGameId:r.arbiterGameId,gameId:r.gameId})),
     ...missingRosters.map(r=>({kind:'roster',severity:'info',bucket:'roster-missing',title:r.teamName,detail:`${r.sport}${r.gender?` · ${r.gender}`:''}`}))]
   const exceptions=rawExceptions.map((x:any)=>({...x,triage:operationalTriage(x)}))
   const exceptionSummary={blockers:exceptions.filter((x:any)=>x.severity==='blocker').length,review:exceptions.filter((x:any)=>x.severity==='review').length,info:exceptions.filter((x:any)=>x.severity==='info').length,attention:exceptions.filter((x:any)=>x.triage==='attention').length,waiting:exceptions.filter((x:any)=>x.triage==='waiting').length,informational:exceptions.filter((x:any)=>x.triage==='informational').length,total:exceptions.length,resolved:(resolutions||[]).filter((x:any)=>x.resolution==='confirm-scrimmage').length,sharedEventIds:sharedEventIds.size}
-  return{ok:true,readOnly:true,checkedAt:new Date().toISOString(),season:audit.season,schedule,scores:{counts:scoreCounts,safeToApply:scoreRows.filter(r=>r.safeToApply).length,conflicts:scoreCounts['score-conflict']||0,rows:scoreRows},rosters:{varsityTeams:rosterRows.length,loaded:rosterRows.length-missingRosters.length,missing:missingRosters.length,rows:rosterRows},exceptions,exceptionSummary,audit}
+  return{ok:true,readOnly:true,checkedAt:new Date().toISOString(),season:audit.season,schedule,scores:{counts:scoreCounts,safeToApply:scoreRows.filter(r=>r.safeToApply).length,conflicts:(scoreCounts['score-conflict']||0)+(scoreCounts['score-manual-conflict']||0),manualConflicts:scoreCounts['score-manual-conflict']||0,rows:scoreRows},rosters:{varsityTeams:rosterRows.length,loaded:rosterRows.length-missingRosters.length,missing:missingRosters.length,rows:rosterRows},exceptions,exceptionSummary,audit}
 }
