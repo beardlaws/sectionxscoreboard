@@ -20,7 +20,22 @@ interface Props {
 
 type SponsorEvent = 'served' | 'viewable' | 'click'
 
+function dedupeKey(event: SponsorEvent, sponsorId: string, pagePath: string, placement: string) {
+  return `sx-sponsor:${event}:${sponsorId}:${placement}:${pagePath}`
+}
+
 function track(event: SponsorEvent, sponsorId: string, pagePath: string, placement: string) {
+  // A rotating sponsor strip should not create a fresh impression every few seconds
+  // for the same person on the same page. Count served/viewable once per browser
+  // session; clicks are always counted.
+  if (event !== 'click') {
+    try {
+      const key = dedupeKey(event, sponsorId, pagePath, placement)
+      if (sessionStorage.getItem(key)) return Promise.resolve(undefined)
+      sessionStorage.setItem(key, '1')
+    } catch {}
+  }
+
   return fetch('/api/sponsor-track', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -87,94 +102,44 @@ export default function SponsorDisplay({ sponsor, placement, pagePath, variant =
     if (sponsor.website_url) window.open(sponsor.website_url, '_blank', 'noopener,noreferrer')
   }
 
-  // ── HERO — homepage sidebar, large and prominent ──
   if (variant === 'hero') {
     return (
       <div ref={rootRef} onClick={handleClick} className="rounded-2xl overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 group"
         style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.18) 0%, rgba(8,12,24,0.97) 60%)', border: '1px solid rgba(37,99,235,0.3)', boxShadow: '0 8px 32px rgba(37,99,235,0.18)' }}>
         <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'rgba(37,99,235,0.18)' }}>
-          <p className="text-xs font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: '#3b82f6', letterSpacing: '0.14em' }}>
-            Tonight's Scores Presented By
-          </p>
+          <p className="text-xs font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: '#3b82f6', letterSpacing: '0.14em' }}>Tonight's Scores Presented By</p>
           <span className="text-xs text-blue-400 opacity-60">AD</span>
         </div>
         <div className="px-4 py-4">
           <div className="flex items-center gap-3 mb-3">
-            {sponsor.logo_url ? (
-              <img src={sponsor.logo_url} alt={sponsor.business_name}
-                className="w-14 h-14 object-contain rounded-xl flex-shrink-0 border border-white/15 shadow-lg"
-                style={{ background: 'rgba(255,255,255,0.06)' }} />
-            ) : (
-              <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-white text-lg border border-white/15"
-                style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>
-                {sponsor.business_name.slice(0, 2).toUpperCase()}
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="font-black text-white leading-tight"
-                style={{ fontFamily: 'var(--font-display)', fontSize: '20px', letterSpacing: '0.02em' }}>
-                {sponsor.business_name}
-              </p>
-              {sponsor.tagline && <p className="text-slate-400 text-xs mt-0.5">{sponsor.tagline}</p>}
-            </div>
+            {sponsor.logo_url ? <img src={sponsor.logo_url} alt={sponsor.business_name} className="w-14 h-14 object-contain rounded-xl flex-shrink-0 border border-white/15 shadow-lg" style={{ background: 'rgba(255,255,255,0.06)' }} /> : <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-white text-lg border border-white/15" style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>{sponsor.business_name.slice(0, 2).toUpperCase()}</div>}
+            <div className="min-w-0"><p className="font-black text-white leading-tight" style={{ fontFamily: 'var(--font-display)', fontSize: '20px', letterSpacing: '0.02em' }}>{sponsor.business_name}</p>{sponsor.tagline && <p className="text-slate-400 text-xs mt-0.5">{sponsor.tagline}</p>}</div>
           </div>
-          <div className="w-full py-2.5 rounded-xl font-black text-sm text-white text-center transition-all group-hover:brightness-110"
-            style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', boxShadow: '0 4px 16px rgba(37,99,235,0.4)' }}>
-            VISIT {sponsor.business_name.toUpperCase()} →
-          </div>
+          <div className="w-full py-2.5 rounded-xl font-black text-sm text-white text-center transition-all group-hover:brightness-110" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.08em', boxShadow: '0 4px 16px rgba(37,99,235,0.4)' }}>VISIT {sponsor.business_name.toUpperCase()} →</div>
         </div>
       </div>
     )
   }
 
-  // ── BANNER — scores/playoffs/sport pages, full width slim ──
   if (variant === 'banner') {
     return (
-      <div ref={rootRef} onClick={handleClick}
-        className="flex items-center gap-3 rounded-xl px-4 py-3 transition-all hover:-translate-y-0.5 cursor-pointer group"
-        style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,20,0.85))', border: '1px solid rgba(37,99,235,0.22)' }}>
-        {sponsor.logo_url ? (
-          <img src={sponsor.logo_url} alt={sponsor.business_name}
-            className="w-10 h-10 object-contain rounded-lg flex-shrink-0 border border-white/10"
-            style={{ background: 'rgba(255,255,255,0.05)' }} />
-        ) : (
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white text-xs"
-            style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>
-            {sponsor.business_name.slice(0, 2).toUpperCase()}
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>
-            {placement === 'scores' ? 'SCORES PRESENTED BY' : placement === 'playoff' ? 'PLAYOFFS PRESENTED BY' : placement === 'sport' ? 'COVERAGE SPONSORED BY' : 'PRESENTED BY'}
-          </p>
-          <p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>
-          {sponsor.tagline && <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>}
-        </div>
-        <span className="text-xs font-black text-white px-3 py-1.5 rounded-lg flex-shrink-0 transition-all group-hover:brightness-110"
-          style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>VISIT →</span>
+      <div ref={rootRef} onClick={handleClick} className="flex items-center gap-3 rounded-xl px-4 py-3 transition-all hover:-translate-y-0.5 cursor-pointer group" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,20,0.85))', border: '1px solid rgba(37,99,235,0.22)' }}>
+        {sponsor.logo_url ? <img src={sponsor.logo_url} alt={sponsor.business_name} className="w-10 h-10 object-contain rounded-lg flex-shrink-0 border border-white/10" style={{ background: 'rgba(255,255,255,0.05)' }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white text-xs" style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>{sponsor.business_name.slice(0, 2).toUpperCase()}</div>}
+        <div className="flex-1 min-w-0"><p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>{placement === 'scores' ? 'SCORES PRESENTED BY' : placement === 'playoff' ? 'PLAYOFFS PRESENTED BY' : placement === 'sport' ? 'COVERAGE SPONSORED BY' : 'PRESENTED BY'}</p><p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>{sponsor.tagline && <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>}</div>
+        <span className="text-xs font-black text-white px-3 py-1.5 rounded-lg flex-shrink-0 transition-all group-hover:brightness-110" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>VISIT →</span>
       </div>
     )
   }
 
-  // ── CARD — school sidebar ──
   if (variant === 'card') {
     return (
-      <div ref={rootRef} onClick={handleClick} className="rounded-xl overflow-hidden transition-all hover:-translate-y-0.5 cursor-pointer group"
-        style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))', border: '1px solid rgba(37,99,235,0.25)' }}>
-        <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: 'rgba(37,99,235,0.15)' }}>
-          <p className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>School Sponsor</p>
-          <span className="text-xs text-blue-400 opacity-40">AD</span>
-        </div>
-        <div className="px-4 py-3 flex items-center gap-3">
-          {sponsor.logo_url ? <img src={sponsor.logo_url} alt={sponsor.business_name} className="w-10 h-10 object-contain rounded-lg flex-shrink-0 border border-white/10" style={{ background: 'rgba(255,255,255,0.05)' }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white text-xs" style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>{sponsor.business_name.slice(0, 2).toUpperCase()}</div>}
-          <div className="min-w-0 flex-1"><p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>{sponsor.tagline && <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>}</div>
-          <span className="text-xs font-black text-blue-400 flex-shrink-0 group-hover:text-blue-300" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span>
-        </div>
+      <div ref={rootRef} onClick={handleClick} className="rounded-xl overflow-hidden transition-all hover:-translate-y-0.5 cursor-pointer group" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(8,12,24,0.95))', border: '1px solid rgba(37,99,235,0.25)' }}>
+        <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: 'rgba(37,99,235,0.15)' }}><p className="text-xs font-black text-blue-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.12em' }}>School Sponsor</p><span className="text-xs text-blue-400 opacity-40">AD</span></div>
+        <div className="px-4 py-3 flex items-center gap-3">{sponsor.logo_url ? <img src={sponsor.logo_url} alt={sponsor.business_name} className="w-10 h-10 object-contain rounded-lg flex-shrink-0 border border-white/10" style={{ background: 'rgba(255,255,255,0.05)' }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-white text-xs" style={{ background: 'rgba(37,99,235,0.3)', fontFamily: 'var(--font-display)' }}>{sponsor.business_name.slice(0, 2).toUpperCase()}</div>}<div className="min-w-0 flex-1"><p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{sponsor.business_name}</p>{sponsor.tagline && <p className="text-xs text-slate-400 truncate">{sponsor.tagline}</p>}</div><span className="text-xs font-black text-blue-400 flex-shrink-0 group-hover:text-blue-300" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span></div>
       </div>
     )
   }
 
-  // ── COMPACT ──
   return (
     <div ref={rootRef} onClick={handleClick} className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition-all hover:bg-white/5" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
       {sponsor.logo_url && <img src={sponsor.logo_url} alt={sponsor.business_name} className="w-5 h-5 object-contain rounded flex-shrink-0" />}
