@@ -2,7 +2,7 @@
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import PublicLayout from '@/components/layout/PublicLayout'
-import HomeClient from '@/components/home/HomeClient'
+import HomePhotoExperience from '@/components/home/HomePhotoExperience'
 import { isScrimmage } from '@/lib/gameType'
 import { format } from 'date-fns'
 
@@ -32,10 +32,34 @@ function presentGames(games:any[] | null) {
   return (games || []).map(presentGame)
 }
 
-function pickHomepagePhoto(photos:any[], activeSeason:any|null) {
-  if (!photos?.length) return null
+function photoDate(photo:any) {
+  return String(photo?.game?.game_date || photo?.created_at || '').slice(0, 10)
+}
+
+function photoSchoolIds(photo:any) {
+  const ids = [
+    photo?.game?.home_team?.school?.id,
+    photo?.game?.away_team?.school?.id,
+    photo?.school?.id,
+  ].filter(Boolean).map(String)
+  return Array.from(new Set(ids))
+}
+
+function homepagePhotoLabel(photo:any) {
+  const game = photo?.game
+  const away = game?.away_team?.school?.school_name || game?.external_away?.name || null
+  const home = game?.home_team?.school?.school_name || game?.external_home?.name || null
+  const sport = photo?.sport?.sport_name || null
+  const matchup = away && home ? `${away} at ${home}` : null
+  return [matchup, sport].filter(Boolean).join(' · ') || photo?.caption || 'Section X sports'
+}
+
+function pickHomepagePhotos(photos:any[], activeSeason:any|null, today:string) {
+  if (!photos?.length) return []
   const seasonType = String(activeSeason?.season_type || '').toLowerCase()
   const seasonId = String(activeSeason?.id || '')
+  const todayTime = new Date(`${today}T12:00:00`).getTime()
+  const sevenDaysAgoTime = todayTime - 7 * 86400000
 
   const currentSeason = photos.filter(photo => {
     const photoSeason = String(photo?.sport?.season_type || '').toLowerCase()
@@ -43,13 +67,63 @@ function pickHomepagePhoto(photos:any[], activeSeason:any|null) {
     return (seasonType && photoSeason === seasonType) || (seasonId && gameSeasonId === seasonId)
   })
 
-  const featuredCurrent = currentSeason.find(photo => photo.featured)
-  if (featuredCurrent) return featuredCurrent
-  if (currentSeason[0]) return currentSeason[0]
+  const ranked = currentSeason
+    .filter(photo => {
+      const key = photoDate(photo)
+      if (!key) return false
+      const time = new Date(`${key}T12:00:00`).getTime()
+      return Number.isFinite(time) && time >= sevenDaysAgoTime && time <= todayTime + 86400000
+    })
+    .sort((a, b) => {
+      const dateDiff = photoDate(b).localeCompare(photoDate(a))
+      if (dateDiff) return dateDiff
+      if (Boolean(a.featured) !== Boolean(b.featured)) return a.featured ? -1 : 1
+      return String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    })
 
-  // A generic approved Section X image is a better fallback than the wrong-season sport.
-  const general = photos.find(photo => !photo.sport_id && !photo.game_id)
-  return general || null
+  const picked:any[] = []
+  const usedGames = new Set<string>()
+  const usedSchools = new Set<string>()
+  const take = (photo:any) => {
+    if (picked.length >= 6 || picked.some(p => p.id === photo.id)) return false
+    picked.push({ ...photo, caption: homepagePhotoLabel(photo) })
+    if (photo?.game?.id) usedGames.add(String(photo.game.id))
+    photoSchoolIds(photo).forEach(id => usedSchools.add(id))
+    return true
+  }
+
+  // First pass: spread the hero across different games and schools whenever possible.
+  for (const photo of ranked) {
+    if (picked.length >= 6) break
+    const gameId = String(photo?.game?.id || '')
+    const schoolIds = photoSchoolIds(photo)
+    if (gameId && usedGames.has(gameId)) continue
+    if (schoolIds.length && schoolIds.some(id => usedSchools.has(id))) continue
+    take(photo)
+  }
+
+  // Second pass: keep game diversity even if a school appears twice.
+  for (const photo of ranked) {
+    if (picked.length >= 6) break
+    const gameId = String(photo?.game?.id || '')
+    if (gameId && usedGames.has(gameId)) continue
+    take(photo)
+  }
+
+  // Final pass: fill remaining slots with the freshest approved action.
+  for (const photo of ranked) {
+    if (picked.length >= 6) break
+    take(photo)
+  }
+
+  if (picked.length) return picked
+
+  // If the week is quiet, show one newest approved current-season photo rather than an empty hero.
+  const fallback = currentSeason
+    .slice()
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
+    || photos[0]
+  return fallback ? [{ ...fallback, caption: homepagePhotoLabel(fallback) }] : []
 }
 
 async function getHomepageData() {
@@ -111,14 +185,25 @@ async function getHomepageData() {
     supabase.from('spotlights').select('id, title, body, author, created_at, sport_name')
       .eq('published', true).order('created_at', { ascending: false }).limit(6),
     supabase.from('photos')
-      .select('*, school:schools(id, school_name, slug, primary_color, logo_url), sport:sports(id, sport_name, gender, season_type), game:games(id, game_date, season_id, sport_id)')
+      .select(`
+        *,
+        school:schools(id, school_name, slug, primary_color, logo_url),
+        sport:sports(id, sport_name, gender, season_type),
+        game:games(
+          id, game_date, season_id, sport_id,
+          home_team:teams!games_home_team_id_fkey(id, school:schools(id, school_name)),
+          away_team:teams!games_away_team_id_fkey(id, school:schools(id, school_name)),
+          external_home:external_opponents!games_external_home_opponent_id_fkey(name),
+          external_away:external_opponents!games_external_away_opponent_id_fkey(name)
+        )
+      `)
       .eq('approved', true)
-      .order('featured', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(48),
+      .limit(96),
   ])
 
-  const featuredPhoto = pickHomepagePhoto(photoCandidates || [], activeSeason || null)
+  const homepagePhotos = pickHomepagePhotos(photoCandidates || [], activeSeason || null, today)
+  const featuredPhoto = homepagePhotos[0] || null
 
   return {
     activeSeason: activeSeason || null,
@@ -135,6 +220,7 @@ async function getHomepageData() {
     featuredAthlete: featuredAthlete || null,
     allSpotlights: allSpotlights || [],
     featuredPhoto,
+    homepagePhotos,
   }
 }
 
@@ -142,7 +228,7 @@ export default async function HomePage() {
   const data = await getHomepageData()
   return (
     <PublicLayout>
-      <HomeClient {...data} />
+      <HomePhotoExperience {...data} />
     </PublicLayout>
   )
 }
