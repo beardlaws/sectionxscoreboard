@@ -63,6 +63,7 @@ const navSections = [
   {
     label: 'Management',
     items: [
+      { href: '/admin/traffic', label: 'Traffic', icon: BarChart2 },
       { href: '/admin/seasons', label: 'Seasons', icon: Calendar },
       { href: '/admin/schools', label: 'Schools', icon: School },
       { href: '/admin/teams', label: 'Teams', icon: Users },
