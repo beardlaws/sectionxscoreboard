@@ -1,6 +1,6 @@
 // src/app/(public)/scores/page.tsx
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 import ScoresClient from './ScoresClient'
 import { format } from 'date-fns'
