@@ -46,7 +46,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
       `)
       .order('game_date', { ascending: false })
       .order('game_time', { ascending: true })
-      .limit(200)
+      .limit(500)
 
     if (seasonFilter) q = (q as any).eq('season_id', seasonFilter)
     if (sportFilter) q = (q as any).eq('sport_id', sportFilter)
@@ -55,7 +55,35 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
     if (playoffFilter === 'regular') q = (q as any).or('is_playoff.is.null,is_playoff.eq.false')
 
     const { data } = await q
-    setGames((data || []))
+    const today = format(new Date(), 'yyyy-MM-dd')
+    const sorted = [...(data || [])].sort((a: any, b: any) => {
+      const aDate = String(a.game_date || '')
+      const bDate = String(b.game_date || '')
+      const aTime = String(a.game_time || '')
+      const bTime = String(b.game_time || '')
+
+      if (!aDate && !bDate) return aTime.localeCompare(bTime)
+      if (!aDate) return 1
+      if (!bDate) return -1
+
+      const aToday = aDate === today
+      const bToday = bDate === today
+      if (aToday !== bToday) return aToday ? -1 : 1
+      if (aToday && bToday) return aTime.localeCompare(bTime)
+
+      const aPast = aDate < today
+      const bPast = bDate < today
+      if (aPast !== bPast) return aPast ? -1 : 1
+
+      if (aPast && bPast) {
+        const dateOrder = bDate.localeCompare(aDate)
+        return dateOrder || bTime.localeCompare(aTime)
+      }
+
+      const dateOrder = aDate.localeCompare(bDate)
+      return dateOrder || aTime.localeCompare(bTime)
+    })
+    setGames(sorted)
     setLoading(false)
   }, [seasonFilter, sportFilter, statusFilter, playoffFilter])
 
@@ -167,7 +195,7 @@ export default function GamesManager({ sports, seasons, teams }: Props) {
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold font-display text-white mb-1">Manage Games</h1>
-      <p className="text-slate-400 text-sm mb-5">Edit scores, delete games, or bulk-remove postponed/canceled entries.</p>
+      <p className="text-slate-400 text-sm mb-5">Today and recent games are shown first. Edit scores, delete games, or bulk-remove postponed/canceled entries.</p>
 
       {/* Filters */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
