@@ -1,0 +1,5 @@
+Contact: https://www.sectionxscoreboard.com/contact
+Canonical: https://www.sectionxscoreboard.com/.well-known/security.txt
+Preferred-Languages: en
+Policy: https://www.sectionxscoreboard.com/privacy
+Expires: 2027-09-02T23:59:59Z
