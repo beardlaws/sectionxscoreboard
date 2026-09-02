@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://sectionxscoreboard.com'),
+  metadataBase: new URL('https://www.sectionxscoreboard.com'),
   title: {
     template: '%s | Section X Scoreboard',
     default: 'Section X Scoreboard',
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     siteName: 'Section X Scoreboard',
     title: 'Section X Scoreboard',
     description: 'Live scores, schedules, standings, and results for Section X high school sports in Northern New York.',
-    url: 'https://sectionxscoreboard.com',
+    url: 'https://www.sectionxscoreboard.com',
   },
   twitter: { card: 'summary_large_image', title: 'Section X Scoreboard' },
   robots: { index: true, follow: true },
