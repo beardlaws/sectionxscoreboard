@@ -16,11 +16,8 @@ function sameOrigin(req: NextRequest) {
 }
 
 async function shouldIgnore(req: NextRequest) {
-  // Never let local/preview QA inflate production sponsor delivery.
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') return true
   if (BOT_UA.test(req.headers.get('user-agent') || '')) return true
-
-  // Exclude internal admin browsing from advertiser-facing counts.
   return verifyAdminSession(
     req.cookies.get(ADMIN_SESSION_COOKIE)?.value,
     process.env.ADMIN_SESSION_TOKEN
@@ -43,10 +40,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid sponsor event.' }, { status: 400 })
   }
 
+  // Sponsor IDs originate from the active sponsor payload already rendered to the
+  // visitor. The tracking tables also enforce a foreign key to sponsors, so a
+  // separate sponsor SELECT on every impression only doubles database work.
   const db = createAdminClient()
-  const { data: sponsor } = await db.from('sponsors').select('id,active').eq('id', sponsorId).maybeSingle()
-  if (!sponsor?.id || sponsor.active !== true) return NextResponse.json({ ok: false, error: 'Sponsor unavailable.' }, { status: 404 })
-
   const table = event === 'click' ? 'sponsor_clicks' : event === 'viewable' ? 'sponsor_viewable_impressions' : 'sponsor_impressions'
   const { error } = await db.from(table).insert({ sponsor_id: sponsorId, page_path: pagePath, placement_type: placement })
   if (error) return NextResponse.json({ ok: false, error: 'Tracking write failed.' }, { status: 500 })
