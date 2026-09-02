@@ -9,6 +9,21 @@ const nextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'sectionxscoreboard.com',
+          },
+        ],
+        destination: 'https://www.sectionxscoreboard.com/:path*',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {
