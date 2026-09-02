@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import HomeClient from '@/components/home/HomeClient'
 
 type Props = Record<string, any> & { homepagePhotos?: any[] }
 
 const ROTATE_MS = 6000
+const HomeClientAny = HomeClient as any
 
 export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps }: Props) {
-  const photos = homepagePhotos.filter(photo => photo?.photo_url)
+  const photos = useMemo(() => homepagePhotos.filter(photo => photo?.photo_url), [homepagePhotos])
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [reduceMotion, setReduceMotion] = useState(false)
@@ -74,7 +75,7 @@ export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps 
 
     if (controls) {
       controls.innerHTML = ''
-      photos.forEach((photo, photoIndex) => {
+      photos.forEach((_photo, photoIndex) => {
         const dot = document.createElement('button')
         dot.type = 'button'
         dot.dataset.homePhotoControl = 'true'
@@ -100,5 +101,5 @@ export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps 
     }
   }, [active?.game?.id, index, photos])
 
-  return <HomeClient {...homeProps} featuredPhoto={active} />
+  return <HomeClientAny {...homeProps} featuredPhoto={active} />
 }
