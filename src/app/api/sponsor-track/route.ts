@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
 const EVENTS = new Set(['served', 'viewable', 'click'])
 const PLACEMENTS = new Set(['homepage', 'scores', 'network', 'sport', 'school', 'playoff'])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const BOT_UA = /(bot|crawler|spider|slurp|bingpreview|facebookexternalhit|googleother|headlesschrome|lighthouse|pagespeed|uptime|monitoring)/i
 
 function sameOrigin(req: NextRequest) {
   const origin = req.headers.get('origin')
@@ -13,8 +15,21 @@ function sameOrigin(req: NextRequest) {
   try { return new URL(origin).host === req.nextUrl.host } catch { return false }
 }
 
+async function shouldIgnore(req: NextRequest) {
+  // Never let local/preview QA inflate production sponsor delivery.
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') return true
+  if (BOT_UA.test(req.headers.get('user-agent') || '')) return true
+
+  // Exclude internal admin browsing from advertiser-facing counts.
+  return verifyAdminSession(
+    req.cookies.get(ADMIN_SESSION_COOKIE)?.value,
+    process.env.ADMIN_SESSION_TOKEN
+  )
+}
+
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ ok: false, error: 'Invalid origin.' }, { status: 403 })
+  if (await shouldIgnore(req)) return new NextResponse(null, { status: 204 })
 
   let body: any
   try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Invalid JSON.' }, { status: 400 }) }
