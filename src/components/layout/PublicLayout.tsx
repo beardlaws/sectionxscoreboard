@@ -3,6 +3,7 @@
 import ScoreTicker from './ScoreTicker'
 import GlobalSponsorStrip from '@/components/GlobalSponsorStrip'
 import ContextualFanBar from '@/components/ContextualFanBar'
+import SiteTrafficTracker from '@/components/analytics/SiteTrafficTracker'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
@@ -22,7 +23,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   const SPRING_SPORTS=[{name:'Baseball',slug:'baseball'},{name:'Softball',slug:'softball'},{name:'Boys Lacrosse',slug:'boys-lacrosse'},{name:'Girls Lacrosse',slug:'girls-lacrosse'},{name:'Boys Golf',slug:'boys-golf'}]
   const FALL_SPORTS=[{name:'Football',slug:'football'},{name:'Boys Soccer',slug:'boys-soccer'},{name:'Girls Soccer',slug:'girls-soccer'},{name:'Volleyball',slug:'volleyball'}]
   const WINTER_SPORTS=[{name:'Boys Basketball',slug:'boys-basketball'},{name:'Girls Basketball',slug:'girls-basketball'},{name:'Boys Hockey',slug:'boys-hockey'},{name:'Girls Hockey',slug:'girls-hockey'}]
-  return <div className="min-h-screen flex flex-col">
+  return <div className="min-h-screen flex flex-col"><SiteTrafficTracker/>
     <header style={{background:'rgba(5,8,15,0.92)',borderBottom:'1px solid rgba(255,255,255,0.06)',backdropFilter:'blur(20px)'}} className="sticky top-0 z-50"><div className="max-w-7xl mx-auto px-4"><div className="flex items-center justify-between h-14">
       <Link href="/" className="flex items-center gap-2"><div className="flex items-center justify-center w-8 h-8 rounded-lg font-bold text-white text-sm" style={{background:'linear-gradient(135deg,#2563eb,#1d4ed8)',fontFamily:'var(--font-display)',fontWeight:900,boxShadow:'0 0 12px rgba(37,99,235,.4)'}}>SX</div><span className="font-bold text-white hidden sm:block" style={{fontFamily:'var(--font-display)',letterSpacing:'.1em',fontSize:'18px',fontWeight:800}}>SECTION X SCOREBOARD</span><span className="font-semibold text-white sm:hidden" style={{fontFamily:'var(--font-display)',letterSpacing:'.05em',fontSize:'15px'}}>SEC X</span></Link>
       <nav className="hidden md:flex items-center gap-1">{navLinks.map(link=><Link key={link.href} href={link.href} className={`nav-link ${isActive(link.href)?'active':''}`}>{link.label}</Link>)}<div className="relative"><button className={`nav-link flex items-center gap-1 ${pathname.startsWith('/sports')?'active':''}`} onClick={()=>setSportsMenuOpen(!sportsMenuOpen)}>Sports<svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg></button>{sportsMenuOpen&&<div className="absolute top-full left-0 mt-1 w-56 rounded-lg shadow-2xl z-50 py-1" style={{background:'var(--bg-elevated)',border:'1px solid var(--border)'}}>{['Spring','Fall','Winter'].map(season=><div key={season}><div className="section-label px-3 py-2">{season}</div>{ALL_SPORTS.filter(s=>s.season===season).map(sport=><Link key={sport.slug} href={`/sports/${sport.slug}`} className="block px-3 py-1.5 text-sm hover:bg-white/5" style={{color:'var(--text-secondary)'}} onClick={()=>setSportsMenuOpen(false)}>{sport.name}</Link>)}</div>)}</div>}</div></nav>
