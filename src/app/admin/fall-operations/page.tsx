@@ -38,7 +38,7 @@ export default async function FallOperationsPage() {
     admin.from('arbiter_roster_automation_runs').select('id,season_id,trigger_source,status,summary,started_at,finished_at').order('started_at', { ascending: false }).limit(12),
     admin.rpc('sectionx_roster_cron_status'),
     admin.from('arbiter_roster_publication_status_admin').select('team_id,team_name,season_id,season_name,status,verified,reason,checked_at,active_arbiter_roster_entries,active_arbiter_coaches,publicly_visible'),
-    admin.from('fan_follow_preferences').select('team_id,athlete_id,alert_finals,alert_schedule_changes,alert_live,alert_photos,active,created_at'),
+    admin.from('fan_follow_preferences').select('id,email,team_id,athlete_id,alert_finals,alert_schedule_changes,alert_live,alert_photos,active,created_at'),
     admin.from('arbiter_health_checks').select('id,season_id,status,summary,changes,quarantines,created_at').order('created_at', { ascending: false }).limit(20),
     admin.from('fan_notification_events').select('id,event_type,status,game_id,created_at,processed_at,last_error').order('created_at', { ascending: false }).limit(40),
     admin.from('fan_notification_deliveries').select('id,event_id,status,provider,provider_id,error,created_at,sent_at').order('created_at', { ascending: false }).limit(40),
@@ -109,12 +109,21 @@ export default async function FallOperationsPage() {
     for (const f of run?.summary?.failures || []) if (f?.teamId) rosterTeamIds.add(f.teamId)
   }
 
-  const [{ data: gameRows }, { data: teamRows }] = await Promise.all([
+  const followTeamIds = Array.from(new Set((followRows || []).map((r: any) => r.team_id).filter(Boolean))) as string[]
+  const followAthleteIds = Array.from(new Set((followRows || []).map((r: any) => r.athlete_id).filter(Boolean))) as string[]
+
+  const [{ data: gameRows }, { data: teamRows }, { data: followTeamRows }, { data: followAthleteRows }] = await Promise.all([
     scheduleGameIds.size
       ? admin.from('games').select('id,game_date,home_team:teams!games_home_team_id_fkey(team_name,school:schools(school_name)),away_team:teams!games_away_team_id_fkey(team_name,school:schools(school_name))').in('id', Array.from(scheduleGameIds))
       : Promise.resolve({ data: [] } as any),
     rosterTeamIds.size
       ? admin.from('teams').select('id,team_name,school:schools(school_name),sport:sports(sport_name,gender)').in('id', Array.from(rosterTeamIds))
+      : Promise.resolve({ data: [] } as any),
+    followTeamIds.length
+      ? admin.from('teams').select('id,team_name,school:schools(school_name),sport:sports(sport_name,gender)').in('id', followTeamIds)
+      : Promise.resolve({ data: [] } as any),
+    followAthleteIds.length
+      ? admin.from('athletes').select('id,first_name,last_name,school:schools(school_name)').in('id', followAthleteIds)
       : Promise.resolve({ data: [] } as any),
   ])
 
@@ -133,6 +142,21 @@ export default async function FallOperationsPage() {
     const sportName = [sport?.gender, sport?.sport_name].filter(Boolean).join(' ')
     teamLabels[team.id] = [school?.school_name || team.team_name, sportName].filter(Boolean).join(' · ')
   }
+
+  const followTargetLabels: Record<string, string> = {}
+  for (const team of followTeamRows || []) {
+    const school = joined<any>(team.school), sport = joined<any>(team.sport)
+    const sportName = [sport?.gender, sport?.sport_name].filter(Boolean).join(' ')
+    followTargetLabels[`team:${team.id}`] = `Team · ${[school?.school_name || team.team_name, sportName].filter(Boolean).join(' · ')}`
+  }
+  for (const athlete of followAthleteRows || []) {
+    const school = joined<any>(athlete.school)
+    followTargetLabels[`athlete:${athlete.id}`] = `Athlete · ${[athlete.first_name, athlete.last_name].filter(Boolean).join(' ')}${school?.school_name ? ` · ${school.school_name}` : ''}`
+  }
+  const enrichedFollowRows = (followRows || []).map((row: any) => ({
+    ...row,
+    target_label: row.team_id ? followTargetLabels[`team:${row.team_id}`] : row.athlete_id ? followTargetLabels[`athlete:${row.athlete_id}`] : null,
+  }))
 
   const healthByRunId: Record<string, any> = {}
   for (const check of activeChecks) {
@@ -157,7 +181,7 @@ export default async function FallOperationsPage() {
       <div className="p-4 pt-0 max-w-6xl space-y-4">
         <div className="grid xl:grid-cols-2 gap-4">
           <RosterIntelligence rows={activeRosterPublicationRows} source={rosterPublicationSource} />
-          <FollowIntelligence rows={followRows || []} />
+          <FollowIntelligence rows={enrichedFollowRows} />
         </div>
         <AutomationPanel runs={activeRuns} cron={cron} rosterRuns={activeRosterRuns} rosterCron={rosterCron} healthByRunId={healthByRunId} gameLabels={gameLabels} teamLabels={teamLabels} alertSummary={alertSummary} />
       </div>
