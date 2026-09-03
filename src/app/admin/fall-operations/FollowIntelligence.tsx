@@ -20,6 +20,11 @@ function AlertFlag({ on, label }: { on?: boolean; label: string }) {
   </span>
 }
 
+function cleanTargetLabel(value?: string | null) {
+  if (!value) return value
+  return value.replace(/\b(Boys|Girls)\s+\1\b/gi, '$1')
+}
+
 export default function FollowIntelligence({ rows }: { rows: FollowRow[] }) {
   const active = rows.filter(r => r.active !== false)
   const team = active.filter(r => r.team_id).length
@@ -65,7 +70,7 @@ export default function FollowIntelligence({ rows }: { rows: FollowRow[] }) {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
             <div className="min-w-0">
               <div className="text-sm font-medium text-white break-all">{row.email || 'Email unavailable'}</div>
-              <div className="text-xs mt-1 text-sky-200/80">{row.target_label || (row.team_id ? 'Team follow' : row.athlete_id ? 'Athlete follow' : 'Follow target unavailable')}</div>
+              <div className="text-xs mt-1 text-sky-200/80">{cleanTargetLabel(row.target_label) || (row.team_id ? 'Team follow' : row.athlete_id ? 'Athlete follow' : 'Follow target unavailable')}</div>
               {row.created_at && <div className="text-[11px] mt-1 text-white/35">Followed {new Date(row.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} ET</div>}
             </div>
             <span className="self-start rounded-full border border-emerald-500/20 bg-emerald-500/[.07] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">Active</span>
