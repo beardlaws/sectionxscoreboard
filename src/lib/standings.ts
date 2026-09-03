@@ -131,20 +131,27 @@ export function calculateStandings(
 
     const homeIsSectionX = hasHome && homeSchool?.is_section_x !== false
     const awayIsSectionX = hasAway && awaySchool?.is_section_x !== false
-    const isSeeding = isGolf ? true : (homeIsSectionX && awayIsSectionX)
+    const homeSeason = hasHome ? tsMap[game.home_team_id] : null
+    const awaySeason = hasAway ? tsMap[game.away_team_id] : null
+    const sameDivision = !!homeSeason?.division && !!awaySeason?.division && homeSeason.division === awaySeason.division
+    const bothActive = homeSeason?.active_for_season !== false && awaySeason?.active_for_season !== false
+
+    // League records are division records. A Section X crossover (East/Central/West)
+    // still counts in the overall record, but not in league W-L-T.
+    const isLeague = isGolf ? true : (homeIsSectionX && awayIsSectionX && sameDivision && bothActive)
 
     const hw = didHomeWin(game.home_score, game.away_score)
     const aw = didAwayWin(game.home_score, game.away_score)
 
     if (hw) {
-      if (homeRow) { homeRow.wins++; if (isSeeding) homeRow.league_wins++ }
-      if (awayRow) { awayRow.losses++; if (isSeeding) awayRow.league_losses++ }
+      if (homeRow) { homeRow.wins++; if (isLeague) homeRow.league_wins++ }
+      if (awayRow) { awayRow.losses++; if (isLeague) awayRow.league_losses++ }
     } else if (aw) {
-      if (awayRow) { awayRow.wins++; if (isSeeding) awayRow.league_wins++ }
-      if (homeRow) { homeRow.losses++; if (isSeeding) homeRow.league_losses++ }
+      if (awayRow) { awayRow.wins++; if (isLeague) awayRow.league_wins++ }
+      if (homeRow) { homeRow.losses++; if (isLeague) homeRow.league_losses++ }
     } else {
-      if (homeRow) { homeRow.ties++; if (isSeeding) homeRow.league_ties++ }
-      if (awayRow) { awayRow.ties++; if (isSeeding) awayRow.league_ties++ }
+      if (homeRow) { homeRow.ties++; if (isLeague) homeRow.league_ties++ }
+      if (awayRow) { awayRow.ties++; if (isLeague) awayRow.league_ties++ }
     }
   }
 
