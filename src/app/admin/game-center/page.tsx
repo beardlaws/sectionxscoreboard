@@ -121,14 +121,14 @@ export default function GameCenterAdminIndex() {
     } finally { setCheckingArbiter(false) }
   }
 
-  const GameCard = ({ game, compact = false }: { game: any; compact?: boolean }) => {
+  const renderGameCard = (game: any, compact = false) => {
     const home = game.home_team?.school?.school_name || game.external_home?.name || 'TBD'
     const away = game.away_team?.school?.school_name || game.external_away?.name || 'TBD'
     const current = scores[game.id] || { away: '', home: '' }
     const scrimmage = String(game.contest_type || '').toLowerCase() === 'scrimmage'
     const overdue = needsScore(game)
     return (
-      <div className={`card p-4 ${overdue ? 'ring-1 ring-amber-400/50' : ''}`}>
+      <div key={game.id} className={`card p-4 ${overdue ? 'ring-1 ring-amber-400/50' : ''}`}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap text-xs">
@@ -162,9 +162,9 @@ export default function GameCenterAdminIndex() {
       <div className="grid grid-cols-4 gap-2 mb-3">{[['yesterday','Yesterday'],['today','Today'],['tomorrow','Tomorrow'],['nearby','±3 Days']].map(([value,label]) => <button key={value} onClick={() => setDay(value)} className={`rounded-lg px-2 py-2 text-xs md:text-sm font-bold border ${day === value ? 'bg-blue-500/20 border-blue-400/50 text-blue-200' : 'bg-white/5 border-white/10 text-slate-400'}`}>{label}</button>)}</div>
       <div className="relative mb-4"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input className="input w-full pl-9" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search school or sport..." /></div>
       {loading ? <div className="card p-10 text-center text-slate-500">Loading games...</div> : filtered.length === 0 ? <div className="card p-10 text-center text-slate-500">No games in this window.</div> : <div className="space-y-4">
-        <section><div className="flex items-center justify-between mb-2"><h2 className="text-sm font-black text-white">Needs Attention <span className="text-slate-500">({buckets.active.length})</span></h2></div>{buckets.active.length ? <div className="space-y-3">{[...buckets.active].sort((a,b) => Number(needsScore(b))-Number(needsScore(a))).map(game => <GameCard key={game.id} game={game} />)}</div> : <div className="card p-5 text-center text-sm text-emerald-300">All official games in this window have reported finals.</div>}</section>
-        {buckets.finals.length > 0 && <section><button onClick={() => setShowFinals(v => !v)} className="w-full card px-4 py-3 flex items-center justify-between text-left"><span className="font-black text-sm text-slate-300">Finals Reported ({buckets.finals.length})</span>{showFinals ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button>{showFinals && <div className="space-y-3 mt-3">{buckets.finals.map(game => <GameCard key={game.id} game={game} compact />)}</div>}</section>}
-        {buckets.scrimmages.length > 0 && <section><button onClick={() => setShowScrimmages(v => !v)} className="w-full card px-4 py-3 flex items-center justify-between text-left"><span className="font-black text-sm text-slate-400">Scrimmages ({buckets.scrimmages.length})</span>{showScrimmages ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button>{showScrimmages && <div className="space-y-3 mt-3">{buckets.scrimmages.map(game => <GameCard key={game.id} game={game} compact />)}</div>}</section>}
+        <section><div className="flex items-center justify-between mb-2"><h2 className="text-sm font-black text-white">Needs Attention <span className="text-slate-500">({buckets.active.length})</span></h2></div>{buckets.active.length ? <div className="space-y-3">{[...buckets.active].sort((a,b) => Number(needsScore(b))-Number(needsScore(a))).map(game => renderGameCard(game))}</div> : <div className="card p-5 text-center text-sm text-emerald-300">All official games in this window have reported finals.</div>}</section>
+        {buckets.finals.length > 0 && <section><button onClick={() => setShowFinals(v => !v)} className="w-full card px-4 py-3 flex items-center justify-between text-left"><span className="font-black text-sm text-slate-300">Finals Reported ({buckets.finals.length})</span>{showFinals ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button>{showFinals && <div className="space-y-3 mt-3">{buckets.finals.map(game => renderGameCard(game, true))}</div>}</section>}
+        {buckets.scrimmages.length > 0 && <section><button onClick={() => setShowScrimmages(v => !v)} className="w-full card px-4 py-3 flex items-center justify-between text-left"><span className="font-black text-sm text-slate-400">Scrimmages ({buckets.scrimmages.length})</span>{showScrimmages ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button>{showScrimmages && <div className="space-y-3 mt-3">{buckets.scrimmages.map(game => renderGameCard(game, true))}</div>}</section>}
       </div>}
     </div></AdminLayout>
   )
