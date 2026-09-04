@@ -85,8 +85,32 @@ export default async function SpotlightStoryPage({ params }: Props) {
               ))}
             </div>
 
+            <section className="mt-8 rounded-2xl border border-yellow-300/15 bg-yellow-300/[0.04] p-5">
+              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-yellow-300">Keep following Section X</div>
+              <h2 className="mt-1 text-xl font-black text-white">The story doesn’t end here.</h2>
+              <p className="mt-2 text-sm leading-relaxed text-white/50">Jump straight from the story into the scoreboard, standings, teams and game coverage.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <Link href="/scores" className="rounded-xl border border-white/[0.08] bg-black/20 p-3 hover:border-yellow-300/25">
+                  <div className="text-sm font-black text-white">Scores & Schedule</div>
+                  <div className="mt-1 text-xs text-white/35">Finals, today’s games and what’s next →</div>
+                </Link>
+                <Link href="/standings" className="rounded-xl border border-white/[0.08] bg-black/20 p-3 hover:border-yellow-300/25">
+                  <div className="text-sm font-black text-white">Standings</div>
+                  <div className="mt-1 text-xs text-white/35">See where Section X teams stand →</div>
+                </Link>
+                <Link href="/schools" className="rounded-xl border border-white/[0.08] bg-black/20 p-3 hover:border-yellow-300/25">
+                  <div className="text-sm font-black text-white">Find Your School</div>
+                  <div className="mt-1 text-xs text-white/35">Schedules, teams, results and more →</div>
+                </Link>
+                <Link href="/photos" className="rounded-xl border border-white/[0.08] bg-black/20 p-3 hover:border-yellow-300/25">
+                  <div className="text-sm font-black text-white">Game Photos</div>
+                  <div className="mt-1 text-xs text-white/35">See the latest from around Section X →</div>
+                </Link>
+              </div>
+            </section>
+
             {/* Footer */}
-            <div className="mt-8 pt-6 flex items-center justify-between flex-wrap gap-3"
+            <div className="mt-6 pt-6 flex items-center justify-between flex-wrap gap-3"
               style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <Link href="/spotlight"
                 className="text-sm text-blue-400 hover:text-blue-300 font-bold transition-colors"
