@@ -210,9 +210,9 @@ export default async function SchoolPage({ params }: PageProps) {
           {todaysGames.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {todaysGames.map((game: any) => (
-                <Link key={game.id} href={`/games/${game.id}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5"
+                <Link key={game.id} href={`/game-center/${game.id}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5"
                   style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div className="text-xs uppercase tracking-widest font-black text-slate-500 mb-1">{game.sport?.sport_name || 'Sport'}</div>
+                  <div className="text-xs uppercase tracking-widest font-black text-slate-500 mb-1">{sportDisplay({ sport: game.sport }) || 'Sport'}</div>
                   <div className="font-black text-white text-lg">{atVs(game)} {opponent(game)}</div>
                   <div className="text-sm text-slate-400 mt-1">{formatTime(game.game_time)}{game.location ? ` · ${game.location}` : ''}</div>
                 </Link>
@@ -226,10 +226,10 @@ export default async function SchoolPage({ params }: PageProps) {
           {upcomingGames.length > 0 ? (
             <div className="rounded-xl overflow-hidden border" style={{ background: 'rgba(8,12,20,0.65)', borderColor: 'rgba(255,255,255,0.07)' }}>
               {upcomingGames.map((game: any) => (
-                <Link key={game.id} href={`/games/${game.id}`} className="grid grid-cols-[72px_1fr_auto] md:grid-cols-[110px_150px_1fr_auto] gap-3 items-center px-4 py-3 border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.03] transition-colors">
+                <Link key={game.id} href={`/game-center/${game.id}`} className="grid grid-cols-[72px_1fr_auto] md:grid-cols-[110px_150px_1fr_auto] gap-3 items-center px-4 py-3 border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.03] transition-colors">
                   <div className="text-xs font-black text-slate-500 uppercase">{formatDate(game.game_date)}</div>
-                  <div className="hidden md:block text-xs font-black text-slate-500 uppercase tracking-wider">{game.sport?.sport_name}</div>
-                  <div className="min-w-0"><div className="font-bold text-white truncate">{atVs(game)} {opponent(game)}</div><div className="text-xs text-slate-500 md:hidden">{game.sport?.sport_name}</div></div>
+                  <div className="hidden md:block text-xs font-black text-slate-500 uppercase tracking-wider">{sportDisplay({ sport: game.sport })}</div>
+                  <div className="min-w-0"><div className="font-bold text-white truncate">{atVs(game)} {opponent(game)}</div><div className="text-xs text-slate-500 md:hidden">{sportDisplay({ sport: game.sport })}</div></div>
                   <div className="text-xs text-slate-400 text-right">{formatTime(game.game_time)}</div>
                 </Link>
               ))}
@@ -276,9 +276,9 @@ export default async function SchoolPage({ params }: PageProps) {
                   const won = isGolf ? mine < oppScore : mine > oppScore
                   const tied = mine === oppScore
                   return (
-                    <Link key={game.id} href={`/games/${game.id}`} className="grid grid-cols-[80px_1fr_auto] gap-3 items-center px-4 py-3 border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.03]">
+                    <Link key={game.id} href={`/game-center/${game.id}`} className="grid grid-cols-[80px_1fr_auto] gap-3 items-center px-4 py-3 border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.03]">
                       <div className="text-xs text-slate-500">{formatDate(game.game_date)}</div>
-                      <div><div className="text-xs text-slate-500 uppercase">{game.sport?.sport_name}</div><div className="font-bold text-white">{atVs(game)} {opponent(game)}</div></div>
+                      <div><div className="text-xs text-slate-500 uppercase">{sportDisplay({ sport: game.sport })}</div><div className="font-bold text-white">{atVs(game)} {opponent(game)}</div></div>
                       <div className="flex items-center gap-2"><span className="font-mono text-white">{mine}-{oppScore}</span><span className={`text-xs font-black ${tied ? 'text-slate-400' : won ? 'text-green-400' : 'text-red-400'}`}>{tied ? 'T' : won ? 'W' : 'L'}</span></div>
                     </Link>
                   )
