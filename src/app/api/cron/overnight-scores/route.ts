@@ -22,17 +22,6 @@ export async function GET(req: NextRequest) {
 
   const now = new Date()
   const hour = easternHour(now)
-  const runHours = new Set([22, 0, 2, 4, 5])
-
-  if (!runHours.has(hour)) {
-    return NextResponse.json({
-      ok: true,
-      skipped: true,
-      reason: 'Outside configured Eastern overnight sweep hours.',
-      easternHour: hour,
-    })
-  }
-
   const date = hour >= 18 ? sectionXDate(now) : sectionXDateOffset(-1, now)
 
   try {
