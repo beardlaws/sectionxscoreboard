@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       db
         .from('games')
-        .select('id,game_date,game_time,sport_id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,home_score,away_score,status,source,verification_status,contest_type')
+        .select('id,game_date,game_time,sport_id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,home_score,away_score,status,source,verification_status,contest_type,result_exempt,result_exempt_reason')
         .eq('game_date', date)
         .order('game_time'),
       db.from('teams').select('id,team_name,school_id'),
@@ -75,11 +75,15 @@ export async function GET(req: NextRequest) {
         source: g.source,
         verificationStatus: g.verification_status,
         contestType: g.contest_type,
+        resultExempt: Boolean(g.result_exempt),
+        resultExemptReason: g.result_exempt_reason || null,
         resultState: scrimmage
           ? 'scrimmage'
           : excluded
             ? 'excluded'
-            : final && scored
+            : g.result_exempt
+              ? 'exempt'
+              : final && scored
               ? 'final'
               : scored
                 ? 'score-reported'
@@ -90,10 +94,13 @@ export async function GET(req: NextRequest) {
     const officialRows = rows.filter((r: any) => !['scrimmage', 'excluded'].includes(r.resultState))
     const final = officialRows.filter((r: any) => r.resultState === 'final').length
     const reported = officialRows.filter((r: any) => r.resultState === 'score-reported').length
+    const exempt = officialRows.filter((r: any) => r.resultState === 'exempt').length
     const missing = officialRows.filter((r: any) => r.resultState === 'missing-result').length
     const complete = final + reported
+    const accounted = complete + exempt
     const officialGames = officialRows.length
     const coverage = officialGames ? Math.round((complete / officialGames) * 100) : 100
+    const accountedFor = officialGames ? Math.round((accounted / officialGames) * 100) : 100
 
     return NextResponse.json({
       ok: true,
@@ -103,10 +110,12 @@ export async function GET(req: NextRequest) {
         officialGames,
         final,
         reported,
+        exempt,
         missing,
         scrimmages: rows.filter((r: any) => r.resultState === 'scrimmage').length,
         excluded: rows.filter((r: any) => r.resultState === 'excluded').length,
         coverage,
+        accountedFor,
       },
       rows,
     })
