@@ -111,7 +111,7 @@ export default function ScoreCard({ game, compact = false, featured = false }: S
   // ── COMPACT ──────────────────────────────────────────────
   if (compact) {
     return (
-      <Link href={`/games/${game.id}`} className="block group">
+      <Link href={`/game-center/${game.id}`} className="block group">
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl transition-all duration-150
           hover:bg-white/[0.04] border border-transparent hover:border-white/[0.06]"
           style={{ borderLeft: `2px solid ${isFinal ? accentColor : 'transparent'}` }}>
@@ -173,7 +173,7 @@ export default function ScoreCard({ game, compact = false, featured = false }: S
   if (isSched || isPpd || isCanceled) {
     const timeDisplay = game.game_time ? formatTime(game.game_time) : 'TBD'
     return (
-      <Link href={`/games/${game.id}`} className="block group">
+      <Link href={`/game-center/${game.id}`} className="block group">
         <div className="rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-xl group-hover:shadow-black/40"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]">
@@ -223,7 +223,7 @@ export default function ScoreCard({ game, compact = false, featured = false }: S
   const winnerColor = homeWins ? homeColor : awayWins ? awayColor : '#334155'
 
   return (
-    <Link href={`/games/${game.id}`} className="block group">
+    <Link href={`/game-center/${game.id}`} className="block group">
       <div className="rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-2xl"
         style={{
           background: featured
