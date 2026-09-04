@@ -38,11 +38,37 @@ function joined<T = any>(value: T | T[] | null | undefined): T | null {
 }
 
 function shortName(value: string) {
-  return value
-    .replace(' Central High School', '')
-    .replace(' Central School', '')
-    .replace(' High School', '')
-    .replace(' School', '')
+  const cleaned = value
+    .replace(/^CC\s+/i, '')
+    .replace(/^P\s+(?=[A-Z])/i, '')
+    .replace(/ Central Rural Junior-Senior High School$/i, '')
+    .replace(/ Central Junior-Senior High School$/i, '')
+    .replace(/ Central High School$/i, '')
+    .replace(/ Central School District$/i, '')
+    .replace(/ Central School$/i, '')
+    .replace(/ Junior-Senior High School$/i, '')
+    .replace(/ High School$/i, '')
+    .replace(/ School$/i, '')
+    .trim()
+
+  const aliases: Record<string, string> = {
+    'Ogdensburg Free Academy': 'OFA',
+    'St Lawrence Central': 'St. Lawrence Central',
+    'St. Lawrence Central': 'St. Lawrence Central',
+    'Madrid-Waddington Central': 'Madrid-Waddington',
+  }
+
+  return aliases[cleaned] || cleaned
+}
+
+function sportLabel(sport: any) {
+  const name = String(sport?.sport_name || 'Sports').trim()
+  const gender = String(sport?.gender || '').trim()
+  if (!gender) return name
+
+  const lower = name.toLowerCase()
+  if (lower.startsWith(gender.toLowerCase())) return name
+  return `${gender} ${name}`
 }
 
 function timeLabel(value: string | null) {
@@ -386,7 +412,7 @@ export default async function GameCenterPage({ params }: PageProps) {
 
             <div className="text-center mb-5">
               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-yellow-300/70">Section X Game Center</div>
-              <div className="mt-2 text-sm text-white/45">{game.sport?.gender ? `${game.sport.gender} ` : ''}{game.sport?.sport_name || 'Sports'} · {longDate(game.game_date)}</div>
+              <div className="mt-2 text-sm text-white/45">{sportLabel(game.sport)} · {longDate(game.game_date)}</div>
             </div>
 
             <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-8">
