@@ -237,7 +237,7 @@ export default function ScoreTicker() {
               const awayRec = awayId ? records[awayId] : null
 
               return (
-                <Link key={game.id} href={`/games/${game.id}`} className="flex-shrink-0 group"
+                <Link key={game.id} href={`/game-center/${game.id}`} className="flex-shrink-0 group"
                   style={{ scrollSnapAlign: 'start' }}>
                   <div className="w-44 rounded-xl px-3 py-2 transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-lg"
                     style={{
