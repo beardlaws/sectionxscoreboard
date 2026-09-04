@@ -7,7 +7,23 @@
     },
     {
       "path": "/api/cron/overnight-scores",
-      "schedule": "0 2-11 * * *"
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/overnight-scores",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/overnight-scores",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/overnight-scores",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/overnight-scores",
+      "schedule": "0 9 * * *"
     }
   ]
 }
