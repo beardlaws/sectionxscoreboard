@@ -58,7 +58,7 @@ export default function ShareCard({ game }: Props) {
       await navigator.share({
         title: `Section X Score`,
         text: getShareText(),
-        url: `https://sectionxscoreboard.com/games/${game.id}`,
+        url: `https://sectionxscoreboard.com/game-center/${game.id}`,
       })
     } catch (e) { /* user cancelled */ }
     setSharing(false)
