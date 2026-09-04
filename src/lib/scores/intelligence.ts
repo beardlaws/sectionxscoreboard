@@ -253,7 +253,7 @@ export async function previewScores(records: ScoreRecord[], source: ScoreSource)
     db
       .from('games')
       .select(
-        'id,game_date,game_time,sport_id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,home_score,away_score,status,source,verification_status,contest_type'
+        'id,game_date,game_time,sport_id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,home_score,away_score,status,source,verification_status,contest_type,result_exempt'
       )
       .gte('game_date', dates[0])
       .lte('game_date', dates[dates.length - 1]),
@@ -327,13 +327,14 @@ export async function previewScores(records: ScoreRecord[], source: ScoreSource)
     const same = dbHome === desiredHome && dbAway === desiredAway
     const protectedStatus = ['postponed', 'canceled', 'cancelled'].includes(clean(g.status))
     const scrimmage = clean(g.contest_type) === 'scrimmage'
+    const resultExempt = Boolean(g.result_exempt)
 
     let bucket = 'conflict'
     let safeToApply = false
 
     if (same) {
       bucket = 'verified'
-    } else if (scrimmage || protectedStatus) {
+    } else if (scrimmage || protectedStatus || resultExempt) {
       bucket = 'protected'
     } else if (blank) {
       bucket = 'safe-fill'
@@ -402,7 +403,7 @@ export async function applyPreviewRows(rows: any[], source: ScoreSource) {
     try {
       const { data: game, error: readError } = await db
         .from('games')
-        .select('id,home_score,away_score,status,contest_type,source')
+        .select('id,home_score,away_score,status,contest_type,source,result_exempt')
         .eq('id', row.gameId)
         .single()
 
@@ -413,10 +414,11 @@ export async function applyPreviewRows(rows: any[], source: ScoreSource) {
       const currentBlank = game.home_score == null && game.away_score == null
       const statusProtected = ['postponed', 'canceled', 'cancelled'].includes(clean(game.status))
       const scrimmage = clean(game.contest_type) === 'scrimmage'
+      const resultExempt = Boolean(game.result_exempt)
 
       // Re-check immediately before the write. This closes the race where a
       // manual/live score could have been entered after preview but before apply.
-      if (!currentBlank || statusProtected || scrimmage) {
+      if (!currentBlank || statusProtected || scrimmage || resultExempt) {
         skipped++
         actions.push({
           gameId: row.gameId,
