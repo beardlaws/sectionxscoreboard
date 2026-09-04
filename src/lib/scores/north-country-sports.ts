@@ -152,7 +152,7 @@ async function coverageForDate(date: string) {
   const db = createAdminClient()
   const { data, error } = await db
     .from('games')
-    .select('id,status,contest_type,home_score,away_score')
+    .select('id,status,contest_type,home_score,away_score,result_exempt')
     .eq('game_date', date)
 
   if (error) throw new Error(`Could not calculate score coverage: ${error.message}`)
@@ -168,12 +168,16 @@ async function coverageForDate(date: string) {
     g.home_score != null &&
     g.away_score != null
   ).length
+  const exempt = official.filter((g: any) => Boolean(g.result_exempt)).length
+  const accounted = Math.min(official.length, complete + exempt)
 
   return {
     officialGames: official.length,
     complete,
-    missing: Math.max(official.length - complete, 0),
+    missing: Math.max(official.length - accounted, 0),
     percent: official.length ? Math.round((complete / official.length) * 100) : 100,
+    exempt,
+    accountedFor: official.length ? Math.round((accounted / official.length) * 100) : 100,
     scrimmages: rows.filter((g: any) => String(g.contest_type || '').toLowerCase() === 'scrimmage').length,
   }
 }
