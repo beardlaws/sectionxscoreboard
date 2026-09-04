@@ -704,7 +704,7 @@ export default async function TeamPage({ params }: Props) {
                 return (
                   <Link
                     key={game.id}
-                    href={`/games/${game.id}`}
+                    href={`/game-center/${game.id}`}
                     className="flex items-center px-4 py-3 hover:bg-white/[0.03] transition-colors border-b border-white/[0.04] last:border-0"
                   >
                     <div className="flex-1 min-w-0">
@@ -817,7 +817,7 @@ export default async function TeamPage({ params }: Props) {
                 return (
                   <Link
                     key={game.id}
-                    href={`/games/${game.id}`}
+                    href={`/game-center/${game.id}`}
                     className="flex items-center px-4 py-2.5 hover:bg-white/[0.03] transition-colors border-b border-white/[0.04] last:border-0"
                   >
                     <div
