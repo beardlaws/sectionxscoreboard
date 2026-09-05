@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import { Metadata } from 'next'
 import Link from 'next/link'
 import { Camera } from 'lucide-react'
@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description: 'Section X high school sports photos from Northern New York.',
 }
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 60
 
 export default async function PhotosPage() {
   const supabase = createClient()
