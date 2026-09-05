@@ -2,10 +2,10 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 
-export const revalidate = 0
+export const revalidate = 60
 
 interface PageProps { params: { slug: string } }
 
