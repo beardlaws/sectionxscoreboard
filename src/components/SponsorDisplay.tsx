@@ -24,10 +24,37 @@ function dedupeKey(event: SponsorEvent, sponsorId: string, pagePath: string, pla
   return `sx-sponsor:${event}:${sponsorId}:${placement}:${pagePath}`
 }
 
+type QueuedSponsorEvent = { event: SponsorEvent; sponsor_id: string; page_path: string; placement_type: string }
+
+let pendingEvents: QueuedSponsorEvent[] = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushSponsorEvents(keepalive = false) {
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = null
+  if (!pendingEvents.length) return Promise.resolve(undefined)
+
+  const events = pendingEvents
+  pendingEvents = []
+  return fetch('/api/sponsor-track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ events }),
+    keepalive,
+  }).catch(() => undefined)
+}
+
+function queueSponsorEvent(payload: QueuedSponsorEvent, immediate = false) {
+  pendingEvents.push(payload)
+  if (immediate) return flushSponsorEvents(true)
+  if (!flushTimer) flushTimer = setTimeout(() => flushSponsorEvents(false), 1500)
+  return Promise.resolve(undefined)
+}
+
 function track(event: SponsorEvent, sponsorId: string, pagePath: string, placement: string) {
-  // A rotating sponsor strip should not create a fresh impression every few seconds
-  // for the same person on the same page. Count served/viewable once per browser
-  // session; clicks are always counted.
+  // Count served/viewable once per browser session for each sponsor placement.
+  // The short queue batches the typical served + viewable pair into one request
+  // without changing either measurement definition.
   if (event !== 'click') {
     try {
       const key = dedupeKey(event, sponsorId, pagePath, placement)
@@ -36,12 +63,10 @@ function track(event: SponsorEvent, sponsorId: string, pagePath: string, placeme
     } catch {}
   }
 
-  return fetch('/api/sponsor-track', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event, sponsor_id: sponsorId, page_path: pagePath, placement_type: placement }),
-    keepalive: event === 'click',
-  }).catch(() => undefined)
+  return queueSponsorEvent(
+    { event, sponsor_id: sponsorId, page_path: pagePath, placement_type: placement },
+    event === 'click'
+  )
 }
 
 export default function SponsorDisplay({ sponsor, placement, pagePath, variant = 'banner' }: Props) {
