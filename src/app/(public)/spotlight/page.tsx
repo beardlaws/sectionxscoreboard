@@ -1,10 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import { Metadata } from 'next'
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
 import { format } from 'date-fns'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 300
 
 export const metadata: Metadata = {
   title: 'Section X Spotlight | Stories & Features',
