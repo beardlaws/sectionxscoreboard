@@ -18,10 +18,16 @@ function sameOrigin(req: NextRequest) {
 async function shouldIgnore(req: NextRequest) {
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') return true
   if (BOT_UA.test(req.headers.get('user-agent') || '')) return true
-  return verifyAdminSession(
-    req.cookies.get(ADMIN_SESSION_COOKIE)?.value,
-    process.env.ADMIN_SESSION_TOKEN
-  )
+  return verifyAdminSession(req.cookies.get(ADMIN_SESSION_COOKIE)?.value, process.env.ADMIN_SESSION_TOKEN)
+}
+
+function validEvent(body: any) {
+  const event = String(body?.event || '')
+  const sponsorId = String(body?.sponsor_id || '')
+  const pagePath = String(body?.page_path || '')
+  const placement = String(body?.placement_type || '')
+  if (!EVENTS.has(event) || !UUID.test(sponsorId) || !PLACEMENTS.has(placement) || !pagePath.startsWith('/') || pagePath.length > 300) return null
+  return { event, sponsor_id: sponsorId, page_path: pagePath, placement_type: placement }
 }
 
 export async function POST(req: NextRequest) {
@@ -31,22 +37,30 @@ export async function POST(req: NextRequest) {
   let body: any
   try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Invalid JSON.' }, { status: 400 }) }
 
-  const event = String(body?.event || '')
-  const sponsorId = String(body?.sponsor_id || '')
-  const pagePath = String(body?.page_path || '')
-  const placement = String(body?.placement_type || '')
-
-  if (!EVENTS.has(event) || !UUID.test(sponsorId) || !PLACEMENTS.has(placement) || !pagePath.startsWith('/') || pagePath.length > 300) {
+  // Accept both the new batched payload and the previous single-event payload so
+  // clients already open during a deployment continue to measure correctly.
+  const rawEvents = Array.isArray(body?.events) ? body.events.slice(0, 20) : [body]
+  const events = rawEvents.map(validEvent)
+  if (!events.length || events.some(event => !event)) {
     return NextResponse.json({ ok: false, error: 'Invalid sponsor event.' }, { status: 400 })
   }
 
-  // Sponsor IDs originate from the active sponsor payload already rendered to the
-  // visitor. The tracking tables also enforce a foreign key to sponsors, so a
-  // separate sponsor SELECT on every impression only doubles database work.
   const db = createAdminClient()
-  const table = event === 'click' ? 'sponsor_clicks' : event === 'viewable' ? 'sponsor_viewable_impressions' : 'sponsor_impressions'
-  const { error } = await db.from(table).insert({ sponsor_id: sponsorId, page_path: pagePath, placement_type: placement })
-  if (error) return NextResponse.json({ ok: false, error: 'Tracking write failed.' }, { status: 500 })
+  const groups = {
+    served: events.filter((event: any) => event.event === 'served').map(({ event, ...row }: any) => row),
+    viewable: events.filter((event: any) => event.event === 'viewable').map(({ event, ...row }: any) => row),
+    click: events.filter((event: any) => event.event === 'click').map(({ event, ...row }: any) => row),
+  }
+
+  const writes: PromiseLike<any>[] = []
+  if (groups.served.length) writes.push(db.from('sponsor_impressions').insert(groups.served))
+  if (groups.viewable.length) writes.push(db.from('sponsor_viewable_impressions').insert(groups.viewable))
+  if (groups.click.length) writes.push(db.from('sponsor_clicks').insert(groups.click))
+
+  const results = await Promise.all(writes)
+  if (results.some(result => result.error)) {
+    return NextResponse.json({ ok: false, error: 'Tracking write failed.' }, { status: 500 })
+  }
 
   return new NextResponse(null, { status: 204 })
 }
