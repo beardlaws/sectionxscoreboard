@@ -1,7 +1,7 @@
 // src/app/(public)/schools/page.tsx
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 
 export const metadata: Metadata = {
