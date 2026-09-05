@@ -28,6 +28,16 @@ type QueuedSponsorEvent = { event: SponsorEvent; sponsor_id: string; page_path: 
 
 let pendingEvents: QueuedSponsorEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+let flushListenersInstalled = false
+
+function installFlushListeners() {
+  if (flushListenersInstalled || typeof window === 'undefined') return
+  flushListenersInstalled = true
+  window.addEventListener('pagehide', () => { void flushSponsorEvents(true) })
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') void flushSponsorEvents(true)
+  })
+}
 
 function flushSponsorEvents(keepalive = false) {
   if (flushTimer) clearTimeout(flushTimer)
@@ -45,6 +55,7 @@ function flushSponsorEvents(keepalive = false) {
 }
 
 function queueSponsorEvent(payload: QueuedSponsorEvent, immediate = false) {
+  installFlushListeners()
   pendingEvents.push(payload)
   if (immediate) return flushSponsorEvents(true)
   if (!flushTimer) flushTimer = setTimeout(() => flushSponsorEvents(false), 1500)
