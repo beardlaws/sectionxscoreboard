@@ -1,10 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import { notFound } from 'next/navigation'
 import { Metadata } from 'next'
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 60
 
 interface Props { params: { id: string } }
 
