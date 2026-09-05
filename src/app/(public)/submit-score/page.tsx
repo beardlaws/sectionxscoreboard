@@ -1,8 +1,10 @@
 // src/app/(public)/submit-score/page.tsx
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 import SubmitScoreForm from './SubmitScoreForm'
+
+export const revalidate = 3600
 
 export const metadata: Metadata = {
   title: 'Submit a Score',
