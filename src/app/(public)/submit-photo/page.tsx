@@ -1,8 +1,11 @@
 // src/app/(public)/submit-photo/page.tsx
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 import SubmitPhotoForm from './SubmitPhotoForm'
+import { sectionXDateOffset } from '@/lib/sectionx-time'
+
+export const revalidate = 60
 
 export const metadata: Metadata = {
   title: 'Submit a Photo',
@@ -15,13 +18,8 @@ type PageProps = {
 
 export default async function SubmitPhotoPage({ searchParams }: PageProps) {
   const supabase = createClient()
-  const now = new Date()
-  const start = new Date(now)
-  start.setDate(start.getDate() - 45)
-  const end = new Date(now)
-  end.setDate(end.getDate() + 150)
-  const startDate = start.toISOString().slice(0, 10)
-  const endDate = end.toISOString().slice(0, 10)
+  const startDate = sectionXDateOffset(-45)
+  const endDate = sectionXDateOffset(150)
 
   const [{ data: schools }, { data: sports }, { data: games }] = await Promise.all([
     supabase.from('schools').select('id, school_name').eq('active', true).order('school_name'),
