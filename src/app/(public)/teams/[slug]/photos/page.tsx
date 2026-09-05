@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
+export const revalidate = 60
+import { createPublicClient as createClient } from '@/lib/supabase/public'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
