@@ -101,5 +101,29 @@ export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps 
     }
   }, [active?.game?.id, index, photos])
 
+  useEffect(() => {
+    const recap = homeProps.weeklyRecap
+    if (!recap) return
+    const existing = document.querySelector('[data-weekly-recap-home]')
+    if (existing) existing.remove()
+
+    const main = document.querySelector('main')
+    if (!main) return
+    const section = document.createElement('section')
+    section.dataset.weeklyRecapHome = 'true'
+    section.className = 'max-w-5xl mx-auto px-4 my-6'
+    section.innerHTML = `
+      <a href="/weekly-recap" style="display:block;text-decoration:none;border:1px solid rgba(59,130,246,.25);background:linear-gradient(135deg,rgba(37,99,235,.14),rgba(8,12,20,.94));border-radius:16px;padding:18px;box-shadow:0 12px 35px rgba(0,0,0,.18)">
+        <div style="font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:#60a5fa;margin-bottom:7px">WEEKLY RECAP · ${recap.week_label || ''}</div>
+        <div style="font-family:var(--font-display);font-size:22px;line-height:1.05;font-weight:900;color:#fff;margin-bottom:7px">${recap.title}</div>
+        <div style="font-size:13px;line-height:1.45;color:#94a3b8;margin-bottom:12px">${recap.summary || 'Catch up on the biggest scores and storylines from around Section X.'}</div>
+        <span style="display:inline-flex;align-items:center;background:#2563eb;color:#fff;border-radius:8px;padding:9px 13px;font-size:12px;font-weight:900">WATCH THE RECAP →</span>
+      </a>`
+    const firstSection = main.querySelector('section')
+    if (firstSection?.nextSibling) main.insertBefore(section, firstSection.nextSibling)
+    else main.prepend(section)
+    return () => section.remove()
+  }, [homeProps.weeklyRecap])
+
   return <HomeClientAny {...homeProps} featuredPhoto={active} />
 }
