@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const auth = createClient()
-  const { data: { user } } = await auth.auth.getUser()
-  if (!user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  const isAdmin = await verifyAdminSession(req.cookies.get(ADMIN_SESSION_COOKIE)?.value, process.env.ADMIN_SESSION_TOKEN)
+  if (!isAdmin) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   let body:any
   try { body = await req.json() } catch { return NextResponse.json({ok:false,error:'Invalid request.'},{status:400}) }
   if (!body?.title || !body?.slug || !body?.published_date || (!body?.facebook_embed_url && !body?.facebook_url)) return NextResponse.json({ok:false,error:'Title, date, and Facebook video are required.'},{status:400})
