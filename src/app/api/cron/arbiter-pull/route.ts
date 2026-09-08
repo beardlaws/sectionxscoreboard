@@ -11,7 +11,7 @@ const clean=(v:unknown)=>String(v??'').toLowerCase().replace(/[^a-z0-9]+/g,' ').
 const meaningfulLocation=(v:unknown)=>{const c=clean(v);return Boolean(c)&&!['tba','not listed','z','unknown'].includes(c)}
 const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':'Scheduled'
 const contestType=(v:unknown)=>clean(v)==='scrimmage'?'Scrimmage':'Game'
-const leagueDesignation=(v:unknown)=>clean(v)==='league'?'League':clean(v)==='non league'?'Non-League':null
+const leagueDesignation=(v:unknown)=>clean(v)==='league'?'League':['non league','tournament'].includes(clean(v))?'Non-League':null
 
 function deletedIds(payload:unknown){
   const values=Array.isArray(payload)?payload:payload==null?[]:[payload]
