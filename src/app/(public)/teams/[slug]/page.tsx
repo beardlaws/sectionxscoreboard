@@ -1,4 +1,5 @@
 import { createPublicClient as createClient } from '@/lib/supabase/public'
+import { unstable_noStore as noStore } from 'next/cache'
 import { notFound } from 'next/navigation'
 import { Metadata } from 'next'
 import Link from 'next/link'
