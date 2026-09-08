@@ -1,4 +1,5 @@
 import { createPublicClient as createClient } from '@/lib/supabase/public'
+import { unstable_noStore as noStore } from 'next/cache'
 import { notFound } from 'next/navigation'
 import { Metadata } from 'next'
 import Link from 'next/link'
@@ -727,6 +728,11 @@ export default async function TeamPage({ params }: Props) {
                       >
                         {opp}
                       </span>
+                      {(game as any).league_designation && (
+                        <span className={`ml-2 text-[9px] font-black uppercase tracking-wide ${(game as any).league_designation === 'League' ? 'text-emerald-300' : 'text-slate-500'}`}>
+                          {(game as any).league_designation}
+                        </span>
+                      )}
                     </div>
 
                     <div className="text-right flex-shrink-0 ml-4">
