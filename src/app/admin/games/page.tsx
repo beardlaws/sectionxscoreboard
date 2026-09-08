@@ -17,13 +17,17 @@ export default function AdminGamesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [updatingLeague, setUpdatingLeague] = useState<string | null>(null);
+  const [teams, setTeams] = useState<any[]>([]);
+  const [editingSchedule, setEditingSchedule] = useState<string | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState<any>({});
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   const fetchGames = useCallback(async () => {
     setLoading(true);
     let query = supabase
       .from('games')
       .select(`
-        id, game_date, game_time, home_score, away_score, status, source, parser_confidence, contest_type, league_designation, league_designation_override, league_designation_note,
+        id, game_date, game_time, location, home_team_id, away_team_id, sport_id, home_score, away_score, status, source, parser_confidence, contest_type, league_designation, league_designation_override, league_designation_note, schedule_override, schedule_override_note,
         sport:sports(sport_name),
         home_team:teams!games_home_team_id_fkey(team_name, school:schools(school_name)),
         away_team:teams!games_away_team_id_fkey(team_name, school:schools(school_name))
@@ -42,6 +46,7 @@ export default function AdminGamesPage() {
   useEffect(() => {
     fetchGames();
     supabase.from('sports').select('id, sport_name').order('sport_name').then(({ data }) => setSports(data || []));
+    supabase.from('teams').select('id, sport_id, team_name, school:schools(school_name)').eq('active', true).order('team_name').then(({ data }) => setTeams(data || []));
   }, [fetchGames]);
 
   async function deleteGame(id: string) {
@@ -96,6 +101,61 @@ export default function AdminGamesPage() {
       alert(error?.message || 'Could not update league designation.');
     } finally {
       setUpdatingLeague(null);
+    }
+  }
+
+  function startScheduleEdit(game: any) {
+    setEditingSchedule(game.id);
+    setScheduleDraft({
+      gameDate: game.game_date || '',
+      gameTime: game.game_time ? String(game.game_time).slice(0,5) : '',
+      location: game.location || '',
+      homeTeamId: game.home_team_id || '',
+      awayTeamId: game.away_team_id || '',
+    });
+  }
+
+  async function saveScheduleOverride(game: any) {
+    setSavingSchedule(true);
+    try {
+      const res = await fetch('/api/admin/games/schedule-override', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          gameId: game.id,
+          mode: 'lock',
+          ...scheduleDraft,
+          note: 'Set manually in Game Manager',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Could not save schedule override.');
+      setEditingSchedule(null);
+      await fetchGames();
+    } catch (error: any) {
+      alert(error?.message || 'Could not save schedule override.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function restoreScheduleAuto(game: any) {
+    if (!confirm('Remove the manual schedule lock? Arbiter will be allowed to update this game again.')) return;
+    setSavingSchedule(true);
+    try {
+      const res = await fetch('/api/admin/games/schedule-override', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ gameId: game.id, mode: 'auto' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Could not restore automatic schedule syncing.');
+      setEditingSchedule(null);
+      await fetchGames();
+    } catch (error: any) {
+      alert(error?.message || 'Could not restore automatic syncing.');
+    } finally {
+      setSavingSchedule(false);
     }
   }
 
@@ -207,10 +267,12 @@ export default function AdminGamesPage() {
                         {game.league_designation}{game.league_designation_override ? ' · manual' : ' · Arbiter'}
                       </span>
                     )}
+                    {game.schedule_override && <span className="text-xs font-bold text-amber-300">Schedule · manual</span>}
                     <span className={`text-xs font-medium ${statusColor[game.status] || 'text-slate-400'}`}>{game.status}</span>
                     {game.parser_confidence === 'Low' && <span className="text-xs text-red-400">⚠ Low confidence</span>}
                   </div>
                 </div>
+                <button onClick={() => startScheduleEdit(game)} className="px-2.5 py-1.5 rounded text-xs font-bold text-blue-300 border border-blue-400/20 bg-blue-400/5 hover:bg-blue-400/10">Edit schedule</button>
                 {game.contest_type !== 'Scrimmage' && (
                   <select
                     value={game.league_designation_override ? (game.league_designation || 'Auto') : 'Auto'}
@@ -231,6 +293,36 @@ export default function AdminGamesPage() {
                 >
                   {deleting === game.id ? '...' : <Trash2 size={15} />}
                 </button>
+                {editingSchedule === game.id && (
+                  <div className="w-full basis-full mt-2 rounded-xl border border-white/10 bg-black/30 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                    <label className="text-xs text-slate-400">Date
+                      <input type="date" value={scheduleDraft.gameDate || ''} onChange={e => setScheduleDraft((d:any)=>({...d,gameDate:e.target.value}))} className="input w-full mt-1" />
+                    </label>
+                    <label className="text-xs text-slate-400">Time
+                      <input type="time" value={scheduleDraft.gameTime || ''} onChange={e => setScheduleDraft((d:any)=>({...d,gameTime:e.target.value}))} className="input w-full mt-1" />
+                    </label>
+                    <label className="text-xs text-slate-400">Home
+                      <select value={scheduleDraft.homeTeamId || ''} onChange={e => setScheduleDraft((d:any)=>({...d,homeTeamId:e.target.value}))} className="input w-full mt-1">
+                        <option value="">TBD</option>
+                        {teams.filter(t=>t.sport_id===game.sport_id).map(t=><option key={t.id} value={t.id}>{(t.school as any)?.school_name || t.team_name}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs text-slate-400">Away
+                      <select value={scheduleDraft.awayTeamId || ''} onChange={e => setScheduleDraft((d:any)=>({...d,awayTeamId:e.target.value}))} className="input w-full mt-1">
+                        <option value="">TBD</option>
+                        {teams.filter(t=>t.sport_id===game.sport_id).map(t=><option key={t.id} value={t.id}>{(t.school as any)?.school_name || t.team_name}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs text-slate-400">Location
+                      <input value={scheduleDraft.location || ''} onChange={e => setScheduleDraft((d:any)=>({...d,location:e.target.value}))} className="input w-full mt-1" />
+                    </label>
+                    <div className="sm:col-span-2 lg:col-span-5 flex flex-wrap gap-2 pt-1">
+                      <button onClick={() => saveScheduleOverride(game)} disabled={savingSchedule} className="px-3 py-2 rounded text-xs font-black bg-blue-500/20 text-blue-200 border border-blue-400/25">{savingSchedule ? 'Saving…' : 'Save & lock schedule'}</button>
+                      {game.schedule_override && <button onClick={() => restoreScheduleAuto(game)} disabled={savingSchedule} className="px-3 py-2 rounded text-xs font-bold bg-amber-500/10 text-amber-200 border border-amber-400/20">Return to Arbiter auto-sync</button>}
+                      <button onClick={() => setEditingSchedule(null)} className="px-3 py-2 rounded text-xs font-bold text-slate-400">Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
