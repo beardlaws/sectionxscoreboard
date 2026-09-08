@@ -24,14 +24,14 @@ function orientScores(row:any,game:any){
   if(ah===da&&aa===dh)return{homeScore:as,awayScore:hs,orientation:'reversed'}
   return null
 }
-function scheduleSeverity(bucket:unknown){const b=clean(bucket);if(b==='orphaned link')return 'blocker';if(['source cancelled','manual review','event sport','external only'].includes(b))return 'info';return 'review'}
+function scheduleSeverity(bucket:unknown){const b=clean(bucket);if(b==='orphaned link')return 'blocker';if(['source cancelled','manual review','event sport','external only','shared event id'].includes(b))return 'info';return 'review'}
 function operationalTriage(x:any){
   const k=clean(x?.kind),b=clean(x?.bucket),s=clean(x?.severity),detail=clean(x?.detail),sourceType=clean(x?.sourceType),sourceTitle=clean(x?.sourceTitle)
   if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&x?.sharedEventId)return 'informational'
   if(b==='stable id update'&&detail.includes('opponent orientation mismatch')&&(sourceType==='scrimmage'||sourceTitle.includes('relay carnival')))return 'informational'
   if(s==='blocker'||s==='review')return 'attention'
   if(b==='manual review'||b==='roster missing')return 'waiting'
-  if(b==='event sport'||b==='source cancelled'||b==='external only')return 'informational'
+  if(b==='event sport'||b==='source cancelled'||b==='external only'||b==='shared event id')return 'informational'
   if(k==='score')return 'attention'
   return 'informational'
 }
