@@ -12,6 +12,7 @@ const day=(v:any)=>String(v||'').slice(0,10)
 const time=(v:any)=>String(v||'').slice(11,16)
 const slug=(v:any)=>norm(v).replace(/\s+/g,'-').slice(0,120)
 const isXC=(g:any)=>norm(g?.sportName).includes('cross country')
+const isVarsityXC=(g:any)=>isXC(g)&&norm(g?.levelName)==='varsity'&&norm(g?.gameTypeName)!=='practice'
 const gender=(g:any)=>norm(g?.gender).includes('girl')?'Girls':norm(g?.gender).includes('boy')?'Boys':null
 const decode=(v:any)=>clean(v).replace(/&amp;/gi,'&').replace(/&nbsp;/gi,' ').replace(/&#39;|&apos;/gi,"'")
 const title=(g:any)=>{
@@ -57,7 +58,7 @@ export async function GET(req:NextRequest){
   const rangeEnd=req.nextUrl.searchParams.get('end')||one||new Date(Date.now()+30*86400000).toISOString().slice(0,10)
   const start=`${rangeStart}T00:00:00.000Z`,end=`${rangeEnd}T23:59:59.999Z`
   const raw=arr(await arbiterApi.games({SchoolIds:Array.from(SECTION_X_SCHOOL_IDS),DateFilter:'Range',GameStartDate:start,GameEndDate:end,IncludeDeletedGames:false,IncludePendingInformation:false}))
-  const xc=raw.filter(isXC)
+  const xc=raw.filter(isVarsityXC)
   const groups=new Map<string,any[]>()
   for(const g of xc){
     const k=[day(g.fromDate),time(g.fromDate),norm(g.subSiteName||g.siteName)].join('|')
