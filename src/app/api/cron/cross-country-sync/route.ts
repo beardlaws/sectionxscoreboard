@@ -4,7 +4,7 @@ import { arbiterApi } from '@/lib/arbiter/client'
 import { SECTION_X_SCHOOL_IDS } from '@/lib/arbiter/schedule-intelligence'
 
 export const dynamic='force-dynamic'
-export const maxDuration=120
+export const maxDuration=300
 const arr=(v:any)=>Array.isArray(v)?v:v==null?[]:[v]
 const clean=(v:any)=>String(v||'').trim()
 const norm=(v:any)=>clean(v).toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()
@@ -26,12 +26,21 @@ const statusFor=(rows:any[])=>{
 
 export async function GET(req:NextRequest){
   const db=createAdminClient()
-  const token=req.headers.get('x-sectionx-automation-key')||''
-  const {data:allowed,error:authError}=await db.rpc('verify_sectionx_automation_key',{p_token:token})
-  if(authError||allowed!==true)return NextResponse.json({ok:false,error:'Unauthorized'},{status:401})
+  const repairToken=req.headers.get('x-sectionx-automation-key')||''
+  let authorized=false
+  if(repairToken){
+    const {data:allowed}=await db.rpc('verify_sectionx_automation_key',{p_token:repairToken})
+    authorized=allowed===true
+  }
+  const cronSecret=process.env.CRON_SECRET
+  if(cronSecret&&req.headers.get('authorization')===`Bearer ${cronSecret}`)authorized=true
+  if(!authorized)return NextResponse.json({ok:false,error:'Unauthorized'},{status:401})
 
-  const target=req.nextUrl.searchParams.get('date')||new Date().toISOString().slice(0,10)
-  const start=`${target}T00:00:00.000Z`,end=`${target}T23:59:59.999Z`
+  const one=req.nextUrl.searchParams.get('date')
+  const today=new Date().toISOString().slice(0,10)
+  const rangeStart=req.nextUrl.searchParams.get('start')||one||today
+  const rangeEnd=req.nextUrl.searchParams.get('end')||one||new Date(Date.now()+30*86400000).toISOString().slice(0,10)
+  const start=`${rangeStart}T00:00:00.000Z`,end=`${rangeEnd}T23:59:59.999Z`
   const raw=arr(await arbiterApi.games({SchoolIds:Array.from(SECTION_X_SCHOOL_IDS),DateFilter:'Range',GameStartDate:start,GameEndDate:end,IncludeDeletedGames:false,IncludePendingInformation:false}))
   const xc=raw.filter(isXC)
   const groups=new Map<string,any[]>()
@@ -55,11 +64,12 @@ export async function GET(req:NextRequest){
     const meetName=title(first)
     const location=clean(first?.subSiteName||first?.siteName)||null
     const meetTime=time(first?.fromDate)||null
+    const meetDate=day(first?.fromDate)||rangeStart
     const sourceKey='arbiter:'+slug(key)
     let {data:meet}=await db.from('cross_country_meets').select('*').eq('source_event_key',sourceKey).maybeSingle()
 
     if(!meet){
-      const ins=await db.from('cross_country_meets').insert({season_id:season.id,meet_name:meetName,meet_date:target,meet_time:meetTime,location,meet_type:'League',status:statusFor(rows),source:'arbiter',source_event_key:sourceKey,source_payload:rows}).select('*').single()
+      const ins=await db.from('cross_country_meets').insert({season_id:season.id,meet_name:meetName,meet_date:meetDate,meet_time:meetTime,location,meet_type:'League',status:statusFor(rows),source:'arbiter',source_event_key:sourceKey,source_payload:rows}).select('*').single()
       meet=ins.data
     }else if(meet.status!=='Final'){
       const upd=await db.from('cross_country_meets').update({meet_name:meetName,meet_time:meetTime,location,status:statusFor(rows),source_payload:rows,updated_at:new Date().toISOString()}).eq('id',meet.id).select('*').single()
@@ -80,8 +90,8 @@ export async function GET(req:NextRequest){
       await db.from('cross_country_team_results').delete().eq('meet_id',meet.id)
       if(dedup.length)await db.from('cross_country_team_results').insert(dedup.map((p:any)=>({...p,meet_id:meet.id,team_score:null,finish_place:null})))
     }
-    meets.push({id:meet?.id,name:meetName,time:meetTime,location,participants:dedup.length})
+    meets.push({id:meet?.id,name:meetName,date:meetDate,time:meetTime,location,participants:dedup.length})
   }
 
-  return NextResponse.json({ok:true,date:target,records:xc.length,meets})
+  return NextResponse.json({ok:true,start:rangeStart,end:rangeEnd,records:xc.length,meets})
 }

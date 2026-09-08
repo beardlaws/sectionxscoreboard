@@ -22,7 +22,7 @@ function StandingsTable({ title, rows }: { title:string; rows:any[] }) {
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead><tr className="text-white/35 border-b border-white/[0.05]"><th className="text-left px-4 py-2">Team</th><th className="text-center px-2 py-2">W</th><th className="text-center px-2 py-2">L</th><th className="text-center px-2 py-2">Pct</th></tr></thead>
-          <tbody>{rows.map((row:any)=><tr key={row.team_id} className="border-b last:border-b-0 border-white/[0.04]"><td className="px-4 py-2.5"><Link href={`/schools/${row.school_slug}`} className="font-bold text-white/80 hover:text-lime-300">{row.school_name}</Link></td><td className="text-center font-mono text-white/70">{row.wins}</td><td className="text-center font-mono text-white/70">{row.losses}</td><td className="text-center font-mono text-white/50">{row.win_pct.toFixed(3)}</td></tr>)}</tbody>
+          <tbody>{rows.map((row:any)=><tr key={row.team_id} className="border-b last:border-b-0 border-white/[0.04]"><td className="px-4 py-2.5"><Link href={row.team_slug ? `/teams/${row.team_slug}` : `/schools/${row.school_slug}`} className="font-bold text-white/80 hover:text-lime-300">{row.school_name}</Link></td><td className="text-center font-mono text-white/70">{row.wins}</td><td className="text-center font-mono text-white/70">{row.losses}</td><td className="text-center font-mono text-white/50">{row.win_pct.toFixed(3)}</td></tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -41,16 +41,17 @@ export default async function CrossCountryPage() {
   const girlsSport = sportRows.find((s:any)=>s.slug==='girls-cross-country')
   const sportIds = sportRows.map((s:any)=>s.id)
 
-  const [{data:meets},{data:results},{data:teamSeasons}] = await Promise.all([
+  const [{data:meets},{data:results},{data:xcTeams}] = await Promise.all([
     season ? db.from('cross_country_meets').select('*').eq('season_id',season.id).order('meet_date',{ascending:false}) : Promise.resolve({data:[] as any[]}),
     sportIds.length ? db.from('cross_country_team_results').select(`*,sport:sports(id,slug,gender,sport_name),team:teams(id,team_name,slug,sport_id,school:schools(id,school_name,slug,is_section_x,primary_color,logo_url)),external_opponent:external_opponents(id,name,slug)`).in('sport_id',sportIds) : Promise.resolve({data:[] as any[]}),
-    season ? db.from('team_seasons').select(`team_id,active_for_season,team:teams(id,team_name,slug,sport_id,active,school:schools(id,school_name,slug,is_section_x))`).eq('season_id',season.id).neq('active_for_season',false) : Promise.resolve({data:[] as any[]})
+    sportIds.length ? db.from('teams').select(`id,team_name,slug,sport_id,level,active,school:schools(id,school_name,slug,is_section_x)`).in('sport_id',sportIds).eq('active',true) : Promise.resolve({data:[] as any[]})
   ])
 
   const allResults = results || []
   const meetRows = (meets || []).map((meet:any)=>({...meet,results:allResults.filter((r:any)=>r.meet_id===meet.id)}))
-  const boysStandings = boysSport ? calculateCrossCountryStandings(meets||[],allResults,teamSeasons||[],boysSport.id) : []
-  const girlsStandings = girlsSport ? calculateCrossCountryStandings(meets||[],allResults,teamSeasons||[],girlsSport.id) : []
+  const xcTeamSeasonShape = (xcTeams || []).filter((team:any)=>!team.level || team.level.toLowerCase().trim()==='varsity').map((team:any)=>({team}))
+  const boysStandings = boysSport ? calculateCrossCountryStandings(meets||[],allResults,xcTeamSeasonShape,boysSport.id) : []
+  const girlsStandings = girlsSport ? calculateCrossCountryStandings(meets||[],allResults,xcTeamSeasonShape,girlsSport.id) : []
   const finalMeets = meetRows.filter((m:any)=>m.status==='Final')
   const upcoming = meetRows.filter((m:any)=>m.status!=='Final' && m.status!=='Canceled')
 
