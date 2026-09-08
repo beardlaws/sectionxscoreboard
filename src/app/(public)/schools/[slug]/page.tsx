@@ -258,7 +258,7 @@ export default async function SchoolPage({ params }: PageProps) {
                 const rec = teamRecords.get(team.id) || { w: 0, l: 0, t: 0 }
                 const next = nextGameByTeam.get(team.id)
                 return (
-                  <Link key={team.id} href={team.sport?.slug?.includes('cross-country') ? '/sports/cross-country' : `/teams/${team.slug}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                  <Link key={team.id} href={`/teams/${team.slug}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5 hover:shadow-lg"
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
