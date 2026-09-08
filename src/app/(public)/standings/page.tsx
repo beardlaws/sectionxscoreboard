@@ -1,5 +1,6 @@
 // src/app/(public)/standings/page.tsx
 import { createPublicClient as createClient } from '@/lib/supabase/public'
+import { unstable_noStore as noStore } from 'next/cache'
 import { Metadata } from 'next'
 import Link from 'next/link'
 import { calculateStandings } from '@/lib/standings'
@@ -41,6 +42,7 @@ function sportLabel(sport: any) {
 }
 
 export default async function StandingsPage({ searchParams }: Props) {
+  noStore()
   const supabase = createClient()
 
   const { data: allSeasons } = await supabase
