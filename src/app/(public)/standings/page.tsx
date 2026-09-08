@@ -110,7 +110,8 @@ export default async function StandingsPage({ searchParams }: Props) {
     })
     .sort((a: any, b: any) => sportLabel(a).localeCompare(sportLabel(b)))
 
-  const selectedSlug = searchParams.sport || uniqueSports[0]?.slug
+  const preferredDefault = uniqueSports.find((s:any)=>s.slug==='boys-soccer') || uniqueSports.find((s:any)=>s.slug==='girls-soccer') || uniqueSports[0]
+  const selectedSlug = searchParams.sport || preferredDefault?.slug
   const selectedSport =
     (allSports || []).find((s: any) => s.slug === selectedSlug) ||
     uniqueSports[0]
@@ -366,7 +367,7 @@ export default async function StandingsPage({ searchParams }: Props) {
               ? 'Cross country league standings use head-to-head results within Section X league meets. Lower team score wins. Invitational results do not affect league W-L.'
               : selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
                 ? 'Golf standings: lower scores are better.'
-                : 'BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better.'
+                : 'BTM (Binomial Tournament Method): (W + 0.5T + 0.5) / (W + L + T + 1). Higher is better.'
             }
           </p>
         )}
