@@ -82,6 +82,19 @@ export default async function SchoolPage({ params }: PageProps) {
       return { ...team, sport, division: record.division || '', class: record.class || '' }
     })
 
+  const { data: xcFallbackTeams } = await supabase
+    .from('teams')
+    .select(`id,team_name,slug,school_id,sport_id,level,active,sport:sports(id,sport_name,slug,gender,season_type)`)
+    .eq('school_id', school.id)
+    .eq('active', true)
+
+  for (const raw of xcFallbackTeams || []) {
+    const sport = one<any>((raw as any).sport)
+    if (!sport || !['boys-cross-country','girls-cross-country'].includes(sport.slug)) continue
+    if (activeTeams.some((t:any)=>t.id === (raw as any).id)) continue
+    activeTeams.push({ ...(raw as any), sport, division: '', class: '' })
+  }
+
   const teamIds = activeTeams.map((t: any) => t.id)
   const sportIds = [...new Set(activeTeams.map((t: any) => t.sport?.id).filter(Boolean))]
 
@@ -245,7 +258,7 @@ export default async function SchoolPage({ params }: PageProps) {
                 const rec = teamRecords.get(team.id) || { w: 0, l: 0, t: 0 }
                 const next = nextGameByTeam.get(team.id)
                 return (
-                  <Link key={team.id} href={`/teams/${team.slug}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                  <Link key={team.id} href={team.sport?.slug?.includes('cross-country') ? '/sports/cross-country' : `/teams/${team.slug}`} className="rounded-xl p-4 border transition-all hover:-translate-y-0.5 hover:shadow-lg"
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
