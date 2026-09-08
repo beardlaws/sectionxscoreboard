@@ -31,6 +31,15 @@ function normalizeJoinedRecord<T = any>(value: T | T[] | null | undefined): T | 
   return value || null
 }
 
+function sportLabel(sport: any) {
+  const name = String(sport?.sport_name || '').trim()
+  const gender = String(sport?.gender || '').trim()
+  if ((gender === 'Boys' || gender === 'Girls') && !name.toLowerCase().startsWith(gender.toLowerCase() + ' ')) {
+    return `${gender} ${name}`
+  }
+  return name
+}
+
 export default async function StandingsPage({ searchParams }: Props) {
   const supabase = createClient()
 
@@ -92,11 +101,17 @@ export default async function StandingsPage({ searchParams }: Props) {
     .order('sport_name')
 
   const uniqueSports = (allSports || [])
-    .filter((sport: any) => activeSportIds.has(sport.id))
-    .sort((a: any, b: any) => a.sport_name.localeCompare(b.sport_name))
+    .filter((sport: any) => {
+      if (activeSportIds.has(sport.id)) return true
+      if (selectedSeason?.season_type === 'Fall' && ['boys-cross-country','girls-cross-country'].includes(sport.slug)) return true
+      return false
+    })
+    .sort((a: any, b: any) => sportLabel(a).localeCompare(sportLabel(b)))
 
   const selectedSlug = searchParams.sport || uniqueSports[0]?.slug
-  const selectedSport = uniqueSports.find((s: any) => s.slug === selectedSlug) || uniqueSports[0]
+  const selectedSport =
+    (allSports || []).find((s: any) => s.slug === selectedSlug) ||
+    uniqueSports[0]
 
   let standings: any[] = []
 
@@ -196,6 +211,8 @@ export default async function StandingsPage({ searchParams }: Props) {
     row => row.wins === 0 && row.losses === 0 && row.ties === 0
   )
 
+  const isCrossCountry = selectedSport?.slug === 'boys-cross-country' || selectedSport?.slug === 'girls-cross-country'
+
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 py-6">
@@ -245,11 +262,7 @@ export default async function StandingsPage({ searchParams }: Props) {
         {uniqueSports.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-5">
             {uniqueSports.map((s: any) => {
-              const fullName =
-                s.gender === 'Boys' || s.gender === 'Girls'
-                  ? `${s.gender} ${s.sport_name}`
-                  : s.sport_name
-
+              const fullName = sportLabel(s)
               const icon = icons[fullName] || icons[s.sport_name] || '🏆'
               const seasonParam = searchParams.season ? `&season=${searchParams.season}` : ''
 
@@ -274,12 +287,53 @@ export default async function StandingsPage({ searchParams }: Props) {
           <div className="card p-10 text-center text-slate-400">
             <p className="text-3xl mb-3">🏆</p>
             <p className="font-medium text-lg">
-              No active teams found{selectedSport ? ` for ${selectedSport.sport_name}` : ''}.
+              No active teams found{selectedSport ? ` for ${sportLabel(selectedSport)}` : ''}.
             </p>
             <p className="text-sm mt-1">
               Teams will appear here once they are activated for this season.
             </p>
           </div>
+        ) : isCrossCountry ? (
+          <>
+            <div className="mb-4 rounded-xl px-4 py-3 border border-lime-500/20 bg-lime-500/5">
+              <p className="text-sm font-bold text-lime-300">{sportLabel(selectedSport)} league standings</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                League meets only. Lower team score wins each head-to-head matchup. Invitational results do not affect W-L.
+              </p>
+            </div>
+            <div className="card overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-slate-400 border-b border-white/10 bg-white/[0.02]">
+                      <th className="text-left px-4 py-3 font-medium w-8"></th>
+                      <th className="text-left px-2 py-3 font-medium">Team</th>
+                      <th className="text-center px-3 py-3 font-medium">W</th>
+                      <th className="text-center px-3 py-3 font-medium">L</th>
+                      <th className="text-center px-3 py-3 font-medium">T</th>
+                      <th className="text-center px-3 py-3 font-medium">PCT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {standings.map((row: any, i: number) => (
+                      <tr key={row.team_id} className="border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.02] transition-colors">
+                        <td className="px-4 py-3 text-slate-500 text-xs font-mono">{i + 1}</td>
+                        <td className="px-2 py-3">
+                          <Link href={`/teams/${row.team_slug || row.slug}`} className="text-white font-medium hover:text-blue-400 transition-colors text-sm">
+                            {row.school_name}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-3 text-center font-mono text-slate-300">{row.wins}</td>
+                        <td className="px-3 py-3 text-center font-mono text-slate-300">{row.losses}</td>
+                        <td className="px-3 py-3 text-center font-mono text-slate-400">{row.ties || 0}</td>
+                        <td className="px-3 py-3 text-center font-mono font-bold text-white">{row.win_pct.toFixed(3)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         ) : (
           <>
             {isPreseason && (
