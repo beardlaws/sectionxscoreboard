@@ -26,7 +26,7 @@ function TeamTable({label,rows}:{label:string;rows:any[]}){
       <tbody>{rows.map((r:any)=><tr key={r.id} className="border-b last:border-b-0 border-white/[0.04]">
         <td className="text-center px-4 py-3 font-black text-white/60">{r.finish_place ?? '—'}</td>
         <td className="px-3 py-3">
-          {r.team?.school?.slug?<Link href={`/schools/${r.team.school.slug}`} className="font-black text-white hover:text-lime-300">{xcTeamName(r)}</Link>:<span className="font-black text-white/75">{xcTeamName(r)}</span>}
+          {r.team?.slug?<Link href={`/teams/${r.team.slug}`} className="font-black text-white hover:text-lime-300">{xcTeamName(r)}</Link>:r.team?.school?.slug?<Link href={`/schools/${r.team.school.slug}`} className="font-black text-white hover:text-lime-300">{xcTeamName(r)}</Link>:<span className="font-black text-white/75">{xcTeamName(r)}</span>}
           {r.is_section_x&&<span className="ml-2 text-[9px] uppercase tracking-wider text-blue-300/60">Section X</span>}
         </td>
         <td className="text-right px-5 py-3 text-xl font-black font-mono text-white">{r.team_score ?? '—'}</td>
