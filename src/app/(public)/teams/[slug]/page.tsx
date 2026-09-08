@@ -276,7 +276,7 @@ export default async function TeamPage({ params }: Props) {
                   </p>
                 )}
 
-                {form.length > 0 && (
+                {!isCrossCountry && form.length > 0 && (
                   <div className="flex items-center gap-1.5 mt-3">
                     <span className="text-white/40 text-xs mr-1">
                       Last {form.length}:
@@ -309,7 +309,7 @@ export default async function TeamPage({ params }: Props) {
                 )}
               </div>
 
-              <div className="flex items-end gap-4 flex-shrink-0">
+              {!isCrossCountry && <div className="flex items-end gap-4 flex-shrink-0">
                 <div className="text-center">
                   <div
                     className="text-5xl font-black text-white leading-none"
@@ -373,7 +373,7 @@ export default async function TeamPage({ params }: Props) {
                     </div>
                   </>
                 )}
-              </div>
+              </div>}
             </div>
 
             <div className="flex items-center gap-2 mt-4 flex-wrap">
