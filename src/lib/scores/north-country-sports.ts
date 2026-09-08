@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { applyPreviewRows, previewScores, ScoreRecord } from '@/lib/scores/intelligence'
+import { previewNorthCountrySportsCrossCountry } from '@/lib/scores/north-country-sports-xc'
 
 const SOURCE_URL = 'https://www.northcountrysports.net/'
 
@@ -192,6 +193,8 @@ export async function runNorthCountrySportsSweep(date: string, apply = true) {
     : { updated: 0, skipped: 0, failed: 0, gamesCreated: 0, actions: [] }
 
   const coverage = await coverageForDate(date)
+  let crossCountry:any=null
+  try{crossCountry=await previewNorthCountrySportsCrossCountry(date)}catch(e:any){crossCountry={published:false,error:e?.message||'XC check failed',suggestions:[]}}
   const audit = {
     source: source.source,
     sourceUrl: source.sourceUrl,
@@ -201,6 +204,7 @@ export async function runNorthCountrySportsSweep(date: string, apply = true) {
     preview: preview.summary,
     applied,
     coverage,
+    crossCountry:{published:crossCountry?.published||false,suggestions:(crossCountry?.suggestions||[]).map((s:any)=>({meetId:s.meetId,meetName:s.meetName,matched:s.matched,expected:s.expected,confidence:s.confidence}))},
   }
 
   await db.from('import_logs').insert({
@@ -224,5 +228,6 @@ export async function runNorthCountrySportsSweep(date: string, apply = true) {
     preview: preview.summary,
     applied,
     coverage,
+    crossCountry:audit.crossCountry,
   }
 }
