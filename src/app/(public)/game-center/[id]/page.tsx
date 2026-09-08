@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { unstable_noStore as noStore } from 'next/cache'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
@@ -244,6 +245,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function GameCenterPage({ params }: PageProps) {
+  noStore()
   const supabase = createClient()
   const { data, error } = await supabase
     .from('games')
