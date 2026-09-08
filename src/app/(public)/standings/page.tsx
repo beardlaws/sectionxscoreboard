@@ -3,6 +3,7 @@ import { createPublicClient as createClient } from '@/lib/supabase/public'
 import { Metadata } from 'next'
 import Link from 'next/link'
 import { calculateStandings } from '@/lib/standings'
+import { calculateCrossCountryStandings } from '@/lib/cross-country'
 import { GameWithTeams } from '@/types'
 import { Trophy } from 'lucide-react'
 import PublicLayout from '@/components/layout/PublicLayout'
@@ -100,23 +101,31 @@ export default async function StandingsPage({ searchParams }: Props) {
   let standings: any[] = []
 
   if (selectedSport && selectedSeasonId) {
-    const { data: gamesData } = await supabase
-      .from('games')
-      .select(`*, sport:sports(sport_name, gender), home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`)
-      .eq('sport_id', selectedSport.id)
-      .eq('season_id', selectedSeasonId)
-      .eq('status', 'Final')
-
     const sportTeamSeasons = activeTeamSeasons.filter((record: any) => {
       const team = normalizeJoinedRecord<any>(record.team)
       return team?.sport_id === selectedSport.id
     })
 
-    standings = calculateStandings(
-      (gamesData as GameWithTeams[]) || [],
-      sportTeamSeasons,
-      selectedSport.sport_name
-    )
+    if (selectedSport.slug === 'boys-cross-country' || selectedSport.slug === 'girls-cross-country') {
+      const [{ data: xcMeets }, { data: xcResults }] = await Promise.all([
+        supabase.from('cross_country_meets').select('id,status,meet_type,season_id').eq('season_id', selectedSeasonId),
+        supabase.from('cross_country_team_results').select('meet_id,sport_id,team_id,team_score').eq('sport_id', selectedSport.id),
+      ])
+      standings = calculateCrossCountryStandings(xcMeets || [], xcResults || [], sportTeamSeasons, selectedSport.id)
+    } else {
+      const { data: gamesData } = await supabase
+        .from('games')
+        .select(`*, sport:sports(sport_name, gender), home_team:teams!games_home_team_id_fkey(*, school:schools(*)), away_team:teams!games_away_team_id_fkey(*, school:schools(*))`)
+        .eq('sport_id', selectedSport.id)
+        .eq('season_id', selectedSeasonId)
+        .eq('status', 'Final')
+
+      standings = calculateStandings(
+        (gamesData as GameWithTeams[]) || [],
+        sportTeamSeasons,
+        selectedSport.sport_name
+      )
+    }
   }
 
   interface Group { label: string; subLabel?: string; rows: any[] }
@@ -180,6 +189,7 @@ export default async function StandingsPage({ searchParams }: Props) {
     'Boys Wrestling': '🤼', 'Girls Wrestling': '🤼',
     'Boys Track': '🏃', 'Girls Track': '🏃',
     Swimming: '🏊', 'Girls Swimming': '🏊',
+    'Boys Cross Country': '🏃', 'Girls Cross Country': '🏃',
   }
 
   const isPreseason = standings.length > 0 && standings.every(
@@ -253,7 +263,7 @@ export default async function StandingsPage({ searchParams }: Props) {
                       : 'bg-white/10 text-slate-300 hover:bg-white/20'
                   }`}
                 >
-                  {icon} {s.sport_name}
+                  {icon} {fullName}
                 </Link>
               )
             })}
@@ -292,9 +302,11 @@ export default async function StandingsPage({ searchParams }: Props) {
 
         {standings.length > 0 && (
           <p className="text-xs text-slate-500 mt-4">
-            {selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
-              ? 'Golf standings: lower scores are better.'
-              : 'BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better.'
+            {selectedSport?.slug === 'boys-cross-country' || selectedSport?.slug === 'girls-cross-country'
+              ? 'Cross country league standings use head-to-head results within Section X league meets. Lower team score wins. Invitational results do not affect league W-L.'
+              : selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
+                ? 'Golf standings: lower scores are better.'
+                : 'BTM (Binomial Tournament Method): (W + 0.5) / (W + L + 1) — the official Section X playoff seeding formula. Higher is better.'
             }
           </p>
         )}
