@@ -6,11 +6,13 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
 import ScoreCard from '@/components/scores/ScoreCard'
+import CrossCountryMeetCard from '@/components/scores/CrossCountryMeetCard'
 import { isScrimmage } from '@/lib/gameType'
 import type { GameWithTeams, Sport } from '@/types'
 
 interface ScoresClientProps {
   games: GameWithTeams[]
+  crossCountryMeets: any[]
   sports: Sport[]
   selectedDate: string
   today: string
@@ -73,7 +75,7 @@ function ScrimmageCard({ game }: { game: GameWithTeams }) {
   )
 }
 
-export default function ScoresClient({ games, sports, selectedDate, today, datesWithGames }: ScoresClientProps) {
+export default function ScoresClient({ games, crossCountryMeets, sports, selectedDate, today, datesWithGames }: ScoresClientProps) {
   const router = useRouter()
   const [sportFilter, setSportFilter] = useState<string>('All')
   const [statusFilter, setStatusFilter] = useState<string>('All')
@@ -93,6 +95,16 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
     showScheduled ? filteredGames : filteredGames.filter(g => !isScrimmage(g) && (g.status === 'Final' || g.status === 'Live')),
     [filteredGames, showScheduled]
   )
+
+  const filteredCrossCountryMeets = useMemo(() => {
+    if (sportFilter !== 'All' && sportFilter !== 'Cross Country') return []
+    return (crossCountryMeets || []).filter(meet => {
+      if (statusFilter === 'Scrimmage') return meet.meet_type === 'Scrimmage'
+      if (statusFilter !== 'All' && meet.status !== statusFilter) return false
+      if (!showScheduled && meet.status !== 'Final' && meet.status !== 'Live') return false
+      return true
+    })
+  }, [crossCountryMeets, sportFilter, statusFilter, showScheduled])
 
   const grouped = useMemo(() => {
     const map = new Map<string, GameWithTeams[]>()
@@ -115,6 +127,15 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
     router.push(`/scores?date=${date}`)
   }
 
+  const offsetDate = (base: string, days: number) => {
+    const d = new Date(base + 'T12:00:00')
+    d.setDate(d.getDate() + days)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
   const displayDate = parseISO(selectedDate + 'T12:00:00')
 
   return (
@@ -126,6 +147,14 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
           Section X high school sports results and schedules
         </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[['Yesterday', -1], ['Today', 0], ['Tomorrow', 1]].map(([label, offset]) => {
+          const date = offsetDate(today, Number(offset))
+          const active = selectedDate === date
+          return <button key={String(label)} onClick={() => handleDateChange(date)} className="rounded-xl px-3 py-2 text-xs font-black transition-all" style={{background:active?'rgba(37,99,235,.22)':'rgba(255,255,255,.025)',border:active?'1px solid rgba(96,165,250,.35)':'1px solid rgba(255,255,255,.06)',color:active?'#fff':'var(--text-secondary)',fontFamily:'var(--font-display)'}}>{String(label)}</button>
+        })}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
@@ -164,8 +193,8 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
           onChange={e => setSportFilter(e.target.value)}
         >
           <option value="All">All Sports</option>
-          {sports.map(s => (
-            <option key={s.id} value={s.sport_name}>{s.sport_name}</option>
+          {[...new Set(sports.map(s => s.sport_name))].map(name => (
+            <option key={name} value={name}>{name}</option>
           ))}
         </select>
         <select
@@ -189,11 +218,11 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
       >
         {selectedDate === today ? "Today's Events" : format(displayDate, 'EEEE, MMMM d, yyyy')}
         <span className="text-sm font-normal ml-2" style={{ color: 'var(--text-muted)' }}>
-          ({filteredGames.length} event{filteredGames.length !== 1 ? 's' : ''})
+          ({filteredGames.length + filteredCrossCountryMeets.length} event{filteredGames.length + filteredCrossCountryMeets.length !== 1 ? 's' : ''})
         </span>
       </h2>
 
-      {grouped.size === 0 ? (
+      {grouped.size === 0 && filteredCrossCountryMeets.length === 0 ? (
         <div className="card p-10 text-center">
           <div className="text-4xl mb-3">📅</div>
           <p className="text-lg font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
@@ -203,6 +232,15 @@ export default function ScoresClient({ games, sports, selectedDate, today, dates
         </div>
       ) : (
         <div className="space-y-8">
+          {filteredCrossCountryMeets.length > 0 && (
+            <section>
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2" style={{ fontFamily: 'var(--font-display)' }}>
+                Cross Country
+                <span className="text-sm font-normal" style={{ color: 'var(--text-muted)' }}>({filteredCrossCountryMeets.length})</span>
+              </h3>
+              <div className="space-y-2">{filteredCrossCountryMeets.map(meet => <CrossCountryMeetCard key={meet.id} meet={meet} />)}</div>
+            </section>
+          )}
           {Array.from(grouped.entries()).map(([sport, sportGames]) => (
             <section key={sport}>
               <h3
