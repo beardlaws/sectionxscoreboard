@@ -34,6 +34,7 @@ const navSections = [
       { href: '/admin/scores/entry', label: 'Enter Score', icon: PlusCircle },
       { href: '/admin/scores/manage', label: 'Manage Games', icon: BarChart2 },
       { href: '/admin/game-center', label: 'Game Center', icon: BarChart2 },
+      { href: '/admin/cross-country', label: 'Cross Country', icon: Trophy },
       { href: '/admin/games/recap', label: 'Game Recaps', icon: PlusCircle },
       { href: '/admin/postpone', label: 'Rainout Manager', icon: Trophy },
       { href: '/admin/playoffs', label: 'Playoff Brackets', icon: Trophy },

@@ -40,18 +40,26 @@ export default async function ScoresPage({
     return true
   }) || null
 
-  const { data: games } = await supabase
-    .from('games')
-    .select(`*,
-      sport:sports(*),
-      home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
-      away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
-      external_home:external_opponents!games_external_home_opponent_id_fkey(*),
-      external_away:external_opponents!games_external_away_opponent_id_fkey(*)`)
-    .eq('game_date', selectedDate)
-    .order('game_time', { ascending: true })
+  const [{ data: games }, { data: crossCountryMeets }, { data: crossCountryResults }, { data: sports }] = await Promise.all([
+    supabase
+      .from('games')
+      .select(`*,
+        sport:sports(*),
+        home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
+        away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
+        external_home:external_opponents!games_external_home_opponent_id_fkey(*),
+        external_away:external_opponents!games_external_away_opponent_id_fkey(*)`)
+      .eq('game_date', selectedDate)
+      .order('game_time', { ascending: true }),
+    supabase.from('cross_country_meets').select('*').eq('meet_date', selectedDate).order('meet_name'),
+    supabase.from('cross_country_team_results').select(`*,sport:sports(id,slug,gender,sport_name),team:teams(id,team_name,slug,school:schools(id,school_name,slug,primary_color,logo_url)),external_opponent:external_opponents(id,name,slug)`),
+    supabase.from('sports').select('*').order('sport_name'),
+  ])
 
-  const { data: sports } = await supabase.from('sports').select('*').order('sport_name')
+  const xcMeets = (crossCountryMeets || []).map((meet: any) => ({
+    ...meet,
+    results: (crossCountryResults || []).filter((result: any) => result.meet_id === meet.id),
+  }))
 
   let dateQuery = supabase.from('games').select('game_date')
     .gte('game_date', sectionXDateOffset(-30))
@@ -61,8 +69,16 @@ export default async function ScoresPage({
     dateQuery = (dateQuery as any).eq('season_id', selectedSeasonId)
   }
 
-  const { data: gameDates } = await dateQuery
-  const datesWithGames = [...new Set((gameDates || []).map((g: any) => g.game_date))].sort()
+  const [{ data: gameDates }, { data: meetDates }] = await Promise.all([
+    dateQuery,
+    supabase.from('cross_country_meets').select('meet_date')
+      .gte('meet_date', sectionXDateOffset(-30))
+      .lte('meet_date', sectionXDateOffset(14))
+  ])
+  const datesWithGames = [...new Set([
+    ...(gameDates || []).map((g: any) => g.game_date),
+    ...(meetDates || []).map((m: any) => m.meet_date),
+  ])].sort()
 
   const SEASON_COLORS: Record<string, { bg: string; text: string; border: string }> = {
     Spring: { bg: 'rgba(34,197,94,0.12)', text: '#4ade80', border: 'rgba(34,197,94,0.25)' },
@@ -85,7 +101,7 @@ export default async function ScoresPage({
         )}
         {scoresSponsor && <a href={(scoresSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 rounded-xl px-4 py-3 mb-4 transition-all hover:-translate-y-0.5" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(8,12,20,0.8))', border: '1px solid rgba(37,99,235,0.2)' }}>{(scoresSponsor as any).logo_url && <img src={(scoresSponsor as any).logo_url} alt={(scoresSponsor as any).business_name} className="w-8 h-8 object-contain rounded flex-shrink-0" style={{ background: 'rgba(255,255,255,0.05)' }} />}<div className="flex-1 min-w-0"><p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>SCORES PRESENTED BY</p><p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(scoresSponsor as any).business_name}</p>{(scoresSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(scoresSponsor as any).tagline}</p>}</div><span className="text-xs font-bold text-blue-400 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span></a>}
       </div>
-      <ScoresClient games={games || []} sports={sports || []} selectedDate={selectedDate} today={today} datesWithGames={datesWithGames} />
+      <ScoresClient games={games || []} crossCountryMeets={xcMeets} sports={sports || []} selectedDate={selectedDate} today={today} datesWithGames={datesWithGames} />
     </PublicLayout>
   )
 }
