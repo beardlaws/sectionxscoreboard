@@ -13,10 +13,25 @@ const time=(v:any)=>String(v||'').slice(11,16)
 const slug=(v:any)=>norm(v).replace(/\s+/g,'-').slice(0,120)
 const isXC=(g:any)=>norm(g?.sportName).includes('cross country')
 const gender=(g:any)=>norm(g?.gender).includes('girl')?'Girls':norm(g?.gender).includes('boy')?'Boys':null
+const decode=(v:any)=>clean(v).replace(/&amp;/gi,'&').replace(/&nbsp;/gi,' ').replace(/&#39;|&apos;/gi,"'")
 const title=(g:any)=>{
-  const raw=clean(g?.title)||clean(g?.siteName)||'Cross Country Meet'
+  const raw=decode(g?.title)||decode(g?.siteName)||'Cross Country Meet'
   const base=raw.replace(/\b(boys|girls|varsity|cross country|xc)\b/ig,' ').replace(/\s+/g,' ').trim()
   return base ? `${base} Cross Country Meet` : 'Cross Country Meet'
+}
+const pickTitle=(rows:any[])=>{
+  const choices=rows.map(title).filter(Boolean)
+  const ranked=[...choices].sort((a,b)=>{
+    const rank=(v:string)=>/championship/i.test(v)?5:/interdivision/i.test(v)?4:/invite|invitational|festival/i.test(v)?3:/league meet/i.test(v)?2:1
+    return rank(b)-rank(a)||a.length-b.length
+  })
+  return ranked[0]||'Cross Country Meet'
+}
+const meetTypeFor=(name:string)=>{
+  if(/championship/i.test(name))return 'Championship'
+  if(/invite|invitational|festival|herrmann|spartan/i.test(name))return 'Invitational'
+  if(/scrimmage/i.test(name))return 'Scrimmage'
+  return 'League'
 }
 const statusFor=(rows:any[])=>{
   if(rows.some(g=>['cancelled','canceled'].includes(norm(g?.status))))return 'Canceled'
@@ -45,7 +60,7 @@ export async function GET(req:NextRequest){
   const xc=raw.filter(isXC)
   const groups=new Map<string,any[]>()
   for(const g of xc){
-    const k=[day(g.fromDate),time(g.fromDate),norm(g.siteName||g.subSiteName),norm(title(g))].join('|')
+    const k=[day(g.fromDate),time(g.fromDate),norm(g.subSiteName||g.siteName)].join('|')
     if(!groups.has(k))groups.set(k,[])
     groups.get(k)!.push(g)
   }
@@ -61,18 +76,23 @@ export async function GET(req:NextRequest){
 
   for(const [key,rows] of groups){
     const first=rows[0]
-    const meetName=title(first)
-    const location=clean(first?.subSiteName||first?.siteName)||null
+    const meetName=pickTitle(rows)
+    const location=decode(first?.subSiteName||first?.siteName)||null
     const meetTime=time(first?.fromDate)||null
     const meetDate=day(first?.fromDate)||rangeStart
-    const sourceKey='arbiter:'+slug(key)
+    const sourceKey='arbiter-xc:'+slug(key)
     let {data:meet}=await db.from('cross_country_meets').select('*').eq('source_event_key',sourceKey).maybeSingle()
+    if(!meet){
+      const existing=await db.from('cross_country_meets').select('*').eq('season_id',season.id).eq('meet_date',meetDate).eq('meet_time',meetTime).ilike('location',location||'').order('created_at',{ascending:true}).limit(1).maybeSingle()
+      meet=existing.data||null
+      if(meet&&meet.status!=='Final')await db.from('cross_country_meets').update({source_event_key:sourceKey}).eq('id',meet.id)
+    }
 
     if(!meet){
-      const ins=await db.from('cross_country_meets').insert({season_id:season.id,meet_name:meetName,meet_date:meetDate,meet_time:meetTime,location,meet_type:'League',status:statusFor(rows),source:'arbiter',source_event_key:sourceKey,source_payload:rows}).select('*').single()
+      const ins=await db.from('cross_country_meets').insert({season_id:season.id,meet_name:meetName,meet_date:meetDate,meet_time:meetTime,location,meet_type:meetTypeFor(meetName),status:statusFor(rows),source:'arbiter',source_event_key:sourceKey,source_payload:rows}).select('*').single()
       meet=ins.data
     }else if(meet.status!=='Final'){
-      const upd=await db.from('cross_country_meets').update({meet_name:meetName,meet_time:meetTime,location,status:statusFor(rows),source_payload:rows,updated_at:new Date().toISOString()}).eq('id',meet.id).select('*').single()
+      const upd=await db.from('cross_country_meets').update({meet_name:meetName,meet_time:meetTime,location,meet_type:meetTypeFor(meetName),status:statusFor(rows),source_event_key:sourceKey,source_payload:rows,updated_at:new Date().toISOString()}).eq('id',meet.id).select('*').single()
       meet=upd.data
     }
 
