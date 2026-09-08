@@ -11,6 +11,7 @@ const clean=(v:unknown)=>String(v??'').toLowerCase().replace(/[^a-z0-9]+/g,' ').
 const meaningfulLocation=(v:unknown)=>{const c=clean(v);return Boolean(c)&&!['tba','not listed','z','unknown'].includes(c)}
 const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':'Scheduled'
 const contestType=(v:unknown)=>clean(v)==='scrimmage'?'Scrimmage':'Game'
+const leagueDesignation=(v:unknown)=>clean(v)==='league'?'League':clean(v)==='non league'?'Non-League':null
 
 function deletedIds(payload:unknown){
   const values=Array.isArray(payload)?payload:payload==null?[]:[payload]
@@ -67,6 +68,8 @@ export async function GET(req:NextRequest){
       else if(sourceStatus(row.status)==='Scheduled'&&clean(current.status)==='canceled'&&['canceled','cancelled','deleted'].includes(clean(row.linked?.sourceStatus)))patch.status='Scheduled'
       const desiredContest=contestType(row.type)
       if(clean(current.contestType||'Game')!==clean(desiredContest))patch.contest_type=desiredContest
+      const desiredLeague=leagueDesignation(row.type)
+      if(!current.leagueDesignationOverride&&desiredLeague&&current.leagueDesignation!==desiredLeague){patch.league_designation=desiredLeague;patch.league_designation_updated_at=new Date().toISOString()}
       if(Object.keys(patch).length){patch.updated_at=new Date().toISOString();const {error}=await db.from('games').update(patch).eq('id',gameId);if(error)throw new Error(`Schedule update failed for ${gameId}: ${error.message}`);scheduleUpdated++;scheduleActions.push({arbiterGameId:row.uniqueGameId,gameId,action:'updated',patch,driftReasons:row.driftReasons||[]})}
       await linkRow(row,gameId)
     }
@@ -99,7 +102,7 @@ export async function GET(req:NextRequest){
       let duplicate:any=null
       if(row.time){const exact=teamMatches.filter((g:any)=>String(g.game_time||'').slice(0,5)===row.time);if(exact.length>1)throw new Error('Multiple same-team same-time games exist; automatic create quarantined.');duplicate=exact[0]||null}else if(teamMatches.length)throw new Error('Same teams already play on this date and Arbiter has no reliable time; automatic create quarantined.')
       if(duplicate){row.existing={id:duplicate.id,gameTime:duplicate.game_time};await updateExisting(row,duplicate.id);scheduleActions.push({arbiterGameId:row.uniqueGameId,gameId:duplicate.id,action:'duplicate-prevented'});return}
-      const insert:any={season_id:season.id,sport_id:row.sportId,home_team_id:homeInternal,away_team_id:awayInternal,external_home_opponent_id:homeExternal,external_away_opponent_id:awayExternal,game_date:row.date,game_time:row.time||null,location:meaningfulLocation(row.location)?row.location:null,status:sourceStatus(row.status),verification_status:'Reported',source:'arbiter-api',contest_type:contestType(row.type)}
+      const insert:any={season_id:season.id,sport_id:row.sportId,home_team_id:homeInternal,away_team_id:awayInternal,external_home_opponent_id:homeExternal,external_away_opponent_id:awayExternal,game_date:row.date,game_time:row.time||null,location:meaningfulLocation(row.location)?row.location:null,status:sourceStatus(row.status),verification_status:'Reported',source:'arbiter-api',contest_type:contestType(row.type),league_designation:leagueDesignation(row.type),league_designation_override:false,league_designation_updated_at:leagueDesignation(row.type)?new Date().toISOString():null}
       const {data:created,error:createError}=await db.from('games').insert(insert).select('id').single()
       if(createError)throw new Error(`Automatic game create failed: ${createError.message}`)
       try{await linkRow(row,created.id)}catch(error){await db.from('games').delete().eq('id',created.id);throw error}
