@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { calculateStandings } from '@/lib/standings'
 import { GameWithTeams } from '@/types'
 import PublicLayout from '@/components/layout/PublicLayout'
+import CrossCountryTeamSection from '@/components/cross-country/CrossCountryTeamSection'
 
 interface Props { params: { slug: string } }
 
@@ -43,6 +44,7 @@ export default async function TeamPage({ params }: Props) {
   const schoolColor = school?.primary_color || '#1e3a5f'
   const schoolColor2 = school?.secondary_color || '#0f172a'
   const isGolf = sport?.sport_name?.toLowerCase().includes('golf')
+  const isCrossCountry = sport?.slug === 'boys-cross-country' || sport?.slug === 'girls-cross-country'
 
   const { data: activeSeason } = await supabase.from('seasons').select('*').eq('is_active', true).single()
   const teamSportId = sport?.id || team.sport_id
@@ -416,7 +418,7 @@ export default async function TeamPage({ params }: Props) {
               )}
 
               <Link
-                href="/standings"
+                href={`/standings?sport=${sport?.slug || ''}`}
                 className="px-2.5 py-1 rounded-full text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
                 style={{
                   background: 'rgba(37,99,235,0.15)',
@@ -660,10 +662,14 @@ export default async function TeamPage({ params }: Props) {
           )}
         </section>
 
-        <div id="schedule" className="scroll-mt-24" />
+        {isCrossCountry && activeSeason ? (
+          <CrossCountryTeamSection teamId={team.id} sportId={teamSportId} seasonId={activeSeason.id} />
+        ) : (
+          <div id="schedule" className="scroll-mt-24" />
+        )}
 
         {/* Upcoming games */}
-        {upcoming.length > 0 && (
+        {!isCrossCountry && upcoming.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
@@ -752,7 +758,7 @@ export default async function TeamPage({ params }: Props) {
         )}
 
         {/* Results */}
-        {results.length > 0 && (
+        {!isCrossCountry && results.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <span
@@ -934,7 +940,7 @@ export default async function TeamPage({ params }: Props) {
           </div>
         )}
 
-        {games.length === 0 && (
+        {!isCrossCountry && games.length === 0 && (
           <div
             className="rounded-2xl p-10 text-center border border-white/6"
             style={{ background: 'rgba(8,12,20,0.6)' }}
