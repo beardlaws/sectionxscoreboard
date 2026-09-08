@@ -138,7 +138,14 @@ export function calculateStandings(
 
     // League records are division records. A Section X crossover (East/Central/West)
     // still counts in the overall record, but not in league W-L-T.
-    const isLeague = isGolf ? true : (homeIsSectionX && awayIsSectionX && sameDivision && bothActive)
+    const explicitLeague = String(game?.league_designation || '').trim()
+    const isLeague = isGolf
+      ? true
+      : explicitLeague === 'League'
+        ? true
+        : explicitLeague === 'Non-League'
+          ? false
+          : (homeIsSectionX && awayIsSectionX && sameDivision && bothActive)
 
     const hw = didHomeWin(game.home_score, game.away_score)
     const aw = didAwayWin(game.home_score, game.away_score)
