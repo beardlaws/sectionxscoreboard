@@ -16,13 +16,14 @@ export default function AdminGamesPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [updatingLeague, setUpdatingLeague] = useState<string | null>(null);
 
   const fetchGames = useCallback(async () => {
     setLoading(true);
     let query = supabase
       .from('games')
       .select(`
-        id, game_date, home_score, away_score, status, source, parser_confidence,
+        id, game_date, game_time, home_score, away_score, status, source, parser_confidence, contest_type, league_designation, league_designation_override, league_designation_note,
         sport:sports(sport_name),
         home_team:teams!games_home_team_id_fkey(team_name, school:schools(school_name)),
         away_team:teams!games_away_team_id_fkey(team_name, school:schools(school_name))
@@ -69,6 +70,33 @@ export default function AdminGamesPage() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  }
+
+  async function setLeagueDesignation(id: string, designation: string) {
+    setUpdatingLeague(id);
+    try {
+      const res = await fetch('/api/admin/games/league-designation', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          gameId: id,
+          designation: designation === 'Auto' ? null : designation,
+          note: designation === 'Auto' ? '' : 'Set manually in Game Manager',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Could not update league designation.');
+      setGames(prev => prev.map(g => g.id === id ? {
+        ...g,
+        league_designation: data.game.league_designation,
+        league_designation_override: data.game.league_designation_override,
+        league_designation_note: data.game.league_designation_note,
+      } : g));
+    } catch (error: any) {
+      alert(error?.message || 'Could not update league designation.');
+    } finally {
+      setUpdatingLeague(null);
+    }
   }
 
   function selectAllVisible() {
@@ -170,13 +198,32 @@ export default function AdminGamesPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className="text-slate-500 text-xs">{game.game_date}</span>
+                    <span className="text-slate-500 text-xs">{game.game_date}{game.game_time ? ' · ' + String(game.game_time).slice(0,5) : ''}</span>
                     <span className="text-slate-500 text-xs">·</span>
                     <span className="text-slate-500 text-xs">{sport}</span>
+                    {game.contest_type === 'Scrimmage' && <span className="text-xs text-amber-300">Scrimmage</span>}
+                    {game.league_designation && (
+                      <span className={`text-xs font-bold ${game.league_designation === 'League' ? 'text-emerald-300' : 'text-slate-400'}`}>
+                        {game.league_designation}{game.league_designation_override ? ' · manual' : ' · Arbiter'}
+                      </span>
+                    )}
                     <span className={`text-xs font-medium ${statusColor[game.status] || 'text-slate-400'}`}>{game.status}</span>
                     {game.parser_confidence === 'Low' && <span className="text-xs text-red-400">⚠ Low confidence</span>}
                   </div>
                 </div>
+                {game.contest_type !== 'Scrimmage' && (
+                  <select
+                    value={game.league_designation_override ? (game.league_designation || 'Auto') : 'Auto'}
+                    onChange={e => setLeagueDesignation(game.id, e.target.value)}
+                    disabled={updatingLeague === game.id}
+                    className="input text-xs py-1.5 w-[112px] flex-shrink-0"
+                    title={game.league_designation_override ? (game.league_designation_note || 'Manual override') : (game.league_designation ? `Arbiter: ${game.league_designation}` : 'Automatic / inferred')}
+                  >
+                    <option value="Auto">Auto</option>
+                    <option value="League">League</option>
+                    <option value="Non-League">Non-League</option>
+                  </select>
+                )}
                 <button
                   onClick={() => deleteGame(game.id)}
                   disabled={deleting === game.id}
