@@ -3,6 +3,7 @@ export type CrossCountryStanding = {
   team_name: string
   school_name: string
   school_slug: string
+  team_slug: string
   wins: number
   losses: number
   ties: number
@@ -31,6 +32,7 @@ export function calculateCrossCountryStandings(
       team_name: team.team_name,
       school_name: school.school_name,
       school_slug: school.slug,
+      team_slug: team.slug,
       wins: 0,
       losses: 0,
       ties: 0,
