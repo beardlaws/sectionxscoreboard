@@ -7,6 +7,9 @@ type Point = { hour?: string; day?: string; pageviews: number; visitors?: number
 type TopPage = { path:string; title:string|null; pageviews:number; visitors:number }
 type Referrer = { source:string; visits:number; visitors:number }
 type ContentRow = { content_type:string; pageviews:number }
+type DeviceRow = { device:string; visits:number; visitors:number }
+type CampaignRow = { campaign:string; source:string; medium:string; visits:number; visitors:number }
+type LandingRow = { path:string; sessions:number; visitors:number }
 
 const n = (v:any) => Number(v || 0)
 const pct = (a:number,b:number) => b > 0 ? Math.round(((a-b)/b)*100) : a > 0 ? 100 : 0
@@ -21,7 +24,7 @@ const sourceBadge = (source:string) => {
   if (source === 'Instagram') return 'IG'
   if (source === 'Facebook') return 'FB'
   if (source === 'Google') return 'G'
-  if (source === 'Direct / Unknown') return '↗'
+  if (source === 'Direct / Private Referral') return '↗'
   return '↗'
 }
 
@@ -51,6 +54,10 @@ export default async function TrafficPage() {
   const referrers:Referrer[] = d.referrers || []
   const content:ContentRow[] = d.content || []
   const audience:any = d.audience || {}
+  const directIntel:any = d.directIntel || {}
+  const devices:DeviceRow[] = d.devices || []
+  const campaigns:CampaignRow[] = d.campaigns || []
+  const directLandings:LandingRow[] = directIntel.landingPages || []
   const today=n(s.todayPageviews), yesterday=n(s.yesterdayPageviews)
   const todayChange=pct(today,yesterday)
   const pagesPerSession=n(s.weekSessions)>0?(n(s.weekPageviews)/n(s.weekSessions)).toFixed(1):'0.0'
@@ -105,6 +112,20 @@ export default async function TrafficPage() {
       <section className="rounded-2xl p-5" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}><div className="flex items-center justify-between mb-3"><div><h2 className="font-black text-white">Traffic Sources</h2><p className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Last 7 days · including direct traffic</p></div><span className="text-[10px] uppercase tracking-wider" style={{color:'var(--text-muted)'}}>Visits · Visitors</span></div>{referrers.length?referrers.map((row,i)=><div key={`${row.source}-${i}`} className="grid grid-cols-[34px_1fr_auto] gap-3 items-center py-2.5" style={{borderBottom:'1px solid rgba(255,255,255,.05)'}}><div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black" style={{background:'rgba(59,130,246,.10)',border:'1px solid rgba(59,130,246,.18)',color:'#93c5fd'}}>{sourceBadge(row.source)}</div><div><div className="text-sm font-semibold text-white">{row.source}</div>{row.source==='North Country Now'&&<div className="text-[10px]" style={{color:'#86efac'}}>LOCAL REFERRAL PARTNER</div>}</div><div className="text-right"><div className="text-sm font-black text-white">{n(row.visits).toLocaleString()}</div><div className="text-[10px]" style={{color:'var(--text-muted)'}}>{n(row.visitors).toLocaleString()} visitors</div></div></div>):<p className="text-sm" style={{color:'var(--text-muted)'}}>No sources recorded yet.</p>}</section>
     </div>
 
+
+    <div className="grid xl:grid-cols-3 gap-5 mb-5">
+      <section className="rounded-2xl p-5" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}>
+        <h2 className="font-black text-white">Direct / Private Referral</h2><p className="text-xs mt-1 mb-4" style={{color:'var(--text-muted)'}}>Traffic with no usable referrer, including typed/bookmarked URLs and privacy-limited app links.</p>
+        <div className="grid grid-cols-3 gap-2 mb-4"><div><div className="text-xl font-black text-white">{n(directIntel.sessions).toLocaleString()}</div><div className="text-[10px] uppercase" style={{color:'var(--text-muted)'}}>sessions</div></div><div><div className="text-xl font-black text-white">{n(directIntel.visitors).toLocaleString()}</div><div className="text-[10px] uppercase" style={{color:'var(--text-muted)'}}>visitors</div></div><div><div className="text-xl font-black text-white">{n(directIntel.returningVisitors).toLocaleString()}</div><div className="text-[10px] uppercase" style={{color:'var(--text-muted)'}}>repeat</div></div></div>
+        <div className="text-[10px] uppercase font-black tracking-wider mb-2" style={{color:'#93c5fd'}}>Top landing pages</div>{directLandings.length?directLandings.map((r,i)=><div key={r.path+i} className="flex justify-between gap-3 py-2 text-xs" style={{borderBottom:'1px solid rgba(255,255,255,.05)'}}><span className="truncate" style={{color:'var(--text-secondary)'}}>{r.path}</span><b className="text-white">{n(r.sessions)} sessions</b></div>):<div className="text-xs" style={{color:'var(--text-muted)'}}>New attribution detail will populate as fresh traffic arrives.</div>}
+      </section>
+      <section className="rounded-2xl p-5" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}>
+        <h2 className="font-black text-white">Devices</h2><p className="text-xs mt-1 mb-4" style={{color:'var(--text-muted)'}}>Last 7 days · first-party browser classification</p>{devices.map(r=><div key={r.device} className="flex justify-between py-3" style={{borderBottom:'1px solid rgba(255,255,255,.05)'}}><div className="text-sm font-semibold text-white">{r.device}</div><div className="text-right"><b className="text-white">{n(r.visits).toLocaleString()}</b><div className="text-[10px]" style={{color:'var(--text-muted)'}}>{n(r.visitors).toLocaleString()} visitors</div></div></div>)}
+      </section>
+      <section className="rounded-2xl p-5" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}>
+        <h2 className="font-black text-white">Campaign Attribution</h2><p className="text-xs mt-1 mb-4" style={{color:'var(--text-muted)'}}>UTM-tagged links · ideal for social posts, QR codes and sponsors</p>{campaigns.length?campaigns.map((r,i)=><div key={r.campaign+i} className="py-2.5" style={{borderBottom:'1px solid rgba(255,255,255,.05)'}}><div className="flex justify-between gap-2"><b className="text-sm text-white truncate">{r.campaign}</b><b className="text-sm text-white">{n(r.visits)}</b></div><div className="text-[10px] mt-1" style={{color:'var(--text-muted)'}}>{r.source} · {r.medium} · {n(r.visitors)} visitors</div></div>):<div className="text-xs" style={{color:'var(--text-muted)'}}>No tagged campaigns yet. Add utm_source, utm_medium and utm_campaign to links you want measured precisely.</div>}
+      </section>
+    </div>
     <div className="rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-2" style={{background:'rgba(59,130,246,.055)',border:'1px solid rgba(59,130,246,.16)'}}><div><div className="text-sm font-bold text-white">Sponsor-ready, first-party numbers</div><div className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Anonymous browser IDs only. No IP addresses stored. Sessions expire after 30 minutes. Raw analytics are private.</div></div><div className="text-xs font-bold" style={{color:'#93c5fd'}}>COLLECTING SINCE SEP 2, 2026</div></div>
   </div></AdminLayout>
 }
