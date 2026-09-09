@@ -26,6 +26,7 @@ export default async function FanZonePage(){
       <div className="text-[10px] font-black uppercase tracking-[.24em] text-blue-300/80">Section X Fan Zone</div>
       <h1 className="mt-2 text-4xl sm:text-5xl font-black text-white leading-[.95]">You don’t just watch Section X.<br/><span className="text-yellow-300">You shape the conversation.</span></h1>
       <p className="mt-4 max-w-2xl text-sm sm:text-base text-white/45">Nominate the plays everyone should see. Build your Top 5. Then come back and see whether the rest of Section X agrees with you.</p>
+      <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[.06] px-3 py-1.5 text-[10px] font-black uppercase tracking-[.16em] text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-300 animate-pulse"/>Fan Zone is live this week</div>
       <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-2xl border border-white/8 bg-black/20 p-4"><div className="text-2xl font-black text-white">{ballotTotal}</div><div className="text-[10px] uppercase tracking-wider text-white/35">Fan ballots</div></div>
         <div className="rounded-2xl border border-white/8 bg-black/20 p-4"><div className="text-2xl font-black text-white">{(featured||[]).length}</div><div className="text-[10px] uppercase tracking-wider text-white/35">Play nominations</div></div>
@@ -34,6 +35,7 @@ export default async function FanZonePage(){
       </div>
     </div>
   </section>
+  <section className="mb-6 rounded-2xl border border-white/8 bg-white/[.025] px-5 py-4"><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"><div><div className="text-[10px] font-black uppercase tracking-[.2em] text-yellow-300/70">The Section X Pulse</div><div className="mt-1 font-black text-white">This week belongs to the fans.</div></div><div className="text-xs text-white/40">Nominate the moments. Rank the teams. Come back to see where Section X lands.</div></div></section>
   <FanZoneClient sports={sports||[]} teams={teams} schools={schools||[]}/>
  </main></PublicLayout>
 }
