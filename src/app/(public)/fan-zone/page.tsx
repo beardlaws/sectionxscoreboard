@@ -8,13 +8,32 @@ export const revalidate=300
 
 export default async function FanZonePage(){
  const db=createClient()
- const [{data:season},{data:sports},{data:schools}]=await Promise.all([
+ const [{data:season},{data:sports},{data:schools},{data:snapshots},{data:featured}]=await Promise.all([
   db.from('seasons').select('id').eq('is_active',true).single(),
   db.from('sports').select('id,slug,sport_name,gender,season_type').eq('season_type','Fall').order('sport_name'),
-  db.from('schools').select('id,school_name').eq('active',true).eq('is_section_x',true).order('school_name')
+  db.from('schools').select('id,school_name').eq('active',true).eq('is_section_x',true).order('school_name'),
+  db.from('fan_power_rank_snapshots').select('ballot_count').eq('published',true).order('week_start',{ascending:false}).limit(30),
+  db.from('fan_top_play_nominations').select('id').in('status',['approved','featured']).order('created_at',{ascending:false}).limit(100)
  ])
  const sportIds=(sports||[]).map((s:any)=>s.id)
  const {data:teamSeasons}=season&&sportIds.length?await db.from('team_seasons').select('class,division,active_for_season,team:teams(id,sport_id,team_name,level,active,school:schools(school_name))').eq('season_id',season.id).neq('active_for_season',false):{data:[]}
  const teams=(teamSeasons||[]).map((x:any)=>{const t=Array.isArray(x.team)?x.team[0]:x.team;const sc=Array.isArray(t?.school)?t.school[0]:t?.school;return{id:t?.id,sport_id:t?.sport_id,name:t?.team_name,school:sc?.school_name||t?.team_name,className:x.class||'',division:x.division||''}}).filter((t:any)=>t.id&&sportIds.includes(t.sport_id))
- return <PublicLayout><main className="max-w-5xl mx-auto px-4 py-7"><div className="mb-7"><div className="text-[10px] font-black uppercase tracking-[.22em] text-blue-300/75">Section X Fan Zone</div><h1 className="text-3xl sm:text-4xl font-black text-white mt-1">Your Takes. Your Plays. Your Rankings.</h1><p className="text-sm text-white/40 mt-2 max-w-2xl">Help build the weekly Top 5 Plays and tell the rest of Section X who belongs at the top.</p></div><FanZoneClient sports={sports||[]} teams={teams} schools={schools||[]}/></main></PublicLayout>
+ const ballotTotal=(snapshots||[]).reduce((sum:number,x:any)=>sum+Number(x.ballot_count||0),0)
+ return <PublicLayout><main className="max-w-5xl mx-auto px-4 py-7">
+  <section className="relative overflow-hidden rounded-[28px] border border-blue-400/15 bg-gradient-to-br from-blue-500/[.12] via-white/[.025] to-yellow-300/[.06] p-6 sm:p-8 mb-7">
+    <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-blue-500/10 blur-3xl"/>
+    <div className="relative">
+      <div className="text-[10px] font-black uppercase tracking-[.24em] text-blue-300/80">Section X Fan Zone</div>
+      <h1 className="mt-2 text-4xl sm:text-5xl font-black text-white leading-[.95]">You don’t just watch Section X.<br/><span className="text-yellow-300">You shape the conversation.</span></h1>
+      <p className="mt-4 max-w-2xl text-sm sm:text-base text-white/45">Nominate the plays everyone should see. Build your Top 5. Then come back and see whether the rest of Section X agrees with you.</p>
+      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-2xl border border-white/8 bg-black/20 p-4"><div className="text-2xl font-black text-white">{ballotTotal}</div><div className="text-[10px] uppercase tracking-wider text-white/35">Fan ballots</div></div>
+        <div className="rounded-2xl border border-white/8 bg-black/20 p-4"><div className="text-2xl font-black text-white">{(featured||[]).length}</div><div className="text-[10px] uppercase tracking-wider text-white/35">Play nominations</div></div>
+        <div className="rounded-2xl border border-white/8 bg-black/20 p-4"><div className="text-2xl font-black text-yellow-300">5→1</div><div className="text-[10px] uppercase tracking-wider text-white/35">Ranking points</div></div>
+        <div className="rounded-2xl border border-white/8 bg-black/20 p-4"><div className="text-2xl font-black text-blue-300">Weekly</div><div className="text-[10px] uppercase tracking-wider text-white/35">Fresh ballot</div></div>
+      </div>
+    </div>
+  </section>
+  <FanZoneClient sports={sports||[]} teams={teams} schools={schools||[]}/>
+ </main></PublicLayout>
 }
