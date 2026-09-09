@@ -395,7 +395,7 @@ export default async function StandingsPage({ searchParams }: Props) {
               ? 'Cross country league standings use head-to-head results within Section X league meets. Lower team score wins. Invitational results do not affect league W-L.'
               : selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
                 ? 'Golf standings: lower scores are better.'
-                : 'BTM (Bradley-Terry Model) estimates team strength from game results and opponent strength. The displayed value is the estimated win probability against an average Section X opponent. Higher is better.'
+                : 'BTM (Bradley-Terry Model) uses in-section wins, losses and ties plus opponent strength. Margin of victory and home/away location are not weighted. The displayed value is the model’s average predicted win probability against teams in the school’s playoff class. Higher is better.'
             }
           </p>
         )}
