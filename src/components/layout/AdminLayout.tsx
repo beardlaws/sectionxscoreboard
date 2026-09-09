@@ -51,6 +51,7 @@ const navSections = [
       { href: '/admin/spotlight', label: 'Spotlight', icon: Newspaper },
       { href: '/admin/weekly-recap', label: 'Weekly Recap', icon: Newspaper },
       { href: '/admin/athlete-of-week', label: 'Athlete of Week', icon: Medal },
+      { href: '/admin/fan-zone', label: 'Fan Zone', icon: Star },
       { href: '/admin/photos', label: 'Photo Queue', icon: Image },
       { href: '/admin/shoutouts', label: 'Shoutouts', icon: Star },
       { href: '/admin/corrections', label: 'Corrections', icon: Bell },
