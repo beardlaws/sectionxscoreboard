@@ -1,15 +1,35 @@
 // Section X Bradley-Terry Model (BTM) ranking calculation.
 //
-// Each team receives a latent strength rating r. For teams i and j:
+// This implementation follows the standard Bradley-Terry / Zermelo maximum-
+// likelihood iteration described in the published sports-ranking literature.
 //
-//   P(i beats j) = exp(r_i) / (exp(r_i) + exp(r_j))
+// For teams i and j with positive ability parameters p_i and p_j:
 //
-// Ratings are fit from head-to-head results with L2 regularization so tiny
-// samples, undefeated teams, winless teams, and disconnected schedules stay
-// numerically stable. Ties count as half a win for each team.
+//   P(i beats j) = p_i / (p_i + p_j)
 //
-// The public BTM value is the fitted team's win probability against an
-// average Section X opponent, so 0.500 is neutral and higher is better.
+// Zermelo update:
+//
+//   p_i(new) = W_i / SUM[j != i] (n_ij / (p_i + p_j))
+//
+// where W_i is team i's total wins and n_ij is the number of comparisons
+// between i and j. Parameters are normalized after each iteration and the
+// process repeats until convergence.
+//
+// Important Section-style rules:
+// - Only the game outcome matters. Score margin is NOT an input.
+// - Home/away location is NOT weighted.
+// - A tie is treated as 0.5 win + 0.5 loss for ranking purposes.
+// - The model is fit on the complete in-section comparison network supplied
+//   by the caller, not just games within a team's playoff class.
+// - The displayed BTM score is the team's average Bradley-Terry predicted win
+//   probability against the other teams in its playoff class. This matches the
+//   published Section III wording: "probability for wins vs all in class
+//   schools." If class information is unavailable, all modeled opponents are
+//   used as the comparison set.
+//
+// Teams with no usable in-section results are not identifiable by Bradley-
+// Terry. They are displayed at 0.500 (neutral) until they enter the comparison
+// network. This is a presentation fallback, not a pseudo-game or model input.
 
 export interface BTMGame {
   home_team_id: string
@@ -19,18 +39,21 @@ export interface BTMGame {
   is_golf?: boolean
 }
 
-export function calculateBTM(
+interface FitResult {
+  ability: Record<string, number>
+  gamesPlayed: Record<string, number>
+}
+
+function fitBradleyTerryAbilities(
   teamIds: string[],
   games: BTMGame[]
-): Record<string, number> {
+): FitResult {
   const ids = [...new Set(teamIds)]
   const index = new Map(ids.map((id, i) => [id, i]))
   const n = ids.length
 
-  if (n === 0) return {}
-
-  type Match = { i: number; j: number; y: number }
-  const matches: Match[] = []
+  const wins = Array.from({ length: n }, () => new Array<number>(n).fill(0))
+  const gamesPlayed = new Array<number>(n).fill(0)
 
   for (const game of games) {
     const i = index.get(game.home_team_id)
@@ -47,57 +70,154 @@ export function calculateBTM(
       ? game.away_score < game.home_score
       : game.away_score > game.home_score
 
-    matches.push({
-      i,
-      j,
-      y: homeWins ? 1 : awayWins ? 0 : 0.5,
-    })
+    if (homeWins) {
+      wins[i][j] += 1
+    } else if (awayWins) {
+      wins[j][i] += 1
+    } else {
+      // For ranking purposes, a draw is half a win and half a loss.
+      wins[i][j] += 0.5
+      wins[j][i] += 0.5
+    }
+
+    gamesPlayed[i] += 1
+    gamesPlayed[j] += 1
   }
 
-  // With no usable head-to-head results, every team is average.
-  if (matches.length === 0) {
-    return Object.fromEntries(ids.map(id => [id, 0.5]))
+  const active = ids.map((_, i) => gamesPlayed[i] > 0)
+  const activeCount = active.filter(Boolean).length
+
+  const ability: Record<string, number> = {}
+  const played: Record<string, number> = {}
+
+  for (let i = 0; i < n; i++) played[ids[i]] = gamesPlayed[i]
+
+  if (activeCount === 0) {
+    for (const id of ids) ability[id] = 0
+    return { ability, gamesPlayed: played }
   }
 
-  const ratings = new Array<number>(n).fill(0)
+  // Zermelo's published iteration starts every active parameter at one.
+  // Normalizing immediately is scale-equivalent and improves numerical range.
+  let p = new Array<number>(n).fill(0)
+  for (let i = 0; i < n; i++) {
+    if (active[i]) p[i] = 1 / activeCount
+  }
 
-  // A modest ridge penalty keeps sparse early-season schedules sane.
-  const ridge = 0.5
-  const learningRate = 0.08
-  const maxIterations = 5000
-  const tolerance = 1e-9
+  const totalWins = wins.map(row => row.reduce((sum, value) => sum + value, 0))
+  const maxIterations = 10000
+  const tolerance = 1e-12
+  const EPS = 1e-15
 
   for (let iter = 0; iter < maxIterations; iter++) {
-    const gradient = new Array<number>(n).fill(0)
+    const next = new Array<number>(n).fill(0)
 
-    for (const match of matches) {
-      const diff = Math.max(-30, Math.min(30, ratings[match.i] - ratings[match.j]))
-      const p = 1 / (1 + Math.exp(-diff))
-      const residual = match.y - p
+    for (let i = 0; i < n; i++) {
+      if (!active[i]) continue
 
-      gradient[match.i] += residual
-      gradient[match.j] -= residual
+      let denominator = 0
+
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue
+
+        const nij = wins[i][j] + wins[j][i]
+        if (nij <= 0) continue
+
+        const pairStrength = p[i] + p[j]
+        if (pairStrength > EPS) {
+          denominator += nij / pairStrength
+        }
+      }
+
+      // This is the exact Zermelo/MM update. A team with no wins can
+      // legitimately converge to zero ability under the unpenalized MLE.
+      next[i] = denominator > 0 ? totalWins[i] / denominator : p[i]
+    }
+
+    const sum = next.reduce((acc, value, i) => active[i] ? acc + value : acc, 0)
+
+    if (sum <= EPS) {
+      // Degenerate comparison data: retain the previous valid iterate rather
+      // than manufacture pseudo-results.
+      break
+    }
+
+    for (let i = 0; i < n; i++) {
+      if (active[i]) next[i] /= sum
     }
 
     let maxChange = 0
-
     for (let i = 0; i < n; i++) {
-      gradient[i] -= ridge * ratings[i]
-      const change = learningRate * gradient[i]
-      ratings[i] += change
-      maxChange = Math.max(maxChange, Math.abs(change))
+      if (!active[i]) continue
+      maxChange = Math.max(maxChange, Math.abs(next[i] - p[i]))
     }
 
-    // L2 regularization anchors ratings around zero, so we do not recenter here.
-    // That is important for disconnected schedules: a team with no games should
-    // remain exactly average (0.500) instead of drifting because other teams played.
+    p = next
     if (maxChange < tolerance) break
   }
 
-  const result: Record<string, number> = {}
-
   for (let i = 0; i < n; i++) {
-    result[ids[i]] = 1 / (1 + Math.exp(-ratings[i]))
+    ability[ids[i]] = active[i] ? p[i] : 0
+  }
+
+  return { ability, gamesPlayed: played }
+}
+
+export function calculateBTM(
+  teamIds: string[],
+  games: BTMGame[],
+  classByTeam: Record<string, string> = {}
+): Record<string, number> {
+  const ids = [...new Set(teamIds)]
+  const { ability, gamesPlayed } = fitBradleyTerryAbilities(ids, games)
+  const result: Record<string, number> = {}
+  const EPS = 1e-15
+
+  const modeledIds = ids.filter(id => (gamesPlayed[id] || 0) > 0)
+
+  for (const id of ids) {
+    if ((gamesPlayed[id] || 0) === 0) {
+      result[id] = 0.5
+      continue
+    }
+
+    const teamClass = String(classByTeam[id] || '').trim()
+
+    let opponents = modeledIds.filter(otherId =>
+      otherId !== id &&
+      (!teamClass || String(classByTeam[otherId] || '').trim() === teamClass)
+    )
+
+    // If class data is missing/incomplete, retain a meaningful Bradley-Terry
+    // score by comparing against the full modeled in-section field.
+    if (opponents.length === 0) {
+      opponents = modeledIds.filter(otherId => otherId !== id)
+    }
+
+    if (opponents.length === 0) {
+      result[id] = 0.5
+      continue
+    }
+
+    let probabilitySum = 0
+    let probabilityCount = 0
+
+    for (const opponentId of opponents) {
+      const pi = ability[id] || 0
+      const pj = ability[opponentId] || 0
+      const denominator = pi + pj
+
+      // If both MLE abilities are zero, the pair is not meaningfully
+      // distinguishable from this data and is omitted from the average.
+      if (denominator <= EPS) continue
+
+      probabilitySum += pi / denominator
+      probabilityCount += 1
+    }
+
+    result[id] = probabilityCount > 0
+      ? probabilitySum / probabilityCount
+      : 0.5
   }
 
   return result
