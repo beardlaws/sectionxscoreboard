@@ -19,8 +19,7 @@ function compactRow(row:any){
 function healthStatus(audit:any){
   if((audit.comparison.trueBlockers||0)>0||!audit.comparison.writerReady)return'blocked'
   if((audit.comparison.pendingChanges||0)>0)return'attention'
-  if((audit.comparison.quarantined||0)>0)return'healthy-with-exclusions'
-  return'healthy'
+  // Quarantined records are expected exclusions, not an unhealthy run.\n  // Keep persisted values inside arbiter_health_checks_status_check.\n  return'healthy'
 }
 
 export async function recordScheduleHealthCheck(seasonId:string){
