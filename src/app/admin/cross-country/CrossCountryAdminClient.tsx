@@ -9,6 +9,13 @@ function rowsToText(rows:any[]){
     return `${name} ${r.team_score ?? ''}`.trim()
   }).join('\n')
 }
+function dualsToText(rows:any[],gender:string){
+  return (rows||[]).filter((r:any)=>r.sport?.gender===gender||true).map((r:any)=>{
+    const a=r.team_a?.school?.school_name||r.team_a?.team_name||'Unknown'
+    const b=r.team_b?.school?.school_name||r.team_b?.team_name||'Unknown'
+    return `${a} ${r.team_a_score ?? 'INC'}, ${b} ${r.team_b_score ?? 'INC'}`
+  }).join('\n')
+}
 
 export default function CrossCountryAdminClient({meets}:{meets:any[]}){
   const router=useRouter()
@@ -24,10 +31,13 @@ export default function CrossCountryAdminClient({meets}:{meets:any[]}){
   const reset=()=>setForm({id:null,meetName:'',meetDate:'',location:'',meetType:'Invitational',status:'Final',notes:'',boysResults:'',girlsResults:''})
   const edit=(meet:any)=>{
     const results=meet.results||[]
+    const duals=meet.duals||[]
+    const boysSportId=results.find((r:any)=>r.sport?.gender==='Boys')?.sport_id
+    const girlsSportId=results.find((r:any)=>r.sport?.gender==='Girls')?.sport_id
     setForm({
       id:meet.id,meetName:meet.meet_name,meetDate:meet.meet_date,location:meet.location||'',meetType:meet.meet_type,status:meet.status,notes:meet.notes||'',
-      boysResults:rowsToText(results.filter((r:any)=>r.sport?.gender==='Boys')),
-      girlsResults:rowsToText(results.filter((r:any)=>r.sport?.gender==='Girls')),
+      boysResults:meet.meet_type==='League'?dualsToText(duals.filter((d:any)=>!boysSportId||d.sport_id===boysSportId),'Boys'):rowsToText(results.filter((r:any)=>r.sport?.gender==='Boys')),
+      girlsResults:meet.meet_type==='League'?dualsToText(duals.filter((d:any)=>!girlsSportId||d.sport_id===girlsSportId),'Girls'):rowsToText(results.filter((r:any)=>r.sport?.gender==='Girls')),
     })
     window.scrollTo({top:0,behavior:'smooth'})
   }
@@ -56,7 +66,7 @@ export default function CrossCountryAdminClient({meets}:{meets:any[]}){
 
   return <div className="space-y-6">
     <section className="rounded-2xl p-5" style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}>
-      <div className="flex items-end justify-between gap-3 mb-4"><div><h2 className="text-xl font-black text-white">{form.id?'Edit Meet':'Add Meet'}</h2><p className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Paste team results one per line as Team Name + Score. Order determines finish place.</p></div>{form.id&&<button onClick={reset} className="text-xs font-bold text-blue-300">New meet</button>}</div>
+      <div className="flex items-end justify-between gap-3 mb-4"><div><h2 className="text-xl font-black text-white">{form.id?'Edit Meet':'Add Meet'}</h2><p className="text-xs mt-1" style={{color:'var(--text-muted)'}}>For League meets, enter one head-to-head matchup per line: Canton 21, Tupper Lake 40. Use INC for an incomplete team. Invitational results remain Team Name + Score.</p></div>{form.id&&<button onClick={reset} className="text-xs font-bold text-blue-300">New meet</button>}</div>
       <div className="grid md:grid-cols-2 gap-3">
         <label className="text-xs" style={{color:'var(--text-secondary)'}}>Meet name<input className="input w-full mt-1" value={form.meetName} onChange={e=>set('meetName',e.target.value)} placeholder="Saranac Spartan Running Festival"/></label>
         <label className="text-xs" style={{color:'var(--text-secondary)'}}>Date<input type="date" className="input w-full mt-1" value={form.meetDate} onChange={e=>set('meetDate',e.target.value)}/></label>
@@ -65,8 +75,8 @@ export default function CrossCountryAdminClient({meets}:{meets:any[]}){
       </div>
       <label className="block text-xs mt-3" style={{color:'var(--text-secondary)'}}>Notes<textarea className="input w-full mt-1 min-h-[70px]" value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Optional notes"/></label>
       <div className="grid md:grid-cols-2 gap-3 mt-3">
-        <label className="text-xs" style={{color:'var(--text-secondary)'}}>Boys results<textarea className="input w-full mt-1 min-h-[190px] font-mono text-xs" value={form.boysResults} onChange={e=>set('boysResults',e.target.value)} placeholder={"AuSable Valley 65\nNorwood-Norfolk 69\nMassena 75"}/></label>
-        <label className="text-xs" style={{color:'var(--text-secondary)'}}>Girls results<textarea className="input w-full mt-1 min-h-[190px] font-mono text-xs" value={form.girlsResults} onChange={e=>set('girlsResults',e.target.value)} placeholder={"Saranac Central 33\nNorwood-Norfolk 63\nMassena 67"}/></label>
+        <label className="text-xs" style={{color:'var(--text-secondary)'}}>Boys results<textarea className="input w-full mt-1 min-h-[190px] font-mono text-xs" value={form.boysResults} onChange={e=>set('boysResults',e.target.value)} placeholder={form.meetType==='League'?"Canton 21, Tupper Lake 40\nCanton 15, Gouverneur 48\nOFA INC, Salmon River INC":"AuSable Valley 65\nNorwood-Norfolk 69\nMassena 75"}/></label>
+        <label className="text-xs" style={{color:'var(--text-secondary)'}}>Girls results<textarea className="input w-full mt-1 min-h-[190px] font-mono text-xs" value={form.girlsResults} onChange={e=>set('girlsResults',e.target.value)} placeholder={form.meetType==='League'?"Gouverneur 15, Canton 50\nCanton INC, OFA INC":"Saranac Central 33\nNorwood-Norfolk 63\nMassena 67"}/></label>
       </div>
       <div className="mt-4 rounded-xl border border-lime-400/15 bg-lime-400/[.035] p-4"><div className="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div className="font-black text-white">North Country Sports Result Check</div><div className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Find Cross Country team scores for the selected date. Nothing publishes until you approve a high-confidence match.</div></div><button onClick={checkNcs} disabled={checking} className="rounded-xl px-4 py-2 text-xs font-black text-lime-200 border border-lime-400/25 bg-lime-400/10 disabled:opacity-40">{checking?'Checking…':'Check North Country Sports'}</button></div>{ncs?.suggestions?.length>0&&<div className="space-y-2 mt-3">{ncs.suggestions.map((s:any)=><div key={s.meetId} className="rounded-lg border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-3"><div><div className="font-bold text-white">{s.meetName}</div><div className="text-xs text-slate-400">{s.matched}/{s.expected} scheduled teams matched · {s.confidence} confidence</div></div>{s.confidence==='high'?<button onClick={()=>publishNcs(s.meetId,ncs.date)} disabled={checking} className="rounded-lg px-3 py-2 text-xs font-black bg-emerald-500/15 border border-emerald-400/25 text-emerald-200">Review & Publish</button>:<span className="text-xs font-bold text-amber-300">Manual review</span>}</div>{(s.boys?.length>0||s.girls?.length>0)&&<div className="grid md:grid-cols-2 gap-2 mt-2 text-xs"><div><b className="text-blue-300">Boys</b><div className="text-slate-400">{(s.boys||[]).map((x:any)=>x.name+' '+x.score).join(' · ')||'No match'}</div></div><div><b className="text-pink-300">Girls</b><div className="text-slate-400">{(s.girls||[]).map((x:any)=>x.name+' '+x.score).join(' · ')||'No match'}</div></div></div>}</div>)}</div>}</div>
       {message&&<div className="mt-3 text-sm" style={{color:message.startsWith('Saved')?'#86efac':'#fca5a5'}}>{message}</div>}
