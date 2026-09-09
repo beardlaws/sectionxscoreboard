@@ -9,7 +9,7 @@ export const maxDuration=300
 
 const clean=(v:unknown)=>String(v??'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 const meaningfulLocation=(v:unknown)=>{const c=clean(v);return Boolean(c)&&!['tba','not listed','z','unknown'].includes(c)}
-const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':'Scheduled'
+const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':['postponed','ppd'].includes(clean(v))?'Postponed':'Scheduled'
 const contestType=(v:unknown)=>clean(v)==='scrimmage'?'Scrimmage':'Game'
 const leagueDesignation=(v:unknown)=>clean(v)==='league'?'League':['non league','tournament'].includes(clean(v))?'Non-League':null
 
@@ -66,8 +66,9 @@ export async function GET(req:NextRequest){
           patch.external_away_opponent_id=row.away?.kind==='external'?row.away.id:null
         }
       }
-      if(sourceStatus(row.status)==='Canceled'&&clean(current.status)!=='canceled')patch.status='Canceled'
-      else if(sourceStatus(row.status)==='Scheduled'&&clean(current.status)==='canceled'&&['canceled','cancelled','deleted'].includes(clean(row.linked?.sourceStatus)))patch.status='Scheduled'
+      if(sourceStatus(row.status)==='Canceled'&&!['canceled','cancelled'].includes(clean(current.status)))patch.status='Canceled'
+      else if(sourceStatus(row.status)==='Postponed'&&clean(current.status)!=='postponed')patch.status='Postponed'
+      else if(sourceStatus(row.status)==='Scheduled'&&['canceled','cancelled','postponed'].includes(clean(current.status))&&['canceled','cancelled','deleted','postponed','ppd'].includes(clean(row.linked?.sourceStatus)))patch.status='Scheduled'
       const desiredContest=contestType(row.type)
       if(clean(current.contestType||'Game')!==clean(desiredContest))patch.contest_type=desiredContest
       const desiredLeague=leagueDesignation(row.type)
