@@ -34,7 +34,7 @@ export default function FanZoneClient({sports,teams,schools}:{sports:Sport[];tea
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="text-xs text-white/45">Athlete<input required value={play.athleteName} onChange={e=>setPlay({...play,athleteName:e.target.value})} className="input w-full mt-1" placeholder="Athlete name"/></label>
         <label className="text-xs text-white/45">School<select required value={play.schoolId} onChange={e=>setPlay({...play,schoolId:e.target.value})} className="input w-full mt-1"><option value="">Choose school</option>{schools.map(s=><option key={s.id} value={s.id}>{s.school_name}</option>)}</select></label>
-        <label className="text-xs text-white/45">Sport<select required value={play.sportId} onChange={e=>setPlay({...play,sportId:e.target.value})} className="input w-full mt-1"><option value="">Choose sport</option>{sports.map(s=><option key={s.id} value={s.id}>{s.gender} {s.sport_name}</option>)}</select></label>
+        <label className="text-xs text-white/45">Sport<select required value={play.sportId} onChange={e=>setPlay({...play,sportId:e.target.value})} className="input w-full mt-1"><option value="">Choose sport</option>{sports.map(s=><option key={s.id} value={s.id}>{s.sport_name}</option>)}</select></label>
         <label className="text-xs text-white/45">When<input type="date" value={play.gameDate} onChange={e=>setPlay({...play,gameDate:e.target.value})} className="input w-full mt-1"/></label>
         <label className="text-xs text-white/45 sm:col-span-2">Opponent<input value={play.opponent} onChange={e=>setPlay({...play,opponent:e.target.value})} className="input w-full mt-1" placeholder="Who were they playing?"/></label>
       </div>
