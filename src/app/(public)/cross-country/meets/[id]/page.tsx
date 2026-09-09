@@ -35,6 +35,35 @@ function TeamTable({label,rows}:{label:string;rows:any[]}){
   </section>
 }
 
+
+function DualTable({label,rows}:{label:string;rows:any[]}) {
+  return <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
+    <div className="px-5 py-4 border-b border-white/[0.06] flex items-end justify-between gap-3">
+      <div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-lime-300/70">{label}</div><h2 className="mt-1 text-xl font-black text-white">League Dual Results</h2></div>
+      <div className="text-[10px] font-black uppercase tracking-wider text-white/25">Low score wins</div>
+    </div>
+    {rows.length ? <div className="divide-y divide-white/[0.04]">
+      {rows.map((r:any)=>{
+        const aName=r.team_a?.school?.school_name||r.team_a?.team_name||'Team A'
+        const bName=r.team_b?.school?.school_name||r.team_b?.team_name||'Team B'
+        const aWin=r.outcome_a==='W', bWin=r.outcome_a==='L'
+        return <div key={r.id} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-4">
+          <div className="min-w-0">
+            <div className={`font-black ${aWin?'text-lime-300':'text-white/80'}`}>{r.team_a?.slug?<Link href={`/teams/${r.team_a.slug}`} className="hover:text-lime-300">{aName}</Link>:aName}</div>
+            <div className="mt-1 text-2xl font-black font-mono text-white">{r.team_a_score ?? 'INC'}</div>
+          </div>
+          <div className="text-[10px] font-black uppercase tracking-widest text-white/20">vs</div>
+          <div className="min-w-0 text-right">
+            <div className={`font-black ${bWin?'text-lime-300':'text-white/80'}`}>{r.team_b?.slug?<Link href={`/teams/${r.team_b.slug}`} className="hover:text-lime-300">{bName}</Link>:bName}</div>
+            <div className="mt-1 text-2xl font-black font-mono text-white">{r.team_b_score ?? 'INC'}</div>
+          </div>
+          {r.notes&&<div className="col-span-3 text-xs text-white/35">{r.notes}</div>}
+        </div>
+      })}
+    </div> : <div className="p-6 text-sm text-white/30">No league dual results reported.</div>}
+  </section>
+}
+
 function IndividualTable({label,rows}:{label:string;rows:any[]}){
   if(!rows.length)return null
   const fmt=(v:any)=>{
@@ -52,16 +81,19 @@ function IndividualTable({label,rows}:{label:string;rows:any[]}){
 
 export default async function CrossCountryMeetPage({params}:{params:{id:string}}){
   const db=createClient()
-  const [{data:meet},{data:teamResults},{data:individualResults}]=await Promise.all([
+  const [{data:meet},{data:teamResults},{data:dualResults},{data:individualResults}]=await Promise.all([
     db.from('cross_country_meets').select('*').eq('id',params.id).maybeSingle(),
     db.from('cross_country_team_results').select(`*,sport:sports(id,slug,gender,sport_name),team:teams(id,team_name,slug,school:schools(id,school_name,slug,primary_color,logo_url)),external_opponent:external_opponents(id,name,slug)`).eq('meet_id',params.id).order('finish_place',{ascending:true}),
+    db.from('cross_country_dual_results').select(`*,sport:sports(id,slug,gender,sport_name),team_a:teams!cross_country_dual_results_team_a_id_fkey(id,team_name,slug,school:schools(id,school_name,slug)),team_b:teams!cross_country_dual_results_team_b_id_fkey(id,team_name,slug,school:schools(id,school_name,slug))`).eq('meet_id',params.id).order('created_at',{ascending:true}),
     db.from('cross_country_individual_results').select(`*,sport:sports(id,slug,gender,sport_name),athlete:athletes(id,display_name,slug),team:teams(id,team_name,school:schools(id,school_name,slug)),external_opponent:external_opponents(id,name,slug)`).eq('meet_id',params.id).order('finish_place',{ascending:true})
   ])
   if(!meet)notFound()
 
-  const teamRows=teamResults||[], individualRows=individualResults||[]
+  const teamRows=teamResults||[], dualRows=dualResults||[], individualRows=individualResults||[]
   const boys=teamRows.filter((r:any)=>r.sport?.gender==='Boys')
   const girls=teamRows.filter((r:any)=>r.sport?.gender==='Girls')
+  const boysDuals=dualRows.filter((r:any)=>r.sport?.gender==='Boys')
+  const girlsDuals=dualRows.filter((r:any)=>r.sport?.gender==='Girls')
   const boysIndividuals=individualRows.filter((r:any)=>r.sport?.gender==='Boys')
   const girlsIndividuals=individualRows.filter((r:any)=>r.sport?.gender==='Girls')
   const date=format(parseISO(meet.meet_date+'T12:00:00'),'EEEE, MMMM d, yyyy')
@@ -70,8 +102,15 @@ export default async function CrossCountryMeetPage({params}:{params:{id:string}}
     <div className="mb-6"><Link href="/sports/cross-country" className="text-xs font-black text-lime-300/70">← Cross Country</Link><div className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-lime-300/70">{meet.meet_type} · {meet.status}</div><h1 className="mt-1 text-3xl sm:text-4xl font-black text-white" style={{fontFamily:'var(--font-display)'}}>{meet.meet_name}</h1><p className="mt-2 text-sm text-white/40">{date}{meet.location?` · ${meet.location}`:''}</p>{meet.notes&&<p className="mt-3 text-sm text-white/50">{meet.notes}</p>}</div>
     <div className="rounded-2xl border border-lime-400/15 bg-lime-400/[0.035] px-4 py-3 mb-6 text-sm text-white/55"><span className="font-black text-lime-300">Cross country scoring:</span> the top five finishers score for each team, their places are added together, and the lowest total wins.</div>
     <div className="space-y-5">
-      <TeamTable label="Boys Cross Country" rows={boys}/>
-      <TeamTable label="Girls Cross Country" rows={girls}/>
+      {meet.meet_type==='League'
+        ? <>
+            <DualTable label="Boys Cross Country" rows={boysDuals}/>
+            <DualTable label="Girls Cross Country" rows={girlsDuals}/>
+          </>
+        : <>
+            <TeamTable label="Boys Cross Country" rows={boys}/>
+            <TeamTable label="Girls Cross Country" rows={girls}/>
+          </>}
       <IndividualTable label="Boys Cross Country" rows={boysIndividuals}/>
       <IndividualTable label="Girls Cross Country" rows={girlsIndividuals}/>
     </div>
