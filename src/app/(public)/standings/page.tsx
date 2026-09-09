@@ -119,10 +119,37 @@ export default async function StandingsPage({ searchParams }: Props) {
   let standings: any[] = []
 
   if (selectedSport && selectedSeasonId) {
-    const sportTeamSeasons = activeTeamSeasons.filter((record: any) => {
+    let sportTeamSeasons = activeTeamSeasons.filter((record: any) => {
       const team = normalizeJoinedRecord<any>(record.team)
       return team?.sport_id === selectedSport.id
     })
+
+    // Official Section X Volleyball divisions for the 2026 season.
+    // Keep this as the source of truth for volleyball standings even if
+    // team_seasons division data is missing or was imported incorrectly.
+    if (selectedSport.slug === 'volleyball') {
+      const volleyballDivisions: Record<string, 'East' | 'West'> = {
+        'Brushton-Moira': 'East',
+        'Chateaugay': 'East',
+        'Malone': 'East',
+        'Massena': 'East',
+        'Salmon River': 'East',
+        'Tupper Lake': 'East',
+        'Canton': 'West',
+        'Clifton-Fine': 'West',
+        'Gouverneur': 'West',
+        'Madrid-Waddington': 'West',
+        'Ogdensburg Free Academy': 'West',
+        'Potsdam': 'West',
+      }
+
+      sportTeamSeasons = sportTeamSeasons.map((record: any) => {
+        const team = normalizeJoinedRecord<any>(record.team)
+        const school = normalizeJoinedRecord<any>(team?.school)
+        const officialDivision = volleyballDivisions[String(school?.school_name || '').trim()]
+        return officialDivision ? { ...record, division: officialDivision } : record
+      })
+    }
 
     if (selectedSport.slug === 'boys-cross-country' || selectedSport.slug === 'girls-cross-country') {
       const [{ data: xcMeets }, { data: xcResults }, { data: xcTeams }, { data: xcDuals }] = await Promise.all([
