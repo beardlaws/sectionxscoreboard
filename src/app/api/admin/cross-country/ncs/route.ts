@@ -21,13 +21,24 @@ export async function POST(req:NextRequest){
  if(!meetId||!date)return NextResponse.json({ok:false,error:'Meet and date required'},{status:400})
  const preview=await previewNorthCountrySportsCrossCountry(date),candidate=preview.suggestions.find((x:any)=>x.meetId===meetId)
  if(!candidate)return NextResponse.json({ok:false,error:'No matching scheduled meet found.'},{status:404})
- if(candidate.confidence!=='high')return NextResponse.json({ok:false,error:'This result needs manual review before publishing.'},{status:409})
+ if(candidate.confidence!=='high')return NextResponse.json({ok:false,error:'North Country Sports did not resolve every scheduled dual. Review the remaining matchups manually.'},{status:409})
+
  const db=createAdminClient(),{data:sports}=await db.from('sports').select('id,gender').in('slug',['boys-cross-country','girls-cross-country'])
+ let published=0
  for(const gender of ['Boys','Girls']){
-   const sport:any=(sports||[]).find((s:any)=>s.gender===gender),rows=candidate[gender.toLowerCase()]||[];if(!sport||!rows.length)continue
-   for(let i=0;i<rows.length;i++)await db.from('cross_country_team_results').update({team_score:rows[i].score,finish_place:i+1}).eq('meet_id',meetId).eq('sport_id',sport.id).eq('team_id',rows[i].teamId)
+   const sport:any=(sports||[]).find((s:any)=>s.gender===gender),rows=candidate[gender.toLowerCase()]||[]
+   if(!sport||!rows.length)continue
+   await db.from('cross_country_dual_results').delete().eq('meet_id',meetId).eq('sport_id',sport.id)
+   const inserts=rows.map((r:any)=>({
+     meet_id:meetId,sport_id:sport.id,team_a_id:r.teamAId,team_b_id:r.teamBId,
+     team_a_score:r.teamAScore,team_b_score:r.teamBScore,outcome_a:r.outcomeA,
+     source:'northcountrysports',notes:'Imported from North Country Sports season page'
+   }))
+   const {error}=await db.from('cross_country_dual_results').insert(inserts)
+   if(error)return NextResponse.json({ok:false,error:error.message},{status:500})
+   published+=inserts.length
  }
- await db.from('cross_country_meets').update({status:'Final',source:'northcountrysports',source_payload:{url:preview.sourceUrl,checked_at:new Date().toISOString(),candidate},updated_at:new Date().toISOString()}).eq('id',meetId)
- await db.from('import_logs').insert({import_type:'cross-country-score-review',raw_input:JSON.stringify(candidate),rows_parsed:candidate.matched,rows_approved:candidate.matched,rows_rejected:0,status:'complete',imported_by:'admin:northcountrysports-xc'})
- return NextResponse.json({ok:true,published:candidate.matched,meetId})
+ await db.from('cross_country_meets').update({status:'Final',source:'northcountrysports',source_payload:{urls:preview.sourceUrls,checked_at:new Date().toISOString(),candidate},updated_at:new Date().toISOString()}).eq('id',meetId)
+ await db.from('import_logs').insert({import_type:'cross-country-dual-results',raw_input:JSON.stringify(candidate),rows_parsed:candidate.matched,rows_approved:published,rows_rejected:0,status:'complete',imported_by:'admin:northcountrysports-xc'})
+ return NextResponse.json({ok:true,published,meetId})
 }
