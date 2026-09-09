@@ -173,17 +173,26 @@ export function calculateStandings(
   })
 
   const teamIds = rows.map(r => r.team_id)
-  const hasOverrides = rows.some(r => tsMap[r.team_id]?.btm_override != null)
+  const btmTeamIds = new Set(teamIds)
 
+  // BTM is Section-locked. Only completed head-to-head games between two
+  // active Section X teams in this sport/season enter the Bradley-Terry model.
+  // Out-of-section opponents, scrimmages, missing scores and inactive teams
+  // are excluded from the BTM network.
   const btmGames = games
-    .filter(g =>
-      !isScrimmage(g) &&
-      g.status === 'Final' &&
-      g.home_score != null &&
-      g.away_score != null &&
-      g.home_team_id &&
-      g.away_team_id
-    )
+    .filter(g => {
+      if (isScrimmage(g) || g.status !== 'Final') return false
+      if (g.home_score == null || g.away_score == null) return false
+      if (!g.home_team_id || !g.away_team_id) return false
+      if (!btmTeamIds.has(g.home_team_id) || !btmTeamIds.has(g.away_team_id)) return false
+
+      const homeTeam = normalizeJoinedRecord<any>(g.home_team)
+      const awayTeam = normalizeJoinedRecord<any>(g.away_team)
+      const homeSchool = normalizeJoinedRecord<any>(homeTeam?.school)
+      const awaySchool = normalizeJoinedRecord<any>(awayTeam?.school)
+
+      return homeSchool?.is_section_x !== false && awaySchool?.is_section_x !== false
+    })
     .map(g => ({
       home_team_id: g.home_team_id,
       away_team_id: g.away_team_id,
@@ -192,16 +201,13 @@ export function calculateStandings(
       is_golf: isGolf,
     }))
 
-  const classByTeam: Record<string, string> = {}
-  rows.forEach(r => {
-    classByTeam[r.team_id] = r.class || ''
-  })
+  const calculated = calculateBTM(teamIds, btmGames)
 
-  const calculated = calculateBTM(teamIds, btmGames, classByTeam)
-
+  // Public BTM rankings always come from the model. Manual btm_override values
+  // are intentionally ignored here so a hidden database override cannot alter
+  // the Bradley-Terry leaderboard.
   rows.forEach(r => {
-    const override = tsMap[r.team_id]?.btm_override
-    r.btm = (hasOverrides && override != null) ? override : (calculated[r.team_id] || 0)
+    r.btm = calculated[r.team_id] ?? 0.5
   })
 
   const DIVISION_ORDER = ['East', 'Central', 'West', 'North', 'South']
