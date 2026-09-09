@@ -15,17 +15,18 @@ export default async function CrossCountryTeamSection({teamId,sportId,seasonId}:
   const finalEntries=entries.filter((r:any)=>r.meet?.status==='Final')
   const upcoming=entries.filter((r:any)=>['Scheduled','Live','Postponed'].includes(r.meet?.status))
   let leagueWins=0,leagueLosses=0,leagueTies=0
-  const leagueFinals=finalEntries.filter((r:any)=>r.meet?.meet_type==='League'&&r.team_score!=null)
-  if(leagueFinals.length){
-    const meetIds=leagueFinals.map((r:any)=>r.meet_id)
-    const {data:allRows}=await db.from('cross_country_team_results').select('meet_id,team_id,team_score,is_section_x').in('meet_id',meetIds).eq('sport_id',sportId)
-    for(const mine of leagueFinals){
-      for(const opp of (allRows||[]).filter((r:any)=>r.meet_id===mine.meet_id&&r.team_id&&r.team_id!==teamId&&r.is_section_x&&r.team_score!=null)){
-        if(mine.team_score<opp.team_score)leagueWins++
-        else if(mine.team_score>opp.team_score)leagueLosses++
-        else leagueTies++
-      }
-    }
+  const {data:duals}=await db.from('cross_country_dual_results')
+    .select('meet_id,team_a_id,team_b_id,outcome_a,meet:cross_country_meets(status,meet_type,season_id)')
+    .eq('sport_id',sportId)
+    .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`)
+  for(const d of duals||[]){
+    const meet=Array.isArray((d as any).meet)?(d as any).meet[0]:(d as any).meet
+    if(meet?.season_id!==seasonId||meet?.status!=='Final'||meet?.meet_type!=='League')continue
+    const isA=(d as any).team_a_id===teamId
+    const outcome=isA?(d as any).outcome_a:((d as any).outcome_a==='W'?'L':(d as any).outcome_a==='L'?'W':'T')
+    if(outcome==='W')leagueWins++
+    else if(outcome==='L')leagueLosses++
+    else leagueTies++
   }
 
   return <div className="space-y-6">
