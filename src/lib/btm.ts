@@ -88,11 +88,9 @@ export function calculateBTM(
       maxChange = Math.max(maxChange, Math.abs(change))
     }
 
-    // Bradley-Terry ratings are only identifiable up to an additive constant.
-    // Centering makes r=0 represent an average opponent.
-    const mean = ratings.reduce((sum, r) => sum + r, 0) / n
-    for (let i = 0; i < n; i++) ratings[i] -= mean
-
+    // L2 regularization anchors ratings around zero, so we do not recenter here.
+    // That is important for disconnected schedules: a team with no games should
+    // remain exactly average (0.500) instead of drifting because other teams played.
     if (maxChange < tolerance) break
   }
 
