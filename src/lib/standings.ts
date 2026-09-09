@@ -192,7 +192,12 @@ export function calculateStandings(
       is_golf: isGolf,
     }))
 
-  const calculated = calculateBTM(teamIds, btmGames)
+  const classByTeam: Record<string, string> = {}
+  rows.forEach(r => {
+    classByTeam[r.team_id] = r.class || ''
+  })
+
+  const calculated = calculateBTM(teamIds, btmGames, classByTeam)
 
   rows.forEach(r => {
     const override = tsMap[r.team_id]?.btm_override
