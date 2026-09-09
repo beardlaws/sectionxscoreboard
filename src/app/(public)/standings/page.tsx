@@ -125,15 +125,16 @@ export default async function StandingsPage({ searchParams }: Props) {
     })
 
     if (selectedSport.slug === 'boys-cross-country' || selectedSport.slug === 'girls-cross-country') {
-      const [{ data: xcMeets }, { data: xcResults }, { data: xcTeams }] = await Promise.all([
+      const [{ data: xcMeets }, { data: xcResults }, { data: xcTeams }, { data: xcDuals }] = await Promise.all([
         supabase.from('cross_country_meets').select('id,status,meet_type,season_id').eq('season_id', selectedSeasonId),
         supabase.from('cross_country_team_results').select('meet_id,sport_id,team_id,team_score').eq('sport_id', selectedSport.id),
         supabase.from('teams').select(`id,team_name,slug,sport_id,level,active,school:schools(id,school_name,slug,is_section_x)`).eq('sport_id', selectedSport.id).eq('active', true),
+        supabase.from('cross_country_dual_results').select('meet_id,sport_id,team_a_id,team_b_id,outcome_a').eq('sport_id',selectedSport.id),
       ])
       const xcTeamSeasonShape = (xcTeams || [])
         .filter((team:any) => !team.level || team.level.toLowerCase().trim() === 'varsity')
         .map((team:any) => ({ team }))
-      standings = calculateCrossCountryStandings(xcMeets || [], xcResults || [], xcTeamSeasonShape, selectedSport.id)
+      standings = calculateCrossCountryStandings(xcMeets || [], xcResults || [], xcTeamSeasonShape, selectedSport.id, xcDuals || [])
     } else {
       const { data: gamesData } = await supabase
         .from('games')
