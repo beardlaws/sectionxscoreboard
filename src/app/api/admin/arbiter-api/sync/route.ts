@@ -13,7 +13,7 @@ const STALE_RUN_MINUTES = 20
 
 const clean=(v:unknown)=>String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 const meaningfulLocation=(v:unknown)=>{const c=clean(v);return Boolean(c)&&!['tba','not listed','z','unknown'].includes(c)}
-const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':'Scheduled'
+const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':['postponed','ppd'].includes(clean(v))?'Postponed':'Scheduled'
 const contestType=(v:unknown)=>clean(v)==='scrimmage'?'Scrimmage':'Game'
 
 function deletedIds(payload:unknown){
@@ -144,9 +144,11 @@ export async function POST(req:NextRequest){
       if(row.time&&String(current?.gameTime||'').slice(0,5)!==row.time)patch.game_time=row.time
       if(meaningfulLocation(row.location)&&clean(current?.location)!==clean(row.location))patch.location=row.location
 
-      if(sourceStatus(row.status)==='Canceled'&&clean(current?.status)!=='canceled'){
+      if(sourceStatus(row.status)==='Canceled'&&!['canceled','cancelled'].includes(clean(current?.status))){
         patch.status='Canceled'
-      }else if(sourceStatus(row.status)==='Scheduled'&&clean(current?.status)==='canceled'&&['canceled','cancelled','deleted'].includes(clean(row.linked?.sourceStatus))){
+      }else if(sourceStatus(row.status)==='Postponed'&&clean(current?.status)!=='postponed'){
+        patch.status='Postponed'
+      }else if(sourceStatus(row.status)==='Scheduled'&&['canceled','cancelled','postponed'].includes(clean(current?.status))&&['canceled','cancelled','deleted','postponed','ppd'].includes(clean(row.linked?.sourceStatus))){
         patch.status='Scheduled'
       }
 
