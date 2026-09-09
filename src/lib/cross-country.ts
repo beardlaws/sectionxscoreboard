@@ -18,7 +18,8 @@ export function calculateCrossCountryStandings(
   meets: any[],
   results: any[],
   teamSeasons: any[],
-  sportId: string
+  sportId: string,
+  dualResults: any[] = []
 ): CrossCountryStanding[] {
   const rows = new Map<string, CrossCountryStanding>()
 
@@ -46,27 +47,39 @@ export function calculateCrossCountryStandings(
       .map(m => m.id)
   )
 
-  const byMeet = new Map<string, any[]>()
-  for (const result of results || []) {
-    if (result.sport_id !== sportId || !leagueMeetIds.has(result.meet_id)) continue
-    if (!result.team_id || result.team_score == null || !rows.has(result.team_id)) continue
-    if (!byMeet.has(result.meet_id)) byMeet.set(result.meet_id, [])
-    byMeet.get(result.meet_id)!.push(result)
-  }
+  const usableDuals=(dualResults||[]).filter((d:any)=>d.sport_id===sportId&&leagueMeetIds.has(d.meet_id)&&rows.has(d.team_a_id)&&rows.has(d.team_b_id))
+  if(usableDuals.length){
+    for(const d of usableDuals){
+      const a=rows.get(d.team_a_id)!
+      const b=rows.get(d.team_b_id)!
+      if(d.outcome_a==='W'){a.wins++;b.losses++}
+      else if(d.outcome_a==='L'){a.losses++;b.wins++}
+      else {a.ties++;b.ties++}
+    }
+  }else{
+    // Legacy fallback for older league meets that only have one aggregate team score per meet.
+    const byMeet = new Map<string, any[]>()
+    for (const result of results || []) {
+      if (result.sport_id !== sportId || !leagueMeetIds.has(result.meet_id)) continue
+      if (!result.team_id || result.team_score == null || !rows.has(result.team_id)) continue
+      if (!byMeet.has(result.meet_id)) byMeet.set(result.meet_id, [])
+      byMeet.get(result.meet_id)!.push(result)
+    }
 
-  for (const meetResults of byMeet.values()) {
-    for (let i = 0; i < meetResults.length; i++) {
-      for (let j = i + 1; j < meetResults.length; j++) {
-        const a = meetResults[i]
-        const b = meetResults[j]
-        const ar = rows.get(a.team_id)!
-        const br = rows.get(b.team_id)!
-        if (a.team_score < b.team_score) {
-          ar.wins++; br.losses++
-        } else if (b.team_score < a.team_score) {
-          br.wins++; ar.losses++
-        } else {
-          ar.ties++; br.ties++
+    for (const meetResults of byMeet.values()) {
+      for (let i = 0; i < meetResults.length; i++) {
+        for (let j = i + 1; j < meetResults.length; j++) {
+          const a = meetResults[i]
+          const b = meetResults[j]
+          const ar = rows.get(a.team_id)!
+          const br = rows.get(b.team_id)!
+          if (a.team_score < b.team_score) {
+            ar.wins++; br.losses++
+          } else if (b.team_score < a.team_score) {
+            br.wins++; ar.losses++
+          } else {
+            ar.ties++; br.ties++
+          }
         }
       }
     }
