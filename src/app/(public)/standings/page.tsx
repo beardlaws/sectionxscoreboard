@@ -12,7 +12,7 @@ import StandingsToggle from '@/components/StandingsToggle'
 
 export const metadata: Metadata = {
   title: 'Standings | Section X Scoreboard',
-  description: 'Section X high school sports standings with league record, overall record, and BTM rankings.',
+  description: 'Section X high school sports standings with league record, overall record, and Bradley-Terry Model rankings.',
 }
 
 export const dynamic = 'force-dynamic'
@@ -257,7 +257,7 @@ export default async function StandingsPage({ searchParams }: Props) {
             <h1 className="text-3xl font-bold font-display text-white">Standings</h1>
             {selectedSeason && (
               <p className="text-slate-400 text-sm mt-0.5">
-                {selectedSeason.name} · BTM = Binomial Tournament Method
+                {selectedSeason.name} · BTM = Bradley-Terry Model
               </p>
             )}
           </div>
@@ -395,7 +395,7 @@ export default async function StandingsPage({ searchParams }: Props) {
               ? 'Cross country league standings use head-to-head results within Section X league meets. Lower team score wins. Invitational results do not affect league W-L.'
               : selectedSport?.sport_name === 'Boys Golf' || selectedSport?.sport_name === 'Girls Golf'
                 ? 'Golf standings: lower scores are better.'
-                : 'BTM (Binomial Tournament Method): (W + 0.5T + 0.5) / (W + L + T + 1). Higher is better.'
+                : 'BTM (Bradley-Terry Model) estimates team strength from game results and opponent strength. The displayed value is the estimated win probability against an average Section X opponent. Higher is better.'
             }
           </p>
         )}
