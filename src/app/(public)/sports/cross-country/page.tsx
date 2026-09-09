@@ -42,7 +42,7 @@ export default async function CrossCountryPage() {
   const sportIds = sportRows.map((s:any)=>s.id)
 
   const [{data:meets},{data:results},{data:xcTeams},{data:dualResults}] = await Promise.all([
-    season ? db.from('cross_country_meets').select('*').eq('season_id',season.id).order('meet_date',{ascending:false}) : Promise.resolve({data:[] as any[]}),
+    season ? db.from('cross_country_meets').select('*').eq('season_id',season.id).order('meet_date',{ascending:true}) : Promise.resolve({data:[] as any[]}),
     sportIds.length ? db.from('cross_country_team_results').select(`*,sport:sports(id,slug,gender,sport_name),team:teams(id,team_name,slug,sport_id,school:schools(id,school_name,slug,is_section_x,primary_color,logo_url)),external_opponent:external_opponents(id,name,slug)`).in('sport_id',sportIds) : Promise.resolve({data:[] as any[]}),
     sportIds.length ? db.from('teams').select(`id,team_name,slug,sport_id,level,active,school:schools(id,school_name,slug,is_section_x)`).in('sport_id',sportIds).eq('active',true) : Promise.resolve({data:[] as any[]}),
     sportIds.length ? db.from('cross_country_dual_results').select('meet_id,sport_id,team_a_id,team_b_id,outcome_a').in('sport_id',sportIds) : Promise.resolve({data:[] as any[]})
