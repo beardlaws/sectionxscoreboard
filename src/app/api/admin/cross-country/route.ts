@@ -16,6 +16,20 @@ function parseResults(raw:unknown){
     return {name:m[1].trim(),score:Number(m[2]),place:index+1}
   }).filter(Boolean) as {name:string;score:number;place:number}[]
 }
+function parseDualResults(raw:unknown){
+  return String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(line=>{
+    const cleaned=line.replace(/^#?\d+[.)-]?\s+/,'').trim()
+    const m=cleaned.match(/^(.*?)\s+(\d+|INC|T)\s*,\s*(.*?)\s+(\d+|INC|T)$/i)
+    if(!m)return null
+    const token=(v:string)=>/^\d+$/.test(v)?Number(v):null
+    const aScore=token(m[2]),bScore=token(m[4])
+    let outcome:'W'|'L'|'T'='T'
+    if(aScore!=null&&bScore!=null)outcome=aScore<bScore?'W':aScore>bScore?'L':'T'
+    else if(aScore!=null&&bScore==null)outcome='W'
+    else if(aScore==null&&bScore!=null)outcome='L'
+    return {aName:m[1].trim(),bName:m[3].trim(),aScore,bScore,outcome}
+  }).filter(Boolean) as {aName:string;bName:string;aScore:number|null;bScore:number|null;outcome:'W'|'L'|'T'}[]
+}
 
 export async function POST(req:NextRequest){
   const ok=await verifyAdminSession(req.cookies.get(ADMIN_SESSION_COOKIE)?.value,process.env.ADMIN_SESSION_TOKEN)
@@ -64,19 +78,59 @@ export async function POST(req:NextRequest){
   const allExternals=(externals||[]) as any[]
   const sportMap=new Map((sports||[]).map((s:any)=>[s.gender,s]))
 
+  function findTeamByName(sportId:string,name:string){
+    const target=norm(name)
+    return allTeams.find((t:any)=>{
+      if(t.sport_id!==sportId)return false
+      const school=Array.isArray(t.school)?t.school[0]:t.school
+      return norm(school?.school_name)===target||norm(t.team_name)===target||norm(school?.slug)===target
+        || norm(school?.school_name).startsWith(target)||target.startsWith(norm(school?.school_name))
+    })
+  }
+
   async function saveGender(gender:'Boys'|'Girls',raw:unknown){
     const sport:any=sportMap.get(gender)
     if(!sport)return
+
+    if(meet.meet_type==='League'){
+      const dualRows=parseDualResults(raw)
+      if(String(raw||'').trim()&&!dualRows.length){
+        throw new Error(gender+' league results must be entered one matchup per line, for example: Canton 21, Tupper Lake 40. Use INC for an incomplete team.')
+      }
+      await db.from('cross_country_dual_results').delete().eq('meet_id',meet.id).eq('sport_id',sport.id)
+      const dualInserts:any[]=[]
+      const participantIds=new Set<string>()
+      for(const row of dualRows){
+        const a=findTeamByName(sport.id,row.aName)
+        const b=findTeamByName(sport.id,row.bName)
+        if(!a||!b)throw new Error('Could not match '+gender+' XC team in line: '+row.aName+' / '+row.bName)
+        participantIds.add(a.id);participantIds.add(b.id)
+        dualInserts.push({
+          meet_id:meet.id,sport_id:sport.id,team_a_id:a.id,team_b_id:b.id,
+          team_a_score:row.aScore,team_b_score:row.bScore,outcome_a:row.outcome,source:'admin'
+        })
+      }
+      if(dualInserts.length){
+        const {error}=await db.from('cross_country_dual_results').insert(dualInserts)
+        if(error)throw error
+      }
+      // Keep one participant row per team so schedules/team pages remain connected to the meet.
+      await db.from('cross_country_team_results').delete().eq('meet_id',meet.id).eq('sport_id',sport.id)
+      if(participantIds.size){
+        const {error}=await db.from('cross_country_team_results').insert([...participantIds].map(teamId=>({
+          meet_id:meet.id,sport_id:sport.id,team_id:teamId,is_section_x:true
+        })))
+        if(error)throw error
+      }
+      return
+    }
+
     const rows=parseResults(raw)
     await db.from('cross_country_team_results').delete().eq('meet_id',meet.id).eq('sport_id',sport.id)
     const inserts:any[]=[]
     for(const row of rows){
       const target=norm(row.name)
-      const team=allTeams.find((t:any)=>{
-        if(t.sport_id!==sport.id)return false
-        const school=Array.isArray(t.school)?t.school[0]:t.school
-        return norm(school?.school_name)===target||norm(t.team_name)===target||norm(school?.slug)===target
-      })
+      const team=findTeamByName(sport.id,row.name)
       if(team){
         inserts.push({meet_id:meet.id,sport_id:sport.id,team_id:team.id,team_score:row.score,finish_place:row.place,is_section_x:true})
         continue
