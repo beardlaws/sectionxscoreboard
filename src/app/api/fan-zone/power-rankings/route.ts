@@ -26,7 +26,7 @@ export async function POST(req:NextRequest){
 
   const {data:ballots}=await db.from('fan_power_rank_ballots').select('rankings').eq('week_start',row.week_start).eq('sport_id',row.sport_id).eq('group_type',row.group_type).eq('group_value',row.group_value)
   const points=new Map<string,number>(),votes=new Map<string,number>(),firsts=new Map<string,number>()
-  for(const b of ballots||[]){const arr=Array.isArray(b.rankings)?b.rankings:[];arr.slice(0,5).forEach((id:string,i:number)=>{points.set(id,(points.get(id)||0)+(5-i));votes.set(id,(votes.get(id)||0)+1)})}
+  for(const b of ballots||[]){const arr=Array.isArray(b.rankings)?b.rankings:[];arr.slice(0,5).forEach((id:string,i:number)=>{points.set(id,(points.get(id)||0)+(5-i));votes.set(id,(votes.get(id)||0)+1);if(i===0)firsts.set(id,(firsts.get(id)||0)+1)})}
   const ids=[...points.keys()],{data:names}=ids.length?await db.from('teams').select('id,team_name,school:schools(school_name,slug)').in('id',ids):{data:[]}
   const byId=new Map((names||[]).map((t:any)=>[t.id,t]))
   const results=ids.map(id=>{const t:any=byId.get(id),school=Array.isArray(t?.school)?t.school[0]:t?.school;return{teamId:id,teamName:school?.school_name||t?.team_name||'Team',slug:school?.slug||null,points:points.get(id)||0,votes:votes.get(id)||0,firstPlaceVotes:firsts.get(id)||0}}).sort((a,b)=>b.points-a.points||b.votes-a.votes||a.teamName.localeCompare(b.teamName))
