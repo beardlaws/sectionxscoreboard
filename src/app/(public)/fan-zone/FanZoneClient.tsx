@@ -21,7 +21,9 @@ export default function FanZoneClient({sports,teams,schools}:{sports:Sport[];tea
   const currentGroup=groups.find(g=>g.value===group)||groups[0]
   const eligible=useMemo(()=>teams.filter(t=>t.sport_id===sportId&&(!currentGroup||currentGroup.type==='all'||t.className===currentGroup.value)),[teams,sportId,currentGroup])
   const [ranked,setRanked]=useState<Team[]>([])
-  const [rankMsg,setRankMsg]=useState('');const [rankBusy,setRankBusy]=useState(false)\n  const [fanResults,setFanResults]=useState<any[]>([]);const [ballotCount,setBallotCount]=useState(0)\n  const maxPicks=Math.min(5,eligible.length)
+  const [rankMsg,setRankMsg]=useState('');const [rankBusy,setRankBusy]=useState(false)
+  const [fanResults,setFanResults]=useState<any[]>([]);const [ballotCount,setBallotCount]=useState(0)
+  const maxPicks=Math.min(5,eligible.length)
 
   function chooseSport(id:string){setSportId(id);setRanked([]);setRankMsg('');const rows=teams.filter(t=>t.sport_id===id);const cls=[...new Set(rows.map(t=>t.className).filter(Boolean))].sort();setGroup(cls[0]||'All')}
   function addTeam(t:Team){if(ranked.some(x=>x.id===t.id)||ranked.length>=5)return;setRanked([...ranked,t])}
