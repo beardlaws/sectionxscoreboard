@@ -53,8 +53,8 @@ export default async function CrossCountryPage() {
   const xcTeamSeasonShape = (xcTeams || []).filter((team:any)=>!team.level || team.level.toLowerCase().trim()==='varsity').map((team:any)=>({team}))
   const boysStandings = boysSport ? calculateCrossCountryStandings(meets||[],allResults,xcTeamSeasonShape,boysSport.id,dualResults||[]) : []
   const girlsStandings = girlsSport ? calculateCrossCountryStandings(meets||[],allResults,xcTeamSeasonShape,girlsSport.id,dualResults||[]) : []
-  const finalMeets = meetRows.filter((m:any)=>m.status==='Final')
-  const upcoming = meetRows.filter((m:any)=>m.status!=='Final' && m.status!=='Canceled')
+  const finalMeets = meetRows.filter((m:any)=>m.status==='Final').sort((a:any,b:any)=>String(b.meet_date).localeCompare(String(a.meet_date)) || String(a.meet_time||'').localeCompare(String(b.meet_time||'')))
+  const upcoming = meetRows.filter((m:any)=>m.status!=='Final' && m.status!=='Canceled').sort((a:any,b:any)=>String(a.meet_date).localeCompare(String(b.meet_date)) || String(a.meet_time||'').localeCompare(String(b.meet_time||'')))
 
   return (
     <PublicLayout>
@@ -71,12 +71,11 @@ export default async function CrossCountryPage() {
           <p className="mt-2 text-sm text-white/55 leading-relaxed">The first five finishers for each team score points equal to their finishing places. Those five places are added together, and the lowest total wins. Sixth and seventh runners can displace opposing scorers. A perfect team score is 15.</p>
         </div>
 
-        {upcoming.length > 0 && <section className="mb-8"><h2 className="text-sm font-black uppercase tracking-wider text-white/40 mb-3">Upcoming Meets</h2><div className="space-y-3">{upcoming.map((m:any)=><CrossCountryMeetCard key={m.id} meet={m}/>)}</div></section>}
-
         <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6">
           <section>
-            <h2 className="text-sm font-black uppercase tracking-wider text-white/40 mb-3">Recent Results</h2>
+            <h2 className="text-sm font-black uppercase tracking-wider text-white/40 mb-3">Final Results</h2>
             {finalMeets.length ? <div className="space-y-3">{finalMeets.map((m:any)=><CrossCountryMeetCard key={m.id} meet={m}/>)}</div> : <div className="rounded-2xl border border-white/[0.06] p-8 text-center text-white/35">No final meets reported yet.</div>}
+            {upcoming.length > 0 && <div className="mt-8"><h2 className="text-sm font-black uppercase tracking-wider text-white/40 mb-3">Upcoming Meets</h2><div className="space-y-3">{upcoming.map((m:any)=><CrossCountryMeetCard key={m.id} meet={m}/>)}</div></div>}
           </section>
           <aside className="space-y-4">
             <StandingsTable title="Boys Section X Standings" rows={boysStandings}/>

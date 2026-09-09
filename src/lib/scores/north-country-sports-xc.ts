@@ -51,6 +51,23 @@ function parseBlockPairs(lines:string[],expectedNames:string[]){
     const segs=parseSegments(line)
     if(segs.length>=2){for(const p of pairsFromSegments(segs))pairs.push({...p,raw:line})}
   }
+  const mentionedInc=new Set<string>()
+  const scoredTeams=new Set<string>()
+  for(const line of lines){
+    for(const seg of parseSegments(line)){if(seg.score==null)mentionedInc.add(norm(seg.name));else scoredTeams.add(norm(seg.name))}
+    const incList=line.match(/^(.*?),\s*(.*?)\s+inc\.?$/i)
+    if(incList&&!/\d/.test(line)){mentionedInc.add(norm(incList[1]));mentionedInc.add(norm(incList[2]))}
+  }
+  const expected=expectedNames.map(n=>({raw:n,norm:norm(n)}))
+  const seen=new Set(pairs.map(p=>[norm(p.aName),norm(p.bName)].sort().join('|')))
+  for(let i=0;i<expected.length;i++)for(let j=i+1;j<expected.length;j++){
+    const a=expected[i],b=expected[j],key=[a.norm,b.norm].sort().join('|')
+    if(seen.has(key))continue
+    const ai=mentionedInc.has(a.norm),bi=mentionedInc.has(b.norm)
+    if(ai&&bi)pairs.push({aName:a.raw,bName:b.raw,aScore:null,bScore:null,outcome:'T',raw:'Both incomplete'})
+    else if(ai&&!bi)pairs.push({aName:a.raw,bName:b.raw,aScore:null,bScore:null,outcome:'L',raw:a.raw+' incomplete'})
+    else if(!ai&&bi)pairs.push({aName:a.raw,bName:b.raw,aScore:null,bScore:null,outcome:'W',raw:b.raw+' incomplete'})
+  }
   return pairs
 }
 function sectionForDate(lines:string[],date:string){
