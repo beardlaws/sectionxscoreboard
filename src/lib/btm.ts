@@ -21,11 +21,11 @@
 // - A tie is treated as 0.5 win + 0.5 loss for ranking purposes.
 // - The model is fit on the complete in-section comparison network supplied
 //   by the caller, not just games within a team's playoff class.
+// - The model itself is classification-blind: every eligible in-section team
+//   is fit in one shared comparison network.
 // - The displayed BTM score is the team's average Bradley-Terry predicted win
-//   probability against the other teams in its playoff class. This matches the
-//   published Section III wording: "probability for wins vs all in class
-//   schools." If class information is unavailable, all modeled opponents are
-//   used as the comparison set.
+//   probability against the other modeled Section X teams. Class/division
+//   filters only change which rows are displayed; they do not refit the model.
 //
 // Teams with no usable in-section results are not identifiable by Bradley-
 // Terry. They are displayed at 0.500 (neutral) until they enter the comparison
@@ -165,8 +165,7 @@ function fitBradleyTerryAbilities(
 
 export function calculateBTM(
   teamIds: string[],
-  games: BTMGame[],
-  classByTeam: Record<string, string> = {}
+  games: BTMGame[]
 ): Record<string, number> {
   const ids = [...new Set(teamIds)]
   const { ability, gamesPlayed } = fitBradleyTerryAbilities(ids, games)
@@ -181,18 +180,7 @@ export function calculateBTM(
       continue
     }
 
-    const teamClass = String(classByTeam[id] || '').trim()
-
-    let opponents = modeledIds.filter(otherId =>
-      otherId !== id &&
-      (!teamClass || String(classByTeam[otherId] || '').trim() === teamClass)
-    )
-
-    // If class data is missing/incomplete, retain a meaningful Bradley-Terry
-    // score by comparing against the full modeled in-section field.
-    if (opponents.length === 0) {
-      opponents = modeledIds.filter(otherId => otherId !== id)
-    }
+    const opponents = modeledIds.filter(otherId => otherId !== id)
 
     if (opponents.length === 0) {
       result[id] = 0.5
