@@ -10,4 +10,8 @@ export interface PublicContentRepository {
   getLatestWeeklyRecap(): Promise<any | null>
   getTeamRoster(teamId: string, seasonId: string): Promise<any[]>
   getTeamCoaches(teamId: string, seasonId: string): Promise<any[]>
+  getAthleteBySlug(slug: string): Promise<any | null>
+  getAthleteMemberships(athleteId: string): Promise<any[]>
+  getAthletePhotos(athleteId: string): Promise<any[]>
+  getAthleteStats(athleteId: string): Promise<any[]>
 }
