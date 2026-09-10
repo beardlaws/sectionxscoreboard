@@ -6,7 +6,7 @@
     "dev": "next dev",
     "prebuild": "npm pkg set dependencies.next=15.5.24 devDependencies.eslint-config-next=15.5.24 && npm install --force",
     "build": "next build",
-    "postbuild": "next-sitemap",
+    "postbuild": "next-sitemap && npx @opennextjs/cloudflare build",
     "start": "next start",
     "lint": "next lint"
   },
