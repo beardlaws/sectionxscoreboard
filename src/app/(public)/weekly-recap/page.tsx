@@ -2,15 +2,13 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
 import FacebookVideo from '@/components/weekly-recap/FacebookVideo'
-import { createPublicClient as createClient } from '@/lib/supabase/public'
+import { getPublicContentRepository } from '@/lib/data/runtime-public-content-repository'
 
 export const metadata: Metadata = { title: 'Weekly Recap | Section X Scoreboard', description: 'Watch the Section X Scoreboard Weekly Recap for the biggest scores, performances, and storylines from Northern New York high school sports.' }
-export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
 export default async function WeeklyRecapPage() {
-  const db = createClient()
-  const { data } = await db.from('weekly_recaps').select('*').eq('published', true).order('published_date', { ascending: false }).order('created_at', { ascending: false })
-  const recaps = data || []
+  const recaps = await getPublicContentRepository().getWeeklyRecaps(50)
   const latest = recaps[0]
   return <PublicLayout><main className="max-w-5xl mx-auto px-4 py-6 md:py-10">
     <div className="mb-6"><div className="text-xs font-black uppercase tracking-[.18em] text-blue-400 mb-2">Section X Scoreboard</div><h1 className="text-3xl md:text-5xl font-black text-white" style={{fontFamily:'var(--font-display)'}}>Weekly Recap</h1><p className="text-slate-400 mt-2 max-w-2xl">One video. The biggest scores, performances and storylines from the week in Section X sports.</p></div>
