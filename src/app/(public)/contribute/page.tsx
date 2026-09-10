@@ -1,8 +1,8 @@
 import PublicLayout from '@/components/layout/PublicLayout'
-import { createClient } from '@/lib/supabase/server'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 import ContributorOnboarding from './ContributorOnboarding'
 
-export const revalidate = 0
+export const dynamic = 'force-dynamic'
 
 export const metadata = {
   title: 'Become a Section X Contributor | Section X Scoreboard',
@@ -10,12 +10,11 @@ export const metadata = {
 }
 
 export default async function ContributePage() {
-  const supabase = createClient()
-  const { data: schools } = await supabase
-    .from('schools')
-    .select('id,school_name')
-    .eq('active', true)
-    .order('school_name')
+  const repo = getSportsRepository()
+  const schools = (await repo.getSchools())
+    .filter((school:any) => school.active !== false)
+    .map((school:any) => ({ id: school.id, school_name: school.school_name }))
+    .sort((a:any,b:any) => a.school_name.localeCompare(b.school_name))
 
   return (
     <PublicLayout>
@@ -30,7 +29,7 @@ export default async function ContributePage() {
           </p>
         </div>
 
-        <ContributorOnboarding schools={schools || []} />
+        <ContributorOnboarding schools={schools} />
 
         <div className="grid md:grid-cols-3 gap-3 text-sm">
           <div className="card p-4"><b className="text-white">Photographers</b><p className="text-slate-500 mt-1">Upload game photos, receive public credit, and tag rostered athletes for their galleries.</p></div>
