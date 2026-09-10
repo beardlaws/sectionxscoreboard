@@ -1,20 +1,15 @@
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
 
-export const dynamic = 'force-dynamic'
+export const dynamic='force-dynamic'
 
-export async function GET(req: NextRequest) {
-  const photoId = req.nextUrl.searchParams.get('photoId')
-  if (!photoId) return NextResponse.json({ error: 'photoId required' }, { status: 400 })
-
-  const db = createAdminClient()
-  const { data, error } = await db
-    .from('photo_tag_suggestions')
-    .select('id,athlete_id,status,source_type,contributor_id,created_at')
-    .eq('photo_id', photoId)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true, suggestions: data || [] })
+export async function GET(req:NextRequest){
+  try{
+    const photoId=req.nextUrl.searchParams.get('photoId')
+    if(!photoId)return NextResponse.json({error:'photoId required'},{status:400})
+    const {env}=getCloudflareContext(),db=(env as any).DB
+    if(!db)throw new Error('Cloudflare D1 binding DB is unavailable')
+    const {results}=await db.prepare("SELECT id,athlete_id,status,source_type,contributor_id,created_at FROM photo_tag_suggestions WHERE photo_id=? AND status='pending' ORDER BY created_at ASC").bind(photoId).all()
+    return NextResponse.json({ok:true,suggestions:results||[]})
+  }catch(e:any){return NextResponse.json({error:e?.message||'Could not load tag suggestions'},{status:500})}
 }
