@@ -36,15 +36,19 @@ function cleanObject(input:any,columns:Set<string>){
   }
   return out
 }
-function matchClause(match:Record<string,any>,columns:Set<string>){
+function optionalMatchClause(match:Record<string,any>|undefined,columns:Set<string>){
   const entries=Object.entries(match||{}).filter(([key])=>columns.has(key))
-  if(!entries.length)throw new Error('A valid match is required for update/delete')
   return {sql:entries.map(([key])=>`${qid(key)}=?`).join(' AND '),values:entries.map(([,value])=>dbValue(value))}
+}
+function requiredMatchClause(match:Record<string,any>,columns:Set<string>){
+  const result=optionalMatchClause(match,columns)
+  if(!result.sql)throw new Error('A valid match is required for update/delete')
+  return result
 }
 
 // POST /api/admin/db
 // Middleware protects /api/admin/* using the existing admin session cookie.
-// Body: { action:'insert'|'update'|'upsert'|'delete', table, data?, match?, onConflict? }
+// Body supports CRUD plus a constrained select for simple admin tables.
 export async function POST(req:NextRequest){
   const body=await req.json().catch(()=>null)
   const action=String(body?.action||''),table=String(body?.table||'')
@@ -56,14 +60,26 @@ export async function POST(req:NextRequest){
     const columns=await columnsFor(db,table)
     if(!columns.size)throw new Error(`D1 table is unavailable: ${table}`)
 
+    if(action==='select'){
+      const requested=Array.isArray(body.columns)?body.columns.map(String).filter((c:string)=>columns.has(c)):[]
+      const selectSql=requested.length?requested.map(qid).join(','):'*'
+      const where=optionalMatchClause(body.match,columns)
+      const orderBy=columns.has(String(body.orderBy||''))?String(body.orderBy):null
+      const direction=String(body.direction||'asc').toLowerCase()==='desc'?'DESC':'ASC'
+      const limit=Math.max(1,Math.min(1000,Number(body.limit)||500))
+      const sql=`SELECT ${selectSql} FROM ${qid(table)}${where.sql?` WHERE ${where.sql}`:''}${orderBy?` ORDER BY ${qid(orderBy)} ${direction}`:''} LIMIT ${limit}`
+      const result=await db.prepare(sql).bind(...where.values).all()
+      return NextResponse.json({ok:true,data:result.results||[]})
+    }
+
     if(action==='insert'){
       const rows=Array.isArray(body.data)?body.data:[body.data]
       const output:any[]=[]
       for(const raw of rows){
-        const data=cleanObject(raw,columns),entries=Object.entries(data)
-        if(!entries.length)throw new Error('No valid insert fields supplied')
+        const data=cleanObject(raw,columns)
         if(columns.has('id')&&!('id' in data))data.id=crypto.randomUUID()
         const finalEntries=Object.entries(data)
+        if(!finalEntries.length)throw new Error('No valid insert fields supplied')
         const sql=`INSERT INTO ${qid(table)} (${finalEntries.map(([k])=>qid(k)).join(',')}) VALUES (${finalEntries.map(()=>'?').join(',')})`
         await db.prepare(sql).bind(...finalEntries.map(([,v])=>v)).run()
         output.push(data)
@@ -74,14 +90,14 @@ export async function POST(req:NextRequest){
     if(action==='update'){
       const data=cleanObject(body.data,columns),entries=Object.entries(data)
       if(!entries.length)throw new Error('No valid update fields supplied')
-      const where=matchClause(body.match,columns)
+      const where=requiredMatchClause(body.match,columns)
       const sql=`UPDATE ${qid(table)} SET ${entries.map(([k])=>`${qid(k)}=?`).join(',')} WHERE ${where.sql}`
       const result=await db.prepare(sql).bind(...entries.map(([,v])=>v),...where.values).run()
       return NextResponse.json({ok:true,data:null,changes:Number(result.meta?.changes||0)})
     }
 
     if(action==='delete'){
-      const where=matchClause(body.match,columns)
+      const where=requiredMatchClause(body.match,columns)
       const result=await db.prepare(`DELETE FROM ${qid(table)} WHERE ${where.sql}`).bind(...where.values).run()
       return NextResponse.json({ok:true,data:null,changes:Number(result.meta?.changes||0)})
     }
