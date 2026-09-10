@@ -3,6 +3,7 @@ export interface PublicContentRepository {
   getScoresSponsor(today: string): Promise<any | null>
   getSportSponsor(sportId: string, today: string): Promise<any | null>
   getSchoolSponsor(schoolId: string, today: string): Promise<any | null>
+  getPlayoffSponsor(today: string): Promise<any | null>
   getFeaturedSpotlight(): Promise<any | null>
   getSpotlights(limit?: number): Promise<any[]>
   getSpotlightById(id: string): Promise<any | null>
