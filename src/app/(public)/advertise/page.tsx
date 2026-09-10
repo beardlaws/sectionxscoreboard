@@ -1,11 +1,8 @@
 // src/app/(public)/advertise/page.tsx
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import PublicLayout from '@/components/layout/PublicLayout'
 import { Check } from 'lucide-react'
-
-const supabase = createClient()
 
 const PACKAGES = [
   {
@@ -97,17 +94,25 @@ export default function AdvertisePage() {
       setError('Please fill in business name, contact name, and email.'); return
     }
     setLoading(true); setError('')
-    const { error: dbErr } = await supabase.from('advertise_inquiries').insert(form)
-    if (dbErr) { setError('Something went wrong. Email us directly at sectionxscoreboard@gmail.com'); setLoading(false); return }
-    setSubmitted(true)
-    setLoading(false)
+    try {
+      const response = await fetch('/api/advertise-inquiry', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Could not send inquiry.')
+      setSubmitted(true)
+    } catch {
+      setError('Something went wrong. Email us directly at sectionxscoreboard@gmail.com')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <PublicLayout>
       <div className="max-w-5xl mx-auto px-4 py-8">
-
-        {/* Hero */}
         <div className="rounded-2xl p-8 mb-10 text-center relative overflow-hidden"
           style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.2) 0%, rgba(8,12,20,0.95) 60%)', border: '1px solid rgba(37,99,235,0.3)' }}>
           <div className="relative">
@@ -135,31 +140,17 @@ export default function AdvertisePage() {
           </div>
         </div>
 
-        {/* Why sponsor */}
         <div className="mb-10">
           <h2 className="text-2xl font-black text-white mb-6 text-center" style={{ fontFamily: 'var(--font-display)' }}>
             Why Sponsor Section X Scoreboard?
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              {
-                icon: '🎯',
-                title: 'Hyper-Local Targeting',
-                body: 'Your ad reaches exactly the community you serve — North Country families, parents, athletes, and fans. No wasted impressions on people who live 300 miles away.',
-              },
-              {
-                icon: '📱',
-                title: 'Mobile-First Audience',
-                body: 'Parents check scores on their phones from bleachers, living rooms, and cars. Your business appears where they\'re already looking, at the exact moment they\'re most engaged.',
-              },
-              {
-                icon: '🏆',
-                title: 'Community Association',
-                body: 'Sponsoring high school sports is one of the most respected forms of community support. Your business becomes part of North Country athletic culture.',
-              },
+              { icon: '🎯', title: 'Hyper-Local Targeting', body: 'Your ad reaches exactly the community you serve — North Country families, parents, athletes, and fans. No wasted impressions on people who live 300 miles away.' },
+              { icon: '📱', title: 'Mobile-First Audience', body: 'Parents check scores on their phones from bleachers, living rooms, and cars. Your business appears where they\'re already looking, at the exact moment they\'re most engaged.' },
+              { icon: '🏆', title: 'Community Association', body: 'Sponsoring high school sports is one of the most respected forms of community support. Your business becomes part of North Country athletic culture.' },
             ].map(item => (
-              <div key={item.title} className="rounded-2xl p-5 border border-white/8"
-                style={{ background: 'rgba(8,12,20,0.7)' }}>
+              <div key={item.title} className="rounded-2xl p-5 border border-white/8" style={{ background: 'rgba(8,12,20,0.7)' }}>
                 <span className="text-3xl mb-3 block">{item.icon}</span>
                 <h3 className="font-black text-white text-base mb-2" style={{ fontFamily: 'var(--font-display)' }}>{item.title}</h3>
                 <p className="text-slate-400 text-sm leading-relaxed">{item.body}</p>
@@ -168,7 +159,6 @@ export default function AdvertisePage() {
           </div>
         </div>
 
-        {/* Packages */}
         <div className="mb-10">
           <h2 className="text-2xl font-black text-white mb-2 text-center" style={{ fontFamily: 'var(--font-display)' }}>
             Sponsorship Packages
@@ -176,175 +166,52 @@ export default function AdvertisePage() {
           <p className="text-slate-400 text-sm text-center mb-6">All packages include your logo, business name, tagline, and link to your website.</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {PACKAGES.map(pkg => (
-              <div key={pkg.id}
-                className="rounded-2xl p-5 border transition-all hover:-translate-y-0.5"
-                style={{
-                  background: pkg.highlight ? 'linear-gradient(135deg, rgba(37,99,235,0.15), rgba(8,12,20,0.95))' : 'rgba(8,12,20,0.7)',
-                  border: pkg.highlight ? '1px solid rgba(37,99,235,0.4)' : '1px solid rgba(255,255,255,0.08)',
-                  boxShadow: pkg.highlight ? '0 0 30px rgba(37,99,235,0.15)' : 'none',
-                }}>
+              <div key={pkg.id} className="rounded-2xl p-5 border transition-all hover:-translate-y-0.5"
+                style={{ background: pkg.highlight ? 'linear-gradient(135deg, rgba(37,99,235,0.15), rgba(8,12,20,0.95))' : 'rgba(8,12,20,0.7)', border: pkg.highlight ? '1px solid rgba(37,99,235,0.4)' : '1px solid rgba(255,255,255,0.08)', boxShadow: pkg.highlight ? '0 0 30px rgba(37,99,235,0.15)' : 'none' }}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xl">{pkg.icon}</span>
-                      <h3 className="font-black text-white text-lg" style={{ fontFamily: 'var(--font-display)' }}>{pkg.name}</h3>
-                    </div>
-                    <p className="text-2xl font-black" style={{ fontFamily: 'var(--font-display)', color: pkg.highlight ? '#60a5fa' : '#4ade80' }}>
-                      {pkg.price}
-                    </p>
+                    <div className="flex items-center gap-2 mb-1"><span className="text-xl">{pkg.icon}</span><h3 className="font-black text-white text-lg" style={{ fontFamily: 'var(--font-display)' }}>{pkg.name}</h3></div>
+                    <p className="text-2xl font-black" style={{ fontFamily: 'var(--font-display)', color: pkg.highlight ? '#60a5fa' : '#4ade80' }}>{pkg.price}</p>
                   </div>
-                  <span className="text-xs font-black px-2 py-1 rounded-full flex-shrink-0"
-                    style={{
-                      background: pkg.highlight ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.06)',
-                      color: pkg.highlight ? '#60a5fa' : '#94a3b8',
-                      fontFamily: 'var(--font-display)',
-                    }}>
-                    {pkg.badge}
-                  </span>
+                  <span className="text-xs font-black px-2 py-1 rounded-full flex-shrink-0" style={{ background: pkg.highlight ? 'rgba(37,99,235,0.2)' : 'rgba(255,255,255,0.06)', color: pkg.highlight ? '#60a5fa' : '#94a3b8', fontFamily: 'var(--font-display)' }}>{pkg.badge}</span>
                 </div>
                 <p className="text-slate-400 text-sm mb-4">{pkg.description}</p>
-                <div className="space-y-1.5">
-                  {pkg.features.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <Check size={12} className="text-green-400 flex-shrink-0 mt-0.5" />
-                      <span className="text-xs text-slate-300">{f}</span>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  onClick={() => {
-                    setForm(p => ({ ...p, package_interest: pkg.name }))
-                    document.getElementById('contact-form')?.scrollIntoView({ behavior: 'smooth' })
-                  }}
-                  className="mt-4 w-full py-2 rounded-xl text-sm font-black transition-all hover:brightness-110"
-                  style={{
-                    background: pkg.highlight ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'rgba(255,255,255,0.06)',
-                    color: pkg.highlight ? 'white' : '#94a3b8',
-                    fontFamily: 'var(--font-display)',
-                    border: pkg.highlight ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                  }}>
-                  Get Started →
-                </button>
+                <div className="space-y-1.5">{pkg.features.map((f, i) => <div key={i} className="flex items-start gap-2"><Check size={12} className="text-green-400 flex-shrink-0 mt-0.5" /><span className="text-xs text-slate-300">{f}</span></div>)}</div>
+                <button onClick={() => { setForm(p => ({ ...p, package_interest: pkg.name })); document.getElementById('contact-form')?.scrollIntoView({ behavior: 'smooth' }) }} className="mt-4 w-full py-2 rounded-xl text-sm font-black transition-all hover:brightness-110" style={{ background: pkg.highlight ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'rgba(255,255,255,0.06)', color: pkg.highlight ? 'white' : '#94a3b8', fontFamily: 'var(--font-display)', border: pkg.highlight ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>Get Started →</button>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Sports coverage */}
         <div className="rounded-2xl p-6 mb-10 border border-white/8" style={{ background: 'rgba(8,12,20,0.5)' }}>
-          <h2 className="text-xl font-black text-white mb-4 text-center" style={{ fontFamily: 'var(--font-display)' }}>
-            Sports We Cover
-          </h2>
+          <h2 className="text-xl font-black text-white mb-4 text-center" style={{ fontFamily: 'var(--font-display)' }}>Sports We Cover</h2>
           <div className="flex flex-wrap gap-2 justify-center">
-            {TESTIMONIAL_SPORTS.map(sport => (
-              <span key={sport} className="text-sm px-3 py-1.5 rounded-full font-bold"
-                style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}>
-                {sport}
-              </span>
-            ))}
-            <span className="text-sm px-3 py-1.5 rounded-full font-bold"
-              style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}>
-              + More
-            </span>
+            {TESTIMONIAL_SPORTS.map(sport => <span key={sport} className="text-sm px-3 py-1.5 rounded-full font-bold" style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}>{sport}</span>)}
+            <span className="text-sm px-3 py-1.5 rounded-full font-bold" style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}>+ More</span>
           </div>
-          <p className="text-slate-500 text-sm text-center mt-4">
-            Fall sports start August 2026 · Basketball season December 2026
-          </p>
+          <p className="text-slate-500 text-sm text-center mt-4">Fall sports start August 2026 · Basketball season December 2026</p>
         </div>
 
-        {/* Contact form */}
         <div id="contact-form" className="card p-6">
-          <h2 className="text-2xl font-black text-white mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-            Get Started Today
-          </h2>
+          <h2 className="text-2xl font-black text-white mb-1" style={{ fontFamily: 'var(--font-display)' }}>Get Started Today</h2>
           <p className="text-slate-400 text-sm mb-5">Fill out the form and we'll get back to you within 24 hours with a custom proposal.</p>
-
           {submitted ? (
-            <div className="text-center py-8">
-              <span className="text-5xl block mb-4">🎉</span>
-              <p className="text-xl font-black text-white mb-2" style={{ fontFamily: 'var(--font-display)' }}>
-                Inquiry Received!
-              </p>
-              <p className="text-slate-400">We'll reach out within 24 hours to discuss your sponsorship.</p>
-            </div>
+            <div className="text-center py-8"><span className="text-5xl block mb-4">🎉</span><p className="text-xl font-black text-white mb-2" style={{ fontFamily: 'var(--font-display)' }}>Inquiry Received!</p><p className="text-slate-400">We'll reach out within 24 hours to discuss your sponsorship.</p></div>
           ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Business Name *</label>
-                  <input className="input w-full" placeholder="Your business name"
-                    value={form.business_name}
-                    onChange={e => setForm(p => ({ ...p, business_name: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Your Name *</label>
-                  <input className="input w-full" placeholder="First Last"
-                    value={form.contact_name}
-                    onChange={e => setForm(p => ({ ...p, contact_name: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Email *</label>
-                  <input type="email" className="input w-full" placeholder="you@business.com"
-                    value={form.email}
-                    onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="label">Phone (optional)</label>
-                  <input className="input w-full" placeholder="555-1234"
-                    value={form.phone}
-                    onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
-                </div>
+                <div><label className="label">Business Name *</label><input className="input w-full" placeholder="Your business name" value={form.business_name} onChange={e => setForm(p => ({ ...p, business_name: e.target.value }))} /></div>
+                <div><label className="label">Your Name *</label><input className="input w-full" placeholder="First Last" value={form.contact_name} onChange={e => setForm(p => ({ ...p, contact_name: e.target.value }))} /></div>
+                <div><label className="label">Email *</label><input type="email" className="input w-full" placeholder="you@business.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+                <div><label className="label">Phone (optional)</label><input className="input w-full" placeholder="555-1234" value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
               </div>
-
-              <div>
-                <label className="label">Package Interest</label>
-                <select className="input w-full" value={form.package_interest}
-                  onChange={e => setForm(p => ({ ...p, package_interest: e.target.value }))}>
-                  <option value="">Not sure yet — let's talk</option>
-                  {PACKAGES.map(pkg => (
-                    <option key={pkg.id} value={pkg.name}>{pkg.name} — {pkg.price}</option>
-                  ))}
-                </select>
-              </div>
-
-              {form.package_interest === 'School Sponsor' && (
-                <div>
-                  <label className="label">Which School?</label>
-                  <input className="input w-full" placeholder="e.g. Canton Central School"
-                    value={form.school_interest}
-                    onChange={e => setForm(p => ({ ...p, school_interest: e.target.value }))} />
-                </div>
-              )}
-
-              {form.package_interest === 'Sport Sponsor' && (
-                <div>
-                  <label className="label">Which Sport?</label>
-                  <select className="input w-full" value={form.sport_interest}
-                    onChange={e => setForm(p => ({ ...p, sport_interest: e.target.value }))}>
-                    <option value="">Select sport...</option>
-                    {TESTIMONIAL_SPORTS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="label">Message (optional)</label>
-                <textarea className="input w-full h-24 resize-none"
-                  placeholder="Tell us about your business, budget, or any questions you have..."
-                  value={form.message}
-                  onChange={e => setForm(p => ({ ...p, message: e.target.value }))} />
-              </div>
-
+              <div><label className="label">Package Interest</label><select className="input w-full" value={form.package_interest} onChange={e => setForm(p => ({ ...p, package_interest: e.target.value }))}><option value="">Not sure yet — let's talk</option>{PACKAGES.map(pkg => <option key={pkg.id} value={pkg.name}>{pkg.name} — {pkg.price}</option>)}</select></div>
+              {form.package_interest === 'School Sponsor' && <div><label className="label">Which School?</label><input className="input w-full" placeholder="e.g. Canton Central School" value={form.school_interest} onChange={e => setForm(p => ({ ...p, school_interest: e.target.value }))} /></div>}
+              {form.package_interest === 'Sport Sponsor' && <div><label className="label">Which Sport?</label><select className="input w-full" value={form.sport_interest} onChange={e => setForm(p => ({ ...p, sport_interest: e.target.value }))}><option value="">Select sport...</option>{TESTIMONIAL_SPORTS.map(s => <option key={s} value={s}>{s}</option>)}</select></div>}
+              <div><label className="label">Message (optional)</label><textarea className="input w-full h-24 resize-none" placeholder="Tell us about your business, budget, or any questions you have..." value={form.message} onChange={e => setForm(p => ({ ...p, message: e.target.value }))} /></div>
               {error && <p className="text-sm text-red-400">{error}</p>}
-
-              <button onClick={submit} disabled={loading}
-                className="btn-primary w-full py-3 text-base">
-                {loading ? 'Sending...' : 'Send Inquiry →'}
-              </button>
-
-              <p className="text-xs text-slate-600 text-center">
-                No obligation. We'll reach out within 24 hours with availability and pricing details.
-              </p>
+              <button onClick={submit} disabled={loading} className="btn-primary w-full py-3 text-base">{loading ? 'Sending...' : 'Send Inquiry →'}</button>
+              <p className="text-xs text-slate-600 text-center">No obligation. We'll reach out within 24 hours with availability and pricing details.</p>
             </div>
           )}
         </div>
