@@ -1,5 +1,9 @@
 PRAGMA foreign_keys = ON;
 
+-- These fields are new to the Cloudflare D1 copy.
+-- league_designation, league_designation_override,
+-- league_designation_updated_at and schedule_override were already added by
+-- 0013_arbiter_operations.sql and must not be added again here.
 ALTER TABLE games ADD COLUMN recap TEXT;
 ALTER TABLE games ADD COLUMN recap_author TEXT;
 ALTER TABLE games ADD COLUMN is_playoff INTEGER DEFAULT 0;
@@ -7,11 +11,7 @@ ALTER TABLE games ADD COLUMN playoff_round TEXT;
 ALTER TABLE games ADD COLUMN playoff_game_id TEXT;
 ALTER TABLE games ADD COLUMN result_exempt INTEGER DEFAULT 0;
 ALTER TABLE games ADD COLUMN result_exempt_reason TEXT;
-ALTER TABLE games ADD COLUMN league_designation TEXT;
-ALTER TABLE games ADD COLUMN league_designation_override INTEGER DEFAULT 0;
 ALTER TABLE games ADD COLUMN league_designation_note TEXT;
-ALTER TABLE games ADD COLUMN league_designation_updated_at TEXT;
-ALTER TABLE games ADD COLUMN schedule_override INTEGER DEFAULT 0;
 ALTER TABLE games ADD COLUMN schedule_override_note TEXT;
 ALTER TABLE games ADD COLUMN schedule_override_updated_at TEXT;
 
