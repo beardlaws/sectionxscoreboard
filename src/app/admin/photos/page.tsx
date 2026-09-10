@@ -1,20 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { adminDb } from '@/lib/adminDb';
 import { Photo } from '@/types';
 import { Check, Star, Trash2, Eye } from 'lucide-react';
 import PhotoAthleteTagger from './PhotoAthleteTagger';
 
 export default function AdminPhotosPage(){
- const supabase=createClient(),[photos,setPhotos]=useState<Photo[]>([]),[loading,setLoading]=useState(true),[filter,setFilter]=useState<'pending'|'approved'|'all'>('pending'),[deleting,setDeleting]=useState<string|null>(null),[selected,setSelected]=useState<string[]>([]),[bulkWorking,setBulkWorking]=useState(false)
+ const [photos,setPhotos]=useState<Photo[]>([]),[loading,setLoading]=useState(true),[filter,setFilter]=useState<'pending'|'approved'|'all'>('pending'),[deleting,setDeleting]=useState<string|null>(null),[selected,setSelected]=useState<string[]>([]),[bulkWorking,setBulkWorking]=useState(false)
  useEffect(()=>{void fetchPhotos()},[filter])
- async function fetchPhotos(){setLoading(true);let query=supabase.from('photos').select('*, school:schools(school_name, primary_color), sport:sports(sport_name)').order('created_at',{ascending:false});if(filter==='pending')query=query.eq('approved',false);if(filter==='approved')query=query.eq('approved',true);const{data}=await query;setPhotos((data as Photo[])||[]);setSelected([]);setLoading(false)}
- async function approvePhoto(id:string){await adminDb.update('photos',{approved:true},{id});await fetchPhotos()}
- async function approveSelected(){const ids=selected.filter(id=>photos.some(p=>p.id===id&&!p.approved));if(!ids.length)return;if(!confirm(`Approve ${ids.length} selected photo${ids.length===1?'':'s'}? Athlete tag suggestions remain separately moderated.`))return;setBulkWorking(true);try{for(const id of ids)await adminDb.update('photos',{approved:true},{id});await fetchPhotos()}finally{setBulkWorking(false)}}
- async function deletePhoto(id:string){if(!confirm('Permanently delete this photo and its stored image?'))return;setDeleting(id);try{const res=await fetch('/api/admin/photos/delete',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId:id})}),json=await res.json();if(!res.ok)throw new Error(json.error||'Delete failed');setPhotos(prev=>prev.filter(photo=>photo.id!==id));setSelected(prev=>prev.filter(x=>x!==id))}catch(e:any){alert(e.message||'Delete failed')}finally{setDeleting(null)}}
- async function featurePhoto(id:string,featured:boolean){await adminDb.update('photos',{featured},{id});await fetchPhotos()}
+ async function fetchPhotos(){setLoading(true);try{const res=await fetch(`/api/admin/photos?filter=${filter}`,{credentials:'include',cache:'no-store'}),json=await res.json();if(!res.ok)throw new Error(json.error||'Could not load photos');setPhotos((json.photos as Photo[])||[]);setSelected([])}catch(e:any){alert(e.message||'Could not load photos')}finally{setLoading(false)}}
+ async function patchPhoto(id:string,patch:any){const res=await fetch('/api/admin/photos',{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,...patch})}),json=await res.json();if(!res.ok)throw new Error(json.error||'Update failed')}
+ async function approvePhoto(id:string){await patchPhoto(id,{approved:true});await fetchPhotos()}
+ async function approveSelected(){const ids=selected.filter(id=>photos.some(p=>p.id===id&&!p.approved));if(!ids.length)return;if(!confirm(`Approve ${ids.length} selected photo${ids.length===1?'':'s'}? Athlete tag suggestions remain separately moderated.`))return;setBulkWorking(true);try{for(const id of ids)await patchPhoto(id,{approved:true});await fetchPhotos()}catch(e:any){alert(e.message||'Bulk approval failed')}finally{setBulkWorking(false)}}
+ async function deletePhoto(id:string){if(!confirm('Permanently delete this photo record and its Cloudflare-stored image when applicable?'))return;setDeleting(id);try{const res=await fetch('/api/admin/photos/delete',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId:id})}),json=await res.json();if(!res.ok)throw new Error(json.error||'Delete failed');setPhotos(prev=>prev.filter(photo=>photo.id!==id));setSelected(prev=>prev.filter(x=>x!==id))}catch(e:any){alert(e.message||'Delete failed')}finally{setDeleting(null)}}
+ async function featurePhoto(id:string,featured:boolean){try{await patchPhoto(id,{featured});await fetchPhotos()}catch(e:any){alert(e.message||'Update failed')}}
  const pendingIds=photos.filter(p=>!p.approved).map(p=>p.id),allPendingSelected=pendingIds.length>0&&pendingIds.every(id=>selected.includes(id))
  function toggle(id:string){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])}
  return <div className="p-4 md:p-6 max-w-6xl mx-auto">
