@@ -6,7 +6,11 @@ const { Client } = pg
 const connectionString = process.env.SUPABASE_MIGRATION_DATABASE_URL
 if (!connectionString) throw new Error('Missing SUPABASE_MIGRATION_DATABASE_URL')
 
-const DB_NAME='sectionxscoreboard-preview',WRANGLER_CONFIG='wrangler.jsonc',CHUNK_SIZE=125
+const DB_NAME='sectionxscoreboard-preview',WRANGLER_CONFIG='wrangler.jsonc'
+// D1 rejects oversized SQL payloads. Historical Arbiter rows can contain large JSON blobs,
+// so chunk by both row count and encoded SQL size instead of row count alone.
+const MAX_ROWS_PER_FILE=125
+const MAX_SQL_BYTES=350_000
 const tables=[
   {name:'arbiter_team_links',key:['team_id'],columns:['team_id','arbiter_team_id','arbiter_school_id','source','confidence','observed_count','first_seen_at','last_seen_at','created_at','updated_at'],booleans:[]},
   {name:'arbiter_game_links',key:['arbiter_game_id'],columns:['arbiter_game_id','game_id','last_modified_at','last_seen_at','source_status','source_payload','created_at','updated_at'],booleans:[]},
@@ -24,6 +28,17 @@ const tables=[
 function sqlValue(v,isBoolean=false){if(v==null)return'NULL';if(isBoolean)return v?'1':'0';if(typeof v==='number'||typeof v==='bigint')return String(v);if(v instanceof Date)return `'${v.toISOString().replaceAll("'","''")}'`;if(typeof v==='object')return `'${JSON.stringify(v).replaceAll("'","''")}'`;return `'${String(v).replaceAll("'","''")}'`}
 function upsert(t,row){const vals=t.columns.map(c=>sqlValue(row[c],t.booleans.includes(c))),updates=t.columns.filter(c=>!t.key.includes(c)).map(c=>`"${c}"=excluded."${c}"`).join(',');return `INSERT INTO "${t.name}" (${t.columns.map(c=>`"${c}"`).join(',')}) VALUES (${vals.join(',')}) ON CONFLICT (${t.key.map(c=>`"${c}"`).join(',')}) DO UPDATE SET ${updates};`}
 function execSql(file){execFileSync('npx',['wrangler','d1','execute',DB_NAME,'--remote','--config',WRANGLER_CONFIG,'--file',file,'--yes'],{stdio:'inherit',env:process.env})}
+function sqlChunks(t,rows){
+ const chunks=[];let current=[],bytes=Buffer.byteLength('PRAGMA foreign_keys = ON;\n')
+ for(const row of rows){
+  const statement=upsert(t,row),statementBytes=Buffer.byteLength(statement+'\n')
+  if(statementBytes>MAX_SQL_BYTES)throw new Error(`${t.name} contains a single row too large for safe D1 seeding (${statementBytes} bytes)`)
+  if(current.length&&(current.length>=MAX_ROWS_PER_FILE||bytes+statementBytes>MAX_SQL_BYTES)){chunks.push(current);current=[];bytes=Buffer.byteLength('PRAGMA foreign_keys = ON;\n')}
+  current.push(statement);bytes+=statementBytes
+ }
+ if(current.length)chunks.push(current)
+ return chunks
+}
 const client=new Client({connectionString,ssl:{rejectUnauthorized:false},connectionTimeoutMillis:15000,query_timeout:30000,statement_timeout:30000})
 try{
  await client.connect()
@@ -36,7 +51,8 @@ try{
  for(const t of tables){
   const q=`SELECT ${t.columns.map(c=>`"${c}"`).join(',')} FROM public."${t.name}"`
   const result=await client.query(q);console.log(`[D1 Arbiter seed] ${t.name}: ${result.rows.length}`)
-  for(let i=0;i<result.rows.length;i+=CHUNK_SIZE){const file=`/tmp/sectionx-${t.name}-${i}.sql`;writeFileSync(file,['PRAGMA foreign_keys = ON;',...result.rows.slice(i,i+CHUNK_SIZE).map(r=>upsert(t,r))].join('\n'));try{execSql(file)}finally{try{unlinkSync(file)}catch{}}}
+  const chunks=sqlChunks(t,result.rows)
+  for(let i=0;i<chunks.length;i++){const file=`/tmp/sectionx-${t.name}-${i}.sql`;writeFileSync(file,['PRAGMA foreign_keys = ON;',...chunks[i]].join('\n'));try{execSql(file)}finally{try{unlinkSync(file)}catch{}}}
  }
  await client.query('ROLLBACK')
  console.log('[D1 Arbiter seed] PASS: source remained read-only; preview D1 received operational parity data.')
