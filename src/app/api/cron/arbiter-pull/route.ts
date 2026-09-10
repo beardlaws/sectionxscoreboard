@@ -1,140 +1,40 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
+import { NextRequest,NextResponse } from 'next/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { runScheduleAudit } from '@/lib/arbiter/schedule-intelligence'
 import { runLiveOperationsCheck } from '@/lib/arbiter/live-operations'
 import { arbiterApi } from '@/lib/arbiter/client'
 
 export const dynamic='force-dynamic'
 export const maxDuration=300
-
 const clean=(v:unknown)=>String(v??'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 const meaningfulLocation=(v:unknown)=>{const c=clean(v);return Boolean(c)&&!['tba','not listed','z','unknown'].includes(c)}
 const sourceStatus=(v:unknown)=>['canceled','cancelled','deleted'].includes(clean(v))?'Canceled':['postponed','ppd'].includes(clean(v))?'Postponed':'Scheduled'
 const contestType=(v:unknown)=>clean(v)==='scrimmage'?'Scrimmage':'Game'
 const leagueDesignation=(v:unknown)=>clean(v)==='league'?'League':['non league','tournament'].includes(clean(v))?'Non-League':null
-
-function deletedIds(payload:unknown){
-  const values=Array.isArray(payload)?payload:payload==null?[]:[payload]
-  const ids:number[]=[]
-  for(const item of values as any[]){
-    const id=Number(item?.uniqueGameId??item?.gameId??item?.id??item)
-    if(Number.isFinite(id))ids.push(id)
-  }
-  return [...new Set(ids)]
-}
+function deletedIds(payload:unknown){const values=Array.isArray(payload)?payload:payload==null?[]:[payload],ids:number[]=[];for(const item of values as any[]){const id=Number(item?.uniqueGameId??item?.gameId??item?.id??item);if(Number.isFinite(id))ids.push(id)}return[...new Set(ids)]}
+function getRuntime(){const {env}=getCloudflareContext();const db=(env as any).DB;if(!db)throw new Error('Cloudflare D1 binding DB is unavailable');return{db,env:env as any}}
 
 export async function GET(req:NextRequest){
-  const db=createAdminClient()
-  const token=req.headers.get('x-sectionx-automation-key')||''
-  const {data:allowed,error:authError}=await db.rpc('verify_sectionx_automation_key',{p_token:token})
-  if(authError||allowed!==true)return NextResponse.json({ok:false,error:'Unauthorized'},{status:401})
-
-  const staleCutoff=new Date(Date.now()-15*60_000).toISOString()
-  const {data:running}=await db.from('arbiter_automation_runs').select('id,started_at').eq('status','running').gte('started_at',staleCutoff).order('started_at',{ascending:false}).limit(1).maybeSingle()
-  if(running?.id)return NextResponse.json({ok:false,error:'An automated Arbiter pull is already running.',runId:running.id},{status:409})
-
-  const {data:run,error:runError}=await db.from('arbiter_automation_runs').insert({status:'running',trigger_source:'supabase-cron'}).select('id').single()
-  if(runError)return NextResponse.json({ok:false,error:`Could not start automation run: ${runError.message}`},{status:500})
-  const runId=run.id
-
-  try{
-    const {data:season,error:seasonError}=await db.from('seasons').select('id,name,year,season_type,is_active').eq('is_active',true).limit(1).maybeSingle()
-    if(seasonError||!season)throw new Error(seasonError?.message||'No active season found.')
-
-    const audit=await runScheduleAudit({seasonId:season.id})
-    if(!audit.comparison.writerReady)throw new Error('Schedule writer is blocked by reconciliation safety checks.')
-
-    let scheduleUpdated=0,scheduleCreated=0,externalCreated=0,linksRefreshed=0,deletedMarked=0,scheduleFailures=0
-    const scheduleActions:any[]=[]
-
-    const linkRow=async(row:any,gameId:string)=>{
-      const {error}=await db.from('arbiter_game_links').upsert({arbiter_game_id:row.uniqueGameId,game_id:gameId,last_modified_at:row.lastModifiedDate||null,last_seen_at:new Date().toISOString(),source_status:row.status||null,source_payload:row.sourcePayload||null,updated_at:new Date().toISOString()},{onConflict:'arbiter_game_id'})
-      if(error)throw new Error(`Stable-link refresh failed: ${error.message}`)
-      linksRefreshed++
-    }
-
-    const updateExisting=async(row:any,gameId:string)=>{
-      const current:any=row.existing||{},patch:any={}
-      if(!current.scheduleOverride){
-        if(row.date&&current.gameDate!==row.date)patch.game_date=row.date
-        if(row.time&&String(current.gameTime||'').slice(0,5)!==row.time)patch.game_time=row.time
-        if(meaningfulLocation(row.location)&&clean(current.location)!==clean(row.location))patch.location=row.location
-        if((row.driftReasons||[]).includes('home-away-reversed')&&current.homeScore==null&&current.awayScore==null){
-          patch.home_team_id=row.home?.kind==='internal'?row.home.id:null
-          patch.away_team_id=row.away?.kind==='internal'?row.away.id:null
-          patch.external_home_opponent_id=row.home?.kind==='external'?row.home.id:null
-          patch.external_away_opponent_id=row.away?.kind==='external'?row.away.id:null
-        }
-      }
-      if(sourceStatus(row.status)==='Canceled'&&!['canceled','cancelled'].includes(clean(current.status)))patch.status='Canceled'
-      else if(sourceStatus(row.status)==='Postponed'&&clean(current.status)!=='postponed')patch.status='Postponed'
-      else if(sourceStatus(row.status)==='Scheduled'&&['canceled','cancelled','postponed'].includes(clean(current.status))&&['canceled','cancelled','deleted','postponed','ppd'].includes(clean(row.linked?.sourceStatus)))patch.status='Scheduled'
-      const desiredContest=contestType(row.type)
-      if(clean(current.contestType||'Game')!==clean(desiredContest))patch.contest_type=desiredContest
-      const desiredLeague=leagueDesignation(row.type)
-      if(!current.leagueDesignationOverride&&desiredLeague&&current.leagueDesignation!==desiredLeague){patch.league_designation=desiredLeague;patch.league_designation_updated_at=new Date().toISOString()}
-      if(Object.keys(patch).length){patch.updated_at=new Date().toISOString();const {error}=await db.from('games').update(patch).eq('id',gameId);if(error)throw new Error(`Schedule update failed for ${gameId}: ${error.message}`);scheduleUpdated++;scheduleActions.push({arbiterGameId:row.uniqueGameId,gameId,action:'updated',patch,driftReasons:row.driftReasons||[]})}
-      await linkRow(row,gameId)
-    }
-
-    const ensureExternal=async(side:any)=>{
-      if(side.kind!=='external')return side.id||null
-      if(side.id)return side.id
-      if(!side.create?.name)return null
-      const desiredSlug=side.create.slug
-      const {data:existing}=await db.from('external_opponents').select('id').or(`slug.eq.${desiredSlug},name.ilike.${side.create.name}`).limit(1).maybeSingle()
-      if(existing?.id)return existing.id
-      const {data:created,error}=await db.from('external_opponents').insert({name:side.create.name,slug:desiredSlug,is_section_x:false}).select('id').single()
-      if(error){const {data:retry}=await db.from('external_opponents').select('id').eq('slug',desiredSlug).maybeSingle();if(retry?.id)return retry.id;throw new Error(`External opponent create failed for ${side.create.name}: ${error.message}`)}
-      externalCreated++;return created.id
-    }
-
-    const createSafeGame=async(row:any)=>{
-      if(!row.safelyActionable||!['new-game','external-create'].includes(row.bucket))return
-      if(!row.sportId||!row.date||row.uniqueGameId==null)throw new Error('Missing sport/date/stable identity for automatic create.')
-      const {data:linked}=await db.from('arbiter_game_links').select('game_id').eq('arbiter_game_id',row.uniqueGameId).maybeSingle()
-      if(linked?.game_id){await updateExisting(row,linked.game_id);return}
-      const homeInternal=row.home?.kind==='internal'?row.home.id:null,awayInternal=row.away?.kind==='internal'?row.away.id:null
-      const homeExternal=row.home?.kind==='external'?await ensureExternal(row.home):null,awayExternal=row.away?.kind==='external'?await ensureExternal(row.away):null
-      if((!homeInternal&&!homeExternal)||(!awayInternal&&!awayExternal))throw new Error('Opponent resolution incomplete during automatic create.')
-      const {data:same,error:sameError}=await db.from('games').select('id,game_time,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id').eq('game_date',row.date).eq('sport_id',row.sportId)
-      if(sameError)throw new Error(`Duplicate safety check failed: ${sameError.message}`)
-      const h=homeInternal?`t:${homeInternal}`:`e:${homeExternal}`,a=awayInternal?`t:${awayInternal}`:`e:${awayExternal}`
-      const gameToken=(g:any,home:boolean)=>{const t=home?g.home_team_id:g.away_team_id,e=home?g.external_home_opponent_id:g.external_away_opponent_id;return t?`t:${t}`:e?`e:${e}`:'tba'}
-      const teamMatches=(same||[]).filter((g:any)=>(gameToken(g,true)===h&&gameToken(g,false)===a)||(gameToken(g,true)===a&&gameToken(g,false)===h))
-      let duplicate:any=null
-      if(row.time){const exact=teamMatches.filter((g:any)=>String(g.game_time||'').slice(0,5)===row.time);if(exact.length>1)throw new Error('Multiple same-team same-time games exist; automatic create quarantined.');duplicate=exact[0]||null}else if(teamMatches.length)throw new Error('Same teams already play on this date and Arbiter has no reliable time; automatic create quarantined.')
-      if(duplicate){row.existing={id:duplicate.id,gameTime:duplicate.game_time};await updateExisting(row,duplicate.id);scheduleActions.push({arbiterGameId:row.uniqueGameId,gameId:duplicate.id,action:'duplicate-prevented'});return}
-      const insert:any={season_id:season.id,sport_id:row.sportId,home_team_id:homeInternal,away_team_id:awayInternal,external_home_opponent_id:homeExternal,external_away_opponent_id:awayExternal,game_date:row.date,game_time:row.time||null,location:meaningfulLocation(row.location)?row.location:null,status:sourceStatus(row.status),verification_status:'Reported',source:'arbiter-api',contest_type:contestType(row.type),league_designation:leagueDesignation(row.type),league_designation_override:false,league_designation_updated_at:leagueDesignation(row.type)?new Date().toISOString():null}
-      const {data:created,error:createError}=await db.from('games').insert(insert).select('id').single()
-      if(createError)throw new Error(`Automatic game create failed: ${createError.message}`)
-      try{await linkRow(row,created.id)}catch(error){await db.from('games').delete().eq('id',created.id);throw error}
-      scheduleCreated++;scheduleActions.push({arbiterGameId:row.uniqueGameId,gameId:created.id,action:'created',bucket:row.bucket})
-    }
-
-    for(const row of audit.rows||[]){
-      if(row?.uniqueGameId==null||!row.safelyActionable)continue
-      try{if(['stable-id-match','stable-id-update','exact-match','probable-match'].includes(row.bucket)&&row.existingGameId)await updateExisting(row,row.existingGameId);else if(['new-game','external-create'].includes(row.bucket))await createSafeGame(row)}catch(error){scheduleFailures++;scheduleActions.push({arbiterGameId:row.uniqueGameId,gameId:row.existingGameId||null,action:'failed',error:error instanceof Error?error.message:String(error)})}
-    }
-
-    try{
-      const deleted=await arbiterApi.deletedGames(audit.window.start,audit.window.end)
-      for(const arbiterId of deletedIds(deleted)){const {data:link}=await db.from('arbiter_game_links').select('game_id').eq('arbiter_game_id',arbiterId).maybeSingle();if(!link?.game_id)continue;const {error}=await db.from('games').update({status:'Canceled',updated_at:new Date().toISOString()}).eq('id',link.game_id);if(error){scheduleFailures++;continue}await db.from('arbiter_game_links').update({source_status:'Deleted',last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('arbiter_game_id',arbiterId);deletedMarked++}
-    }catch(error){console.error('Automated deleted-games check warning:',error)}
-
-    const live=await runLiveOperationsCheck(season.id)
-    const safeScores=(live.scores.rows||[]).filter((r:any)=>r.safeToApply)
-    let scoresUpdated=0,scoreFailures=0
-    const scoreActions:any[]=[]
-    for(const row of safeScores){const patch={home_score:row.arbiter.home,away_score:row.arbiter.away,status:'Final',verification_status:'Reported',source:'arbiter-api',updated_at:new Date().toISOString()};const {error}=await db.from('games').update(patch).eq('id',row.gameId);if(error){scoreFailures++;scoreActions.push({gameId:row.gameId,arbiterGameId:row.arbiterGameId,outcome:'failed',error:error.message});continue}scoresUpdated++;scoreActions.push({gameId:row.gameId,arbiterGameId:row.arbiterGameId,outcome:'updated',bucket:row.bucket,score:`${row.arbiter.away}-${row.arbiter.home}`})}
-
-    const postPending=Number(live.schedule?.pendingChanges||0),postQuarantined=Number(live.schedule?.quarantined||0),postBlockers=Number(live.schedule?.blockers||0)
-    const summary={season:{id:season.id,name:season.name},schedule:{stableLinks:Number(live.schedule?.syncedStable||linksRefreshed),updated:scheduleUpdated,created:scheduleCreated,externalCreated,deletedMarked,failed:scheduleFailures,pendingChanges:postPending,quarantined:postQuarantined,blockers:postBlockers,actions:scheduleActions.slice(0,75)},scores:{updated:scoresUpdated,failed:scoreFailures,conflictsUntouched:live.scores.conflicts||0,reportedNotFinalUntouched:live.scores.counts?.['score-reported-not-final']||0,actions:scoreActions.slice(0,50)},rosters:{loaded:live.rosters.loaded,missing:live.rosters.missing,varsityTeams:live.rosters.varsityTeams},exceptions:live.exceptions.length}
-    const failed=scheduleFailures+scoreFailures
-    const status=failed?'completed-with-errors':'completed'
-    const healthStatus=failed?'attention':postBlockers>0?'blocked':postPending>0||Number(live.scores.conflicts||0)>0?'attention':'healthy'
-    await db.from('arbiter_automation_runs').update({status,season_id:season.id,summary,finished_at:new Date().toISOString()}).eq('id',runId)
-    await db.from('arbiter_health_checks').insert({season_id:season.id,status:healthStatus,summary:{source:'automation',syncedStable:summary.schedule.stableLinks,pendingChanges:postPending,trueBlockers:postBlockers,quarantined:postQuarantined,scoreConflicts:Number(live.scores.conflicts||0),changesApplied:scheduleUpdated+scheduleCreated+deletedMarked+scoresUpdated,automationRunId:runId},changes:scheduleActions.slice(0,100),quarantines:(live.exceptions||[]).slice(0,100)})
-    return NextResponse.json({ok:failed===0,automated:true,runId,...summary},{status:failed?207:200})
-  }catch(error){const message=error instanceof Error?error.message:String(error);console.error('Automated Arbiter pull failed:',error);await db.from('arbiter_automation_runs').update({status:'failed',summary:{error:message},finished_at:new Date().toISOString()}).eq('id',runId);return NextResponse.json({ok:false,automated:true,runId,error:message},{status:500})}
+ const {db,env}=getRuntime(),token=req.headers.get('x-sectionx-automation-key')||'',expected=String(env.SECTIONX_AUTOMATION_KEY||env.CRON_SECRET||process.env.SECTIONX_AUTOMATION_KEY||process.env.CRON_SECRET||'')
+ if(!expected||token!==expected)return NextResponse.json({ok:false,error:'Unauthorized'},{status:401})
+ const staleCutoff=new Date(Date.now()-15*60_000).toISOString(),running:any=await db.prepare("SELECT id FROM arbiter_automation_runs WHERE status='running' AND started_at>=? ORDER BY started_at DESC LIMIT 1").bind(staleCutoff).first()
+ if(running?.id)return NextResponse.json({ok:false,error:'An automated Arbiter pull is already running.',runId:running.id},{status:409})
+ const runId=crypto.randomUUID();await db.prepare("INSERT INTO arbiter_automation_runs (id,trigger_source,status,started_at) VALUES (?,'cloudflare-cron','running',?)").bind(runId,new Date().toISOString()).run()
+ try{
+  const season:any=await db.prepare('SELECT id,name,year,season_type,is_active FROM seasons WHERE is_active=1 ORDER BY year DESC LIMIT 1').first();if(!season)throw new Error('No active season found.')
+  await db.prepare('UPDATE arbiter_automation_runs SET season_id=? WHERE id=?').bind(season.id,runId).run()
+  const audit=await runScheduleAudit({seasonId:season.id});if(!audit.comparison.writerReady)throw new Error('Schedule writer is blocked by reconciliation safety checks.')
+  let updated=0,created=0,externalCreated=0,linksRefreshed=0,deletedMarked=0,failed=0
+  async function ensureExternal(side:any){if(side.kind!=='external')return side.id||null;if(side.id)return side.id;if(!side.create?.name)return null;const found:any=await db.prepare('SELECT id FROM external_opponents WHERE slug=? OR lower(name)=lower(?) LIMIT 1').bind(side.create.slug,side.create.name).first();if(found?.id)return found.id;const id=crypto.randomUUID();await db.prepare("INSERT INTO external_opponents (id,name,slug,is_section_x,created_at) VALUES (?,?,?,0,datetime('now'))").bind(id,side.create.name,side.create.slug).run();externalCreated++;return id}
+  async function link(row:any,gameId:string){await db.prepare(`INSERT INTO arbiter_game_links (arbiter_game_id,game_id,last_modified_at,last_seen_at,source_status,source_payload,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(arbiter_game_id) DO UPDATE SET game_id=excluded.game_id,last_modified_at=excluded.last_modified_at,last_seen_at=excluded.last_seen_at,source_status=excluded.source_status,source_payload=excluded.source_payload,updated_at=excluded.updated_at`).bind(row.uniqueGameId,gameId,row.lastModifiedDate||null,new Date().toISOString(),row.status||null,JSON.stringify(row.sourcePayload||null),new Date().toISOString()).run();linksRefreshed++}
+  async function updateExisting(row:any,gameId:string){const cur=row.existing||{},patch:Record<string,any>={};if(!cur.scheduleOverride){if(row.date&&cur.gameDate!==row.date)patch.game_date=row.date;if(row.time&&String(cur.gameTime||'').slice(0,5)!==row.time)patch.game_time=row.time;if(meaningfulLocation(row.location)&&clean(cur.location)!==clean(row.location))patch.location=row.location;if((row.driftReasons||[]).includes('home-away-reversed')&&cur.homeScore==null&&cur.awayScore==null){patch.home_team_id=row.home?.kind==='internal'?row.home.id:null;patch.away_team_id=row.away?.kind==='internal'?row.away.id:null;patch.external_home_opponent_id=row.home?.kind==='external'?row.home.id:null;patch.external_away_opponent_id=row.away?.kind==='external'?row.away.id:null}}const ss=sourceStatus(row.status);if(ss==='Canceled'&&!['canceled','cancelled'].includes(clean(cur.status)))patch.status='Canceled';else if(ss==='Postponed'&&clean(cur.status)!=='postponed')patch.status='Postponed';else if(ss==='Scheduled'&&['canceled','cancelled','postponed'].includes(clean(cur.status))&&['canceled','cancelled','deleted','postponed','ppd'].includes(clean(row.linked?.sourceStatus)))patch.status='Scheduled';const ct=contestType(row.type);if(clean(cur.contestType||'Game')!==clean(ct))patch.contest_type=ct;const ld=leagueDesignation(row.type);if(!cur.leagueDesignationOverride&&ld&&cur.leagueDesignation!==ld){patch.league_designation=ld;patch.league_designation_updated_at=new Date().toISOString()}const entries=Object.entries(patch);if(entries.length){await db.prepare(`UPDATE games SET ${entries.map(([k])=>`${k}=?`).join(',')},updated_at=datetime('now') WHERE id=?`).bind(...entries.map(([,v])=>v),gameId).run();updated++}await link(row,gameId)}
+  async function createSafe(row:any){const hi=row.home?.kind==='internal'?row.home.id:null,ai=row.away?.kind==='internal'?row.away.id:null,he=row.home?.kind==='external'?await ensureExternal(row.home):null,ae=row.away?.kind==='external'?await ensureExternal(row.away):null;if((!hi&&!he)||(!ai&&!ae))throw new Error('Opponent resolution incomplete.');const linked:any=await db.prepare('SELECT game_id FROM arbiter_game_links WHERE arbiter_game_id=? LIMIT 1').bind(row.uniqueGameId).first();if(linked?.game_id){await updateExisting(row,linked.game_id);return}const id=crypto.randomUUID(),ld=leagueDesignation(row.type);await db.prepare(`INSERT INTO games (id,season_id,sport_id,home_team_id,away_team_id,external_home_opponent_id,external_away_opponent_id,game_date,game_time,location,status,verification_status,source,contest_type,league_designation,league_designation_override,league_designation_updated_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`).bind(id,season.id,row.sportId,hi,ai,he,ae,row.date,row.time||null,meaningfulLocation(row.location)?row.location:null,sourceStatus(row.status),'Reported','arbiter-api',contestType(row.type),ld,0,ld?new Date().toISOString():null).run();await link(row,id);created++}
+  for(const row of audit.rows||[]){if(row?.uniqueGameId==null||!row.safelyActionable)continue;try{if(['stable-id-match','stable-id-update','exact-match','probable-match'].includes(row.bucket)&&row.existingGameId)await updateExisting(row,row.existingGameId);else if(['new-game','external-create'].includes(row.bucket))await createSafe(row)}catch(e){failed++;console.error('[arbiter-cron-row]',row.uniqueGameId,e)}}
+  try{const deleted=await arbiterApi.deletedGames(audit.window.start,audit.window.end);for(const arbiterId of deletedIds(deleted)){const l:any=await db.prepare('SELECT game_id FROM arbiter_game_links WHERE arbiter_game_id=?').bind(arbiterId).first();if(!l?.game_id)continue;await db.prepare("UPDATE games SET status='Canceled',updated_at=datetime('now') WHERE id=?").bind(l.game_id).run();await db.prepare("UPDATE arbiter_game_links SET source_status='Deleted',last_seen_at=?,updated_at=? WHERE arbiter_game_id=?").bind(new Date().toISOString(),new Date().toISOString(),arbiterId).run();deletedMarked++}}catch(e){console.error('[arbiter-cron-deleted]',e)}
+  const live=await runLiveOperationsCheck(season.id);let scoresUpdated=0;for(const row of (live.scores.rows||[]).filter((r:any)=>r.safeToApply)){try{await db.prepare("UPDATE games SET home_score=?,away_score=?,status='Final',verification_status='Reported',source='arbiter-api',updated_at=datetime('now') WHERE id=?").bind(row.arbiter.home,row.arbiter.away,row.gameId).run();scoresUpdated++}catch{failed++}}
+  const summary={season:{id:season.id,name:season.name},schedule:{updated,created,externalCreated,linksRefreshed,deletedMarked,failed,pendingChanges:live.schedule.pendingChanges,quarantined:live.schedule.quarantined,blockers:live.schedule.blockers},scores:{updated:scoresUpdated,conflictsUntouched:live.scores.conflicts},rosters:{loaded:live.rosters.loaded,missing:live.rosters.missing}}
+  await db.prepare('UPDATE arbiter_automation_runs SET status=?,summary=?,finished_at=? WHERE id=?').bind(failed?'completed-with-errors':'completed',JSON.stringify(summary),new Date().toISOString(),runId).run()
+  const healthId=crypto.randomUUID();await db.prepare('INSERT INTO arbiter_health_checks (id,season_id,status,summary,changes,quarantines,created_at) VALUES (?,?,?,?,?,?,?)').bind(healthId,season.id,failed||live.schedule.blockers?'attention':live.schedule.pendingChanges||live.scores.conflicts?'attention':'healthy',JSON.stringify({...summary,automationRunId:runId}),JSON.stringify([]),JSON.stringify((live.exceptions||[]).slice(0,100)),new Date().toISOString()).run()
+  return NextResponse.json({ok:failed===0,automated:true,runId,...summary},{status:failed?207:200})
+ }catch(error){const message=error instanceof Error?error.message:String(error);console.error('Automated Arbiter pull failed:',error);await db.prepare('UPDATE arbiter_automation_runs SET status=?,summary=?,finished_at=? WHERE id=?').bind('failed',JSON.stringify({error:message}),new Date().toISOString(),runId).run().catch(()=>null);return NextResponse.json({ok:false,automated:true,runId,error:message},{status:500})}
 }
