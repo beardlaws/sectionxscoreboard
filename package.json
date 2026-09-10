@@ -18,6 +18,7 @@
     "d1:seed:playoffs": "node scripts/cloudflare/seed-preview-playoffs.mjs",
     "d1:seed:fan-zone": "node scripts/cloudflare/seed-preview-fan-zone.mjs",
     "r2:ensure:preview": "npx wrangler r2 bucket create sectionxscoreboard-photos-preview --config wrangler.jsonc || true",
+    "r2:migrate:legacy-photos": "node scripts/cloudflare/migrate-legacy-photos-to-r2.mjs",
     "supabase:test:migration-reader": "node scripts/cloudflare/test-supabase-migration-reader.mjs",
     "cloudflare:build": "npm run prebuild && npm run r2:ensure:preview && npm run d1:migrate:preview && npm run d1:verify:core && npx @opennextjs/cloudflare build",
     "start": "next start",
