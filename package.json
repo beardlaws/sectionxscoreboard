@@ -4,13 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npm pkg set dependencies.next=15.5.24 devDependencies.eslint-config-next=15.5.24 devDependencies.@opennextjs/cloudflare=1.20.6 devDependencies.wrangler=4.130.0 && npm install --force",
+    "prebuild": "npm pkg set dependencies.next=15.5.24 dependencies.pg=8.16.3 devDependencies.eslint-config-next=15.5.24 devDependencies.@opennextjs/cloudflare=1.20.6 devDependencies.wrangler=4.130.0 && npm install --force",
     "build": "next build",
     "postbuild": "next-sitemap",
     "d1:migrate:preview": "npx wrangler d1 migrations apply sectionxscoreboard-preview --remote --config wrangler.jsonc",
     "d1:verify:preview": "npx wrangler d1 execute sectionxscoreboard-preview --remote --config wrangler.jsonc --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\"",
     "d1:seed:preview": "node scripts/cloudflare/seed-preview-core.mjs",
-    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npm run d1:verify:preview && npx @opennextjs/cloudflare build",
+    "supabase:test:migration-reader": "node scripts/cloudflare/test-supabase-migration-reader.mjs",
+    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npm run d1:verify:preview && npm run supabase:test:migration-reader && npx @opennextjs/cloudflare build",
     "start": "next start",
     "lint": "next lint"
   },
