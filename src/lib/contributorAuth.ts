@@ -1,14 +1,8 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { contributorAccountFromRequest } from '@/lib/contributor-auth-cloudflare'
 
-export async function getContributorUser(req: NextRequest) {
-  const auth = createClient()
-  const header = req.headers.get('authorization') || ''
-  const match = header.match(/^Bearer\s+(.+)$/i)
-  const token = match?.[1]?.trim()
-  const { data: { user }, error } = token
-    ? await auth.auth.getUser(token)
-    : await auth.auth.getUser()
-  if (error) return null
-  return user || null
+export async function getContributorUser(req:NextRequest){
+ const account=await contributorAccountFromRequest(req)
+ if(!account)return null
+ return {id:account.id,email:account.email,user_metadata:{display_name:account.display_name}}
 }
