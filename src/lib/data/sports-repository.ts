@@ -9,6 +9,7 @@ export interface SportsRepository {
   getTeamBySlug(slug: string): Promise<any | null>
   getTeamSeason(teamId: string, seasonId: string): Promise<any | null>
   getTeamSeasonsForSport(sportId: string, seasonId: string): Promise<any[]>
+  getGameById(id: string): Promise<any | null>
   getGamesByDate(date: string): Promise<any[]>
   getGamesBetween(startExclusive: string, endInclusive: string, limit?: number): Promise<any[]>
   getGamesForSport(sportId: string, seasonId: string, startDate?: string | null, endDate?: string | null): Promise<any[]>
