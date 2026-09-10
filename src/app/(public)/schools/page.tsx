@@ -1,28 +1,24 @@
 // src/app/(public)/schools/page.tsx
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 
 export const metadata: Metadata = {
   title: 'Section X Schools | All 24 Member Schools',
   description: 'All 24 Section X high school athletic programs in St. Lawrence and Franklin County, Northern New York. Canton, Massena, Gouverneur, Ogdensburg, Heuvelton, and more.',
 }
 
-export const revalidate = 3600
+export const dynamic = 'force-dynamic'
 
 export default async function SchoolsPage() {
-  const supabase = createClient()
-  const { data: schools } = await supabase
-    .from('schools')
-    .select('*')
-    .eq('active', true)
-    .order('school_name')
+  const schools = await getSportsRepository().getSchools()
 
-  const byCounty: Record<string, typeof schools> = {}
+  const byCounty: Record<string, any[]> = {}
   for (const school of schools || []) {
-    if (!byCounty[school.county]) byCounty[school.county] = []
-    byCounty[school.county]!.push(school)
+    const county = school.county || 'Other'
+    if (!byCounty[county]) byCounty[county] = []
+    byCounty[county]!.push(school)
   }
 
   return (
@@ -39,8 +35,8 @@ export default async function SchoolsPage() {
           <section key={county} className="mb-8">
             <h2 className="section-label mb-3">{county} County</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {countySchools?.map(school => {
-                const logoUrl = (school as any).logo_url as string | null
+              {countySchools?.map((school: any) => {
+                const logoUrl = school.logo_url as string | null
                 const initials = school.alias?.slice(0, 3) ||
                   school.school_name
                     .split(' ')
@@ -53,7 +49,6 @@ export default async function SchoolsPage() {
                 return (
                   <Link key={school.id} href={`/schools/${school.slug}`}
                     className="card-hover p-4 flex items-center gap-3">
-                    {/* Logo or colored initials */}
                     <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden border border-white/10"
                       style={{ background: school.primary_color || '#1e2d47' }}>
                       {logoUrl ? (
@@ -74,7 +69,6 @@ export default async function SchoolsPage() {
                       <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         {school.mascot} · {school.city}
                       </div>
-                      {/* Color dots */}
                       <div className="flex items-center gap-1 mt-1">
                         {school.primary_color && (
                           <div className="w-2 h-2 rounded-full border border-white/10"
