@@ -6,6 +6,20 @@ function presentGame(game: any) {
   return isScrimmage(game) ? { ...game, status: 'Scrimmage', home_score: null, away_score: null } : game
 }
 
+function mapSchoolRow(row: any) {
+  if (!row) return null
+  return {
+    ...row,
+    active: Boolean(row.active),
+    is_section_x: row.is_section_x == null ? true : Boolean(row.is_section_x),
+  }
+}
+
+function mapSportRow(row: any) {
+  if (!row) return null
+  return { ...row, active_public: Boolean(row.active_public) }
+}
+
 function mapGameRow(row: any) {
   if (!row) return null
   return presentGame({
@@ -25,6 +39,7 @@ function mapGameRow(row: any) {
     verification_status: row.verification_status,
     source: row.source,
     notes: row.notes,
+    contest_type: row.contest_type || 'Game',
     featured: Boolean(row.featured),
     game_of_the_night: Boolean(row.game_of_the_night),
     rescheduled_date: row.rescheduled_date,
@@ -57,6 +72,8 @@ function mapGameRow(row: any) {
         county: row.home_school_county,
         alias: row.home_school_alias,
         slug: row.home_school_slug,
+        logo_url: row.home_school_logo_url,
+        is_section_x: row.home_school_is_section_x == null ? true : Boolean(row.home_school_is_section_x),
         primary_color: row.home_school_primary_color,
         secondary_color: row.home_school_secondary_color,
       } : null,
@@ -74,6 +91,8 @@ function mapGameRow(row: any) {
         county: row.away_school_county,
         alias: row.away_school_alias,
         slug: row.away_school_slug,
+        logo_url: row.away_school_logo_url,
+        is_section_x: row.away_school_is_section_x == null ? true : Boolean(row.away_school_is_section_x),
         primary_color: row.away_school_primary_color,
         secondary_color: row.away_school_secondary_color,
       } : null,
@@ -116,6 +135,8 @@ const GAME_JOIN = `
     hs.county AS home_school_county,
     hs.alias AS home_school_alias,
     hs.slug AS home_school_slug,
+    hs.logo_url AS home_school_logo_url,
+    hs.is_section_x AS home_school_is_section_x,
     hs.primary_color AS home_school_primary_color,
     hs.secondary_color AS home_school_secondary_color,
     at.team_name AS away_team_name,
@@ -128,6 +149,8 @@ const GAME_JOIN = `
     aws.county AS away_school_county,
     aws.alias AS away_school_alias,
     aws.slug AS away_school_slug,
+    aws.logo_url AS away_school_logo_url,
+    aws.is_section_x AS away_school_is_section_x,
     aws.primary_color AS away_school_primary_color,
     aws.secondary_color AS away_school_secondary_color,
     eh.name AS external_home_name,
@@ -171,12 +194,115 @@ export class D1SportsRepository implements SportsRepository {
 
   async getSports() {
     const result = await this.db.prepare('SELECT * FROM sports ORDER BY sport_name ASC').all()
-    return (result.results || []).map((row: any) => ({ ...row, active_public: Boolean(row.active_public) }))
+    return (result.results || []).map(mapSportRow)
+  }
+
+  async getSportBySlug(slug: string) {
+    return mapSportRow(await this.db.prepare('SELECT * FROM sports WHERE slug = ? LIMIT 1').bind(slug).first())
   }
 
   async getSchools() {
     const result = await this.db.prepare('SELECT * FROM schools WHERE active = 1 ORDER BY school_name ASC').all()
-    return (result.results || []).map((row: any) => ({ ...row, active: Boolean(row.active) }))
+    return (result.results || []).map(mapSchoolRow)
+  }
+
+  async getSchoolBySlug(slug: string) {
+    return mapSchoolRow(await this.db.prepare('SELECT * FROM schools WHERE slug = ? LIMIT 1').bind(slug).first())
+  }
+
+  async getTeamsForSchool(schoolId: string, seasonId?: string | null) {
+    let sql = `
+      SELECT t.*, s.sport_name, s.slug AS sport_slug, s.gender AS sport_gender, s.season_type AS sport_season_type,
+             ts.division, ts.class, ts.active_for_season, ts.display_team_name, ts.btm_override
+      FROM teams t
+      JOIN sports s ON s.id = t.sport_id
+      LEFT JOIN team_seasons ts ON ts.team_id = t.id ${seasonId ? 'AND ts.season_id = ?' : ''}
+      WHERE t.school_id = ? AND t.active = 1
+      ORDER BY s.sport_name ASC, t.team_name ASC
+    `
+    const binds = seasonId ? [seasonId, schoolId] : [schoolId]
+    const result = await this.db.prepare(sql).bind(...binds).all()
+    return (result.results || []).map((row: any) => ({
+      id: row.id,
+      school_id: row.school_id,
+      sport_id: row.sport_id,
+      team_name: row.team_name,
+      slug: row.slug,
+      level: row.level,
+      active: Boolean(row.active),
+      division: row.division || '',
+      class: row.class || '',
+      display_team_name: row.display_team_name || null,
+      btm_override: row.btm_override ?? null,
+      sport: {
+        id: row.sport_id,
+        sport_name: row.sport_name,
+        slug: row.sport_slug,
+        gender: row.sport_gender,
+        season_type: row.sport_season_type,
+      },
+    }))
+  }
+
+  async getTeamBySlug(slug: string) {
+    const row = await this.db.prepare(`
+      SELECT t.*, s.sport_name, s.slug AS sport_slug, s.gender AS sport_gender, s.season_type AS sport_season_type,
+             sc.school_name, sc.mascot, sc.city, sc.county, sc.slug AS school_slug, sc.logo_url,
+             sc.primary_color, sc.secondary_color, sc.is_section_x
+      FROM teams t
+      JOIN sports s ON s.id = t.sport_id
+      JOIN schools sc ON sc.id = t.school_id
+      WHERE t.slug = ? LIMIT 1
+    `).bind(slug).first()
+    if (!row) return null
+    return {
+      id: row.id, school_id: row.school_id, sport_id: row.sport_id, team_name: row.team_name,
+      slug: row.slug, level: row.level, active: Boolean(row.active), created_at: row.created_at,
+      sport: { id: row.sport_id, sport_name: row.sport_name, slug: row.sport_slug, gender: row.sport_gender, season_type: row.sport_season_type },
+      school: { id: row.school_id, school_name: row.school_name, mascot: row.mascot, city: row.city, county: row.county, slug: row.school_slug, logo_url: row.logo_url, primary_color: row.primary_color, secondary_color: row.secondary_color, is_section_x: row.is_section_x == null ? true : Boolean(row.is_section_x) },
+    }
+  }
+
+  async getTeamSeason(teamId: string, seasonId: string) {
+    const row = await this.db.prepare('SELECT * FROM team_seasons WHERE team_id = ? AND season_id = ? LIMIT 1').bind(teamId, seasonId).first()
+    if (!row) return null
+    return { ...row, active_for_season: Boolean(row.active_for_season), is_coop: Boolean(row.is_coop) }
+  }
+
+  async getTeamSeasonsForSport(sportId: string, seasonId: string) {
+    const result = await this.db.prepare(`
+      SELECT ts.*, t.team_name, t.slug AS team_slug, t.sport_id, t.level, t.active,
+             sc.id AS school_id, sc.school_name, sc.slug AS school_slug, sc.primary_color, sc.logo_url, sc.is_section_x
+      FROM team_seasons ts
+      JOIN teams t ON t.id = ts.team_id
+      JOIN schools sc ON sc.id = t.school_id
+      WHERE ts.season_id = ? AND t.sport_id = ? AND ts.active_for_season != 0 AND t.active = 1
+      ORDER BY sc.school_name ASC
+    `).bind(seasonId, sportId).all()
+    return (result.results || []).map((row: any) => ({
+      team_id: row.team_id,
+      season_id: row.season_id,
+      division: row.division,
+      class: row.class,
+      btm_override: row.btm_override,
+      active_for_season: Boolean(row.active_for_season),
+      team: {
+        id: row.team_id,
+        team_name: row.team_name,
+        slug: row.team_slug,
+        sport_id: row.sport_id,
+        level: row.level,
+        active: Boolean(row.active),
+        school: {
+          id: row.school_id,
+          school_name: row.school_name,
+          slug: row.school_slug,
+          primary_color: row.primary_color,
+          logo_url: row.logo_url,
+          is_section_x: row.is_section_x == null ? true : Boolean(row.is_section_x),
+        },
+      },
+    }))
   }
 
   async getGamesByDate(date: string) {
@@ -187,8 +313,27 @@ export class D1SportsRepository implements SportsRepository {
     return queryGames(this.db, 'g.game_date > ? AND g.game_date <= ?', [startExclusive, endInclusive], 'g.game_date ASC, g.game_time ASC', limit)
   }
 
+  async getGamesForSport(sportId: string, seasonId: string, startDate?: string | null, endDate?: string | null) {
+    let where = 'g.sport_id = ? AND g.season_id = ?'
+    const binds: unknown[] = [sportId, seasonId]
+    if (startDate) { where += ' AND g.game_date >= ?'; binds.push(startDate) }
+    if (endDate) { where += ' AND g.game_date <= ?'; binds.push(endDate) }
+    return queryGames(this.db, where, binds, 'g.game_date DESC, g.game_time DESC')
+  }
+
+  async getFinalGamesForSport(sportId: string, seasonId: string) {
+    return queryGames(this.db, "g.sport_id = ? AND g.season_id = ? AND g.status = 'Final'", [sportId, seasonId], 'g.game_date DESC, g.game_time DESC')
+  }
+
+  async getGamesForTeam(teamId: string, seasonId?: string | null) {
+    let where = '(g.home_team_id = ? OR g.away_team_id = ?)'
+    const binds: unknown[] = [teamId, teamId]
+    if (seasonId) { where += ' AND g.season_id = ?'; binds.push(seasonId) }
+    return queryGames(this.db, where, binds, 'g.game_date DESC, g.game_time DESC')
+  }
+
   async getRecentFinals(sinceDate: string, limit = 80) {
-    return queryGames(this.db, "g.status = 'Final' AND g.game_date >= ? AND lower(coalesce(g.notes, '')) NOT LIKE '%arbiter type: scrimmage%'", [sinceDate], 'g.game_date DESC, g.game_time DESC', limit)
+    return queryGames(this.db, "g.status = 'Final' AND g.game_date >= ? AND lower(coalesce(g.contest_type, 'Game')) != 'scrimmage' AND lower(coalesce(g.notes, '')) NOT LIKE '%arbiter type: scrimmage%'", [sinceDate], 'g.game_date DESC, g.game_time DESC', limit)
   }
 
   async getFeaturedGame(date: string) {
