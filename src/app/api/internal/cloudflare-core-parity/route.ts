@@ -1,11 +1,11 @@
-import { getRuntimeSportsRepository } from '@/lib/data/runtime-sports-repository'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 import { sectionXDate } from '@/lib/sectionx-time'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const repo = await getRuntimeSportsRepository()
+    const repo = getSportsRepository()
     const today = sectionXDate()
     const [season, schools, sports, games] = await Promise.all([
       repo.getActiveSeason(),
