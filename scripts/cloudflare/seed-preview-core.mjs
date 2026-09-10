@@ -1,17 +1,17 @@
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import pg from 'pg';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { Client } = pg;
+const connectionString = process.env.SUPABASE_MIGRATION_DATABASE_URL;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+if (!connectionString) {
+  throw new Error('Missing SUPABASE_MIGRATION_DATABASE_URL');
 }
 
 const DB_NAME = 'sectionxscoreboard-preview';
 const WRANGLER_CONFIG = 'wrangler.jsonc';
-const PAGE_SIZE = 1000;
-const CHUNK_SIZE = 200;
+const CHUNK_SIZE = 150;
 
 const tables = [
   {
@@ -46,7 +46,9 @@ const tables = [
   },
   {
     name: 'games',
-    columns: ['id','season_id','sport_id','home_team_id','away_team_id','external_home_opponent_id','external_away_opponent_id','game_date','game_time','location','home_score','away_score','status','verification_status','source','notes','featured','game_of_the_night','rescheduled_date','doubleheader_group_id','game_number','event_name','neutral_site','import_id','parser_confidence','created_at','updated_at'],
+    // import_id is intentionally omitted from the first core copy because
+    // import_logs is not part of 0001_core source migration yet.
+    columns: ['id','season_id','sport_id','home_team_id','away_team_id','external_home_opponent_id','external_away_opponent_id','game_date','game_time','location','home_score','away_score','status','verification_status','source','notes','featured','game_of_the_night','rescheduled_date','doubleheader_group_id','game_number','event_name','neutral_site','parser_confidence','created_at','updated_at'],
     booleans: new Set(['featured','game_of_the_night','neutral_site'])
   }
 ];
@@ -55,45 +57,20 @@ function sqlValue(value, isBoolean = false) {
   if (value === null || value === undefined) return 'NULL';
   if (isBoolean) return value ? '1' : '0';
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
+  if (typeof value === 'bigint') return String(value);
+  if (value instanceof Date) return `'${value.toISOString().replaceAll("'", "''")}'`;
+  if (typeof value === 'object') return `'${JSON.stringify(value).replaceAll("'", "''")}'`;
   return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-async function fetchAll(table) {
-  const rows = [];
-  let from = 0;
-  const select = table.columns.join(',');
-
-  while (true) {
-    const to = from + PAGE_SIZE - 1;
-    const url = `${SUPABASE_URL}/rest/v1/${table.name}?select=${encodeURIComponent(select)}&order=id.asc`;
-    const response = await fetch(url, {
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        range: `${from}-${to}`,
-        'range-unit': 'items',
-        accept: 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Supabase read failed for ${table.name}: ${response.status} ${body.slice(0, 500)}`);
-    }
-
-    const page = await response.json();
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return rows;
 }
 
 function buildUpsert(table, row) {
   const cols = table.columns;
   const values = cols.map((column) => sqlValue(row[column], table.booleans.has(column)));
-  const updates = cols.filter((column) => column !== 'id').map((column) => `\"${column}\"=excluded.\"${column}\"`).join(',');
+  const updates = cols
+    .filter((column) => column !== 'id')
+    .map((column) => `\"${column}\"=excluded.\"${column}\"`)
+    .join(',');
+
   return `INSERT INTO \"${table.name}\" (${cols.map((column) => `\"${column}\"`).join(',')}) VALUES (${values.join(',')}) ON CONFLICT(id) DO UPDATE SET ${updates};`;
 }
 
@@ -106,31 +83,81 @@ function executeSqlFile(path) {
   ], { stdio: 'inherit', env: process.env });
 }
 
-for (const table of tables) {
-  const rows = await fetchAll(table);
-  console.log(`[D1 seed] ${table.name}: fetched ${rows.length} rows from Supabase`);
-
-  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-    const chunk = rows.slice(i, i + CHUNK_SIZE);
-    const file = `/tmp/sectionx-${table.name}-${i}.sql`;
-    const sql = [
-      'PRAGMA foreign_keys = ON;',
-      ...chunk.map((row) => buildUpsert(table, row))
-    ].join('\n');
-    writeFileSync(file, sql, 'utf8');
-    try {
-      executeSqlFile(file);
-    } finally {
-      try { unlinkSync(file); } catch {}
-    }
-    console.log(`[D1 seed] ${table.name}: copied ${Math.min(i + CHUNK_SIZE, rows.length)}/${rows.length}`);
-  }
+function executeD1Command(sql) {
+  execFileSync('npx', [
+    'wrangler', 'd1', 'execute', DB_NAME,
+    '--remote', '--config', WRANGLER_CONFIG,
+    '--command', sql
+  ], { stdio: 'inherit', env: process.env });
 }
 
-console.log('[D1 seed] Core copy complete. Verifying row counts in D1...');
-const countSql = tables.map((table) => `SELECT '${table.name}' AS table_name, COUNT(*) AS row_count FROM \"${table.name}\"`).join(' UNION ALL ') + ';';
-execFileSync('npx', [
-  'wrangler', 'd1', 'execute', DB_NAME,
-  '--remote', '--config', WRANGLER_CONFIG,
-  '--command', countSql
-], { stdio: 'inherit', env: process.env });
+const client = new Client({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 15000,
+  query_timeout: 30000,
+  statement_timeout: 30000,
+});
+
+try {
+  console.log('[D1 seed] Connecting to Supabase with temporary read-only migration role...');
+  await client.connect();
+
+  const identity = await client.query(`
+    SELECT
+      current_user AS current_user,
+      current_setting('default_transaction_read_only') AS default_transaction_read_only;
+  `);
+
+  const info = identity.rows[0];
+  if (!String(info.current_user).startsWith('cloudflare_migration_reader')) {
+    throw new Error(`Unexpected database user: ${info.current_user}`);
+  }
+  if (info.default_transaction_read_only !== 'on') {
+    throw new Error('Migration reader is not default_transaction_read_only=on; refusing to seed.');
+  }
+
+  console.log(`[D1 seed] Source user=${info.current_user}; read_only=${info.default_transaction_read_only}`);
+  await client.query('BEGIN READ ONLY');
+
+  for (const table of tables) {
+    const select = table.columns.map((column) => `\"${column}\"`).join(',');
+    const result = await client.query(`SELECT ${select} FROM public.\"${table.name}\" ORDER BY id ASC`);
+    const rows = result.rows;
+    console.log(`[D1 seed] ${table.name}: fetched ${rows.length} rows from Supabase`);
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      const file = `/tmp/sectionx-${table.name}-${i}.sql`;
+      const sql = [
+        'PRAGMA foreign_keys = ON;',
+        ...chunk.map((row) => buildUpsert(table, row))
+      ].join('\n');
+
+      writeFileSync(file, sql, 'utf8');
+      try {
+        executeSqlFile(file);
+      } finally {
+        try { unlinkSync(file); } catch {}
+      }
+
+      console.log(`[D1 seed] ${table.name}: copied ${Math.min(i + CHUNK_SIZE, rows.length)}/${rows.length}`);
+    }
+  }
+
+  await client.query('ROLLBACK');
+
+  console.log('[D1 seed] Core copy complete. Verifying preview D1 row counts...');
+  const countSql = tables
+    .map((table) => `SELECT '${table.name}' AS table_name, COUNT(*) AS row_count FROM \"${table.name}\"`)
+    .join(' UNION ALL ') + ' ORDER BY table_name;';
+  executeD1Command(countSql);
+
+  console.log('[D1 seed] PASS: production was read-only; writes were limited to preview D1.');
+} catch (error) {
+  try { await client.query('ROLLBACK'); } catch {}
+  console.error('[D1 seed] FAILED:', error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+} finally {
+  await client.end().catch(() => {});
+}
