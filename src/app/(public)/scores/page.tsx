@@ -1,84 +1,43 @@
 // src/app/(public)/scores/page.tsx
 import type { Metadata } from 'next'
-import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 import ScoresClient from './ScoresClient'
 import { sectionXDate, sectionXDateOffset } from '@/lib/sectionx-time'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 
 export const metadata: Metadata = {
   title: 'Scores',
   description: 'Section X high school sports scores and results by date.',
 }
-export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
 export default async function ScoresPage({
   searchParams,
 }: {
-  searchParams: { date?: string; sport?: string; season?: string }
+  searchParams: Promise<{ date?: string; sport?: string; season?: string }>
 }) {
-  const supabase = createClient()
+  const params = await searchParams
+  const repo = getSportsRepository()
   const today = sectionXDate()
-  const selectedDate = searchParams.date || today
+  const selectedDate = params.date || today
 
-  const { data: allSeasons } = await supabase
-    .from('seasons').select('id, name, is_active, season_type, year')
-    .order('year', { ascending: false })
+  const [allSeasons, sports] = await Promise.all([
+    repo.getSeasons(),
+    repo.getSports(),
+  ])
 
   const activeSeason = (allSeasons || []).find((s: any) => s.is_active)
-  const selectedSeasonId = searchParams.season || activeSeason?.id
+  const selectedSeasonId = params.season || activeSeason?.id || null
 
-  const { data: sponsorCandidates } = await supabase
-    .from('sponsors').select('*')
-    .eq('active', true)
-    .or('placement_type.eq.scores,show_on_scores.eq.true')
-    .order('created_at', { ascending: false })
-    .limit(20)
-
-  const scoresSponsor = (sponsorCandidates || []).find((s: any) => {
-    if (s.start_date && s.start_date > today) return false
-    if (s.end_date && s.end_date < today) return false
-    return true
-  }) || null
-
-  const [{ data: games }, { data: crossCountryMeets }, { data: crossCountryResults }, { data: sports }] = await Promise.all([
-    supabase
-      .from('games')
-      .select(`*,
-        sport:sports(*),
-        home_team:teams!games_home_team_id_fkey(*, school:schools(*)),
-        away_team:teams!games_away_team_id_fkey(*, school:schools(*)),
-        external_home:external_opponents!games_external_home_opponent_id_fkey(*),
-        external_away:external_opponents!games_external_away_opponent_id_fkey(*)`)
-      .eq('game_date', selectedDate)
-      .order('game_time', { ascending: true }),
-    supabase.from('cross_country_meets').select('*').eq('meet_date', selectedDate).order('meet_name'),
-    supabase.from('cross_country_team_results').select(`*,sport:sports(id,slug,gender,sport_name),team:teams(id,team_name,slug,school:schools(id,school_name,slug,primary_color,logo_url)),external_opponent:external_opponents(id,name,slug)`),
-    supabase.from('sports').select('*').order('sport_name'),
+  const [games, datesWithGames] = await Promise.all([
+    repo.getGamesByDate(selectedDate),
+    repo.getDatesWithGames(sectionXDateOffset(-30), sectionXDateOffset(14), selectedSeasonId),
   ])
 
-  const xcMeets = (crossCountryMeets || []).map((meet: any) => ({
-    ...meet,
-    results: (crossCountryResults || []).filter((result: any) => result.meet_id === meet.id),
-  }))
-
-  let dateQuery = supabase.from('games').select('game_date')
-    .gte('game_date', sectionXDateOffset(-30))
-    .lte('game_date', sectionXDateOffset(14))
-
-  if (selectedSeasonId) {
-    dateQuery = (dateQuery as any).eq('season_id', selectedSeasonId)
-  }
-
-  const [{ data: gameDates }, { data: meetDates }] = await Promise.all([
-    dateQuery,
-    supabase.from('cross_country_meets').select('meet_date')
-      .gte('meet_date', sectionXDateOffset(-30))
-      .lte('meet_date', sectionXDateOffset(14))
-  ])
-  const datesWithGames = [...new Set([
-    ...(gameDates || []).map((g: any) => g.game_date),
-    ...(meetDates || []).map((m: any) => m.meet_date),
-  ])].sort()
+  // Cross-country meet/result tables and sponsor inventory migrate in a later pass.
+  // Keep the preview explicit rather than silently reading those features from Supabase.
+  const xcMeets: any[] = []
+  const scoresSponsor = null
 
   const SEASON_COLORS: Record<string, { bg: string; text: string; border: string }> = {
     Spring: { bg: 'rgba(34,197,94,0.12)', text: '#4ade80', border: 'rgba(34,197,94,0.25)' },
@@ -93,13 +52,13 @@ export default async function ScoresPage({
           <div className="flex items-center gap-2 flex-wrap mb-4">
             <span className="text-xs text-slate-500 flex-shrink-0" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.08em' }}>SEASON:</span>
             {(allSeasons || []).map((s: any) => {
-              const isSelected = searchParams.season ? s.id === searchParams.season : s.is_active
+              const isSelected = params.season ? s.id === params.season : Boolean(s.is_active)
               const c = SEASON_COLORS[s.season_type || 'Spring'] || SEASON_COLORS.Spring
               return <a key={s.id} href={s.is_active ? '/scores' : `/scores?season=${s.id}`} className="text-xs font-black px-3 py-1 rounded-full transition-all" style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.06em', background: isSelected ? c.bg : 'rgba(255,255,255,0.04)', color: isSelected ? c.text : '#4a5f7a', border: `1px solid ${isSelected ? c.border : 'rgba(255,255,255,0.06)'}` }}>{s.name}{s.is_active ? ' ✓' : ''}</a>
             })}
           </div>
         )}
-        {scoresSponsor && <a href={(scoresSponsor as any).website_url || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 rounded-xl px-4 py-3 mb-4 transition-all hover:-translate-y-0.5" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(8,12,20,0.8))', border: '1px solid rgba(37,99,235,0.2)' }}>{(scoresSponsor as any).logo_url && <img src={(scoresSponsor as any).logo_url} alt={(scoresSponsor as any).business_name} className="w-8 h-8 object-contain rounded flex-shrink-0" style={{ background: 'rgba(255,255,255,0.05)' }} />}<div className="flex-1 min-w-0"><p className="text-xs text-slate-500" style={{ fontFamily: 'var(--font-display)', fontSize: '10px', letterSpacing: '0.1em' }}>SCORES PRESENTED BY</p><p className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>{(scoresSponsor as any).business_name}</p>{(scoresSponsor as any).tagline && <p className="text-xs text-slate-400 truncate">{(scoresSponsor as any).tagline}</p>}</div><span className="text-xs font-bold text-blue-400 flex-shrink-0" style={{ fontFamily: 'var(--font-display)' }}>Visit →</span></a>}
+        {scoresSponsor && <div />}
       </div>
       <ScoresClient games={games || []} crossCountryMeets={xcMeets} sports={sports || []} selectedDate={selectedDate} today={today} datesWithGames={datesWithGames} />
     </PublicLayout>
