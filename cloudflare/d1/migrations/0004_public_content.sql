@@ -1,78 +1,25 @@
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS sponsors (
-  id TEXT PRIMARY KEY,
-  business_name TEXT NOT NULL,
-  contact_name TEXT,
-  contact_email TEXT,
-  website_url TEXT,
-  logo_url TEXT,
-  tagline TEXT,
-  placement TEXT,
-  active INTEGER DEFAULT 1,
-  created_at TEXT,
-  placement_type TEXT,
-  school_id TEXT,
-  sport_id TEXT,
-  price_monthly REAL,
-  start_date TEXT,
-  end_date TEXT,
-  contact_phone TEXT,
-  notes TEXT,
-  show_on_scores INTEGER DEFAULT 0,
-  FOREIGN KEY (school_id) REFERENCES schools(id),
-  FOREIGN KEY (sport_id) REFERENCES sports(id)
-);
-CREATE INDEX IF NOT EXISTS idx_d1_sponsors_active ON sponsors(active);
+-- Core already created sponsors/photos/shoutouts in 0001. Add parity columns here
+-- before creating indexes that reference them.
+ALTER TABLE sponsors ADD COLUMN placement_type TEXT;
+ALTER TABLE sponsors ADD COLUMN school_id TEXT;
+ALTER TABLE sponsors ADD COLUMN sport_id TEXT;
+ALTER TABLE sponsors ADD COLUMN price_monthly REAL;
+ALTER TABLE sponsors ADD COLUMN start_date TEXT;
+ALTER TABLE sponsors ADD COLUMN end_date TEXT;
+ALTER TABLE sponsors ADD COLUMN contact_phone TEXT;
+ALTER TABLE sponsors ADD COLUMN notes TEXT;
+ALTER TABLE sponsors ADD COLUMN show_on_scores INTEGER DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_d1_sponsors_placement_type ON sponsors(placement_type);
+CREATE INDEX IF NOT EXISTS idx_d1_sponsors_school ON sponsors(school_id);
+CREATE INDEX IF NOT EXISTS idx_d1_sponsors_sport ON sponsors(sport_id);
 
-CREATE TABLE IF NOT EXISTS photos (
-  id TEXT PRIMARY KEY,
-  submitter_name TEXT NOT NULL,
-  submitter_email TEXT,
-  photographer_credit_name TEXT,
-  school_id TEXT,
-  team_id TEXT,
-  game_id TEXT,
-  sport_id TEXT,
-  caption TEXT,
-  photo_url TEXT NOT NULL,
-  permission_confirmed INTEGER DEFAULT 0,
-  approved INTEGER DEFAULT 0,
-  featured INTEGER DEFAULT 0,
-  created_at TEXT,
-  contributor_id TEXT,
-  contributor_user_id TEXT,
-  tag_reviewed INTEGER DEFAULT 0,
-  FOREIGN KEY (school_id) REFERENCES schools(id),
-  FOREIGN KEY (team_id) REFERENCES teams(id),
-  FOREIGN KEY (game_id) REFERENCES games(id),
-  FOREIGN KEY (sport_id) REFERENCES sports(id)
-);
-CREATE INDEX IF NOT EXISTS idx_d1_photos_approved ON photos(approved);
-CREATE INDEX IF NOT EXISTS idx_d1_photos_featured ON photos(featured);
-CREATE INDEX IF NOT EXISTS idx_d1_photos_school ON photos(school_id);
+ALTER TABLE photos ADD COLUMN contributor_id TEXT;
+ALTER TABLE photos ADD COLUMN contributor_user_id TEXT;
+ALTER TABLE photos ADD COLUMN tag_reviewed INTEGER DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_d1_photos_team ON photos(team_id);
 CREATE INDEX IF NOT EXISTS idx_d1_photos_game ON photos(game_id);
-
-CREATE TABLE IF NOT EXISTS shoutouts (
-  id TEXT PRIMARY KEY,
-  submitter_name TEXT NOT NULL,
-  submitter_email TEXT,
-  school_id TEXT,
-  team_id TEXT,
-  game_id TEXT,
-  athlete_name TEXT,
-  shoutout_type TEXT NOT NULL,
-  description TEXT NOT NULL,
-  approved INTEGER DEFAULT 0,
-  featured INTEGER DEFAULT 0,
-  created_at TEXT,
-  FOREIGN KEY (school_id) REFERENCES schools(id),
-  FOREIGN KEY (team_id) REFERENCES teams(id),
-  FOREIGN KEY (game_id) REFERENCES games(id)
-);
-CREATE INDEX IF NOT EXISTS idx_d1_shoutouts_approved ON shoutouts(approved);
 
 CREATE TABLE IF NOT EXISTS site_settings (
   key TEXT PRIMARY KEY,
@@ -115,6 +62,7 @@ CREATE TABLE IF NOT EXISTS coaches (
   FOREIGN KEY (school_id) REFERENCES schools(id)
 );
 CREATE INDEX IF NOT EXISTS idx_d1_coaches_school ON coaches(school_id);
+CREATE INDEX IF NOT EXISTS idx_d1_coaches_slug ON coaches(slug);
 
 CREATE TABLE IF NOT EXISTS roster_entries (
   id TEXT PRIMARY KEY,
