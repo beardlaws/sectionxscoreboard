@@ -1,11 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { adminDb } from '@/lib/adminDb'
 
 export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: string; gameId?: string | null }) {
-  const supabase = createClient()
   const [athletes, setAthletes] = useState<any[]>([])
   const [tagged, setTagged] = useState<Set<string>>(new Set())
   const [suggested, setSuggested] = useState<Set<string>>(new Set())
@@ -17,30 +14,20 @@ export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: strin
   async function load() {
     if (!gameId) return
     setLoading(true)
-    const [gameResult, tagsResult, suggestionResult] = await Promise.all([
-      supabase.from('games').select('home_team_id, away_team_id, season_id').eq('id', gameId).single(),
-      supabase.from('photo_athletes').select('athlete_id').eq('photo_id', photoId),
-      fetch(`/api/admin/photos/tag-suggestions?photoId=${encodeURIComponent(photoId)}`, { credentials: 'include', cache: 'no-store' })
-        .then(async r => {
-          const j = await r.json().catch(() => ({}))
-          if (!r.ok) throw new Error(j.error || 'Could not load tag suggestions')
-          return j
-        })
-        .catch(() => ({ suggestions: [] })),
-    ])
-    const game = gameResult.data
-    const tags = tagsResult.data
-    setTagged(new Set((tags || []).map((tag: any) => tag.athlete_id)))
-    setSuggested(new Set((suggestionResult.suggestions || []).map((tag: any) => tag.athlete_id)))
-    if (!game) { setLoading(false); return }
-    const teamIds = [game.home_team_id, game.away_team_id].filter(Boolean)
-    if (!teamIds.length) { setLoading(false); return }
-    let q = supabase.from('roster_entries').select('athlete_id, jersey_number, team_id, athlete:athletes(id, display_name)').in('team_id', teamIds).eq('active', true)
-    if (game.season_id) q = q.eq('season_id', game.season_id)
-    const { data: roster } = await q
-    const seen = new Set<string>()
-    setAthletes((roster || []).filter((row: any) => { if (!row.athlete_id || seen.has(row.athlete_id)) return false; seen.add(row.athlete_id); return true }))
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/admin/photos/tags?photoId=${encodeURIComponent(photoId)}&gameId=${encodeURIComponent(gameId)}`, { credentials:'include', cache:'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Could not load game roster')
+      setAthletes(json.athletes || [])
+      setTagged(new Set(json.tagged || []))
+      setSuggested(new Set((json.suggestions || []).map((tag:any) => tag.athlete_id)))
+    } catch {
+      setAthletes([])
+      setTagged(new Set())
+      setSuggested(new Set())
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { void load() }, [gameId, photoId])
@@ -54,9 +41,13 @@ export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: strin
     })
   }, [athletes, search])
 
-  async function approveSuggestion(athleteId:string) {
-    await adminDb.update('photo_tag_suggestions', { status:'approved', reviewed_at:new Date().toISOString(), reviewed_by:'admin' }, { photo_id:photoId, athlete_id:athleteId })
-    setSuggested(prev => { const next=new Set(prev); next.delete(athleteId); return next })
+  async function mutate(action:string, athleteId?:string, athleteIds?:string[]) {
+    const res = await fetch('/api/admin/photos/tags', {
+      method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ photoId, action, athleteId, athleteIds }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.error || 'Could not update athlete tag')
   }
 
   async function toggle(row: any) {
@@ -65,13 +56,11 @@ export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: strin
     const isTagged = tagged.has(athleteId)
     setSavingId(athleteId)
     try {
-      if (isTagged) {
-        await adminDb.delete('photo_athletes', { photo_id: photoId, athlete_id: athleteId })
-        setTagged(prev => { const next = new Set(prev); next.delete(athleteId); return next })
-      } else {
-        await adminDb.upsert('photo_athletes', { photo_id: photoId, athlete_id: athleteId }, 'photo_id,athlete_id')
+      await mutate(isTagged ? 'remove' : 'add', athleteId)
+      if (isTagged) setTagged(prev => { const next = new Set(prev); next.delete(athleteId); return next })
+      else {
         setTagged(prev => new Set(prev).add(athleteId))
-        if (suggested.has(athleteId)) await approveSuggestion(athleteId)
+        setSuggested(prev => { const next = new Set(prev); next.delete(athleteId); return next })
       }
     } catch (e: any) { alert(e.message || 'Could not update athlete tag') }
     finally { setSavingId(null) }
@@ -82,13 +71,11 @@ export default function PhotoAthleteTagger({ photoId, gameId }: { photoId: strin
     if(!ids.length)return
     setApprovingAll(true)
     try {
-      for(const athleteId of ids){
-        await adminDb.upsert('photo_athletes',{photo_id:photoId,athlete_id:athleteId},'photo_id,athlete_id')
-        await approveSuggestion(athleteId)
-      }
+      await mutate('approveAll', undefined, ids)
       setTagged(prev=>new Set([...prev,...ids]))
-    }catch(e:any){alert(e.message||'Could not approve suggested tags')}
-    finally{setApprovingAll(false)}
+      setSuggested(new Set())
+    } catch(e:any) { alert(e.message||'Could not approve suggested tags') }
+    finally { setApprovingAll(false) }
   }
 
   if (!gameId) return <p className="text-xs text-slate-600 mt-3">Tie this photo to a game to enable athlete tagging.</p>
