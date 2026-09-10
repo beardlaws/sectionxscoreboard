@@ -16,8 +16,8 @@ const CHUNK_SIZE = 150;
 const tables = [
   {
     name: 'schools',
-    columns: ['id','school_name','mascot','city','county','primary_color','secondary_color','alias','slug','active','created_at'],
-    booleans: new Set(['active'])
+    columns: ['id','school_name','mascot','city','county','primary_color','secondary_color','alias','slug','active','logo_url','is_section_x','created_at'],
+    booleans: new Set(['active','is_section_x'])
   },
   {
     name: 'sports',
@@ -41,14 +41,13 @@ const tables = [
   },
   {
     name: 'team_seasons',
-    columns: ['id','team_id','season_id','class','division','active_for_season','display_team_name','is_coop','coop_schools','notes'],
+    columns: ['id','team_id','season_id','class','division','active_for_season','display_team_name','is_coop','coop_schools','notes','btm_override'],
     booleans: new Set(['active_for_season','is_coop'])
   },
   {
     name: 'games',
-    // import_id is intentionally omitted from the first core copy because
-    // import_logs is not part of 0001_core source migration yet.
-    columns: ['id','season_id','sport_id','home_team_id','away_team_id','external_home_opponent_id','external_away_opponent_id','game_date','game_time','location','home_score','away_score','status','verification_status','source','notes','featured','game_of_the_night','rescheduled_date','doubleheader_group_id','game_number','event_name','neutral_site','parser_confidence','created_at','updated_at'],
+    // import_id is intentionally omitted because import_logs is not part of the core copy yet.
+    columns: ['id','season_id','sport_id','home_team_id','away_team_id','external_home_opponent_id','external_away_opponent_id','game_date','game_time','location','home_score','away_score','status','verification_status','source','notes','featured','game_of_the_night','rescheduled_date','doubleheader_group_id','game_number','event_name','neutral_site','contest_type','parser_confidence','created_at','updated_at'],
     booleans: new Set(['featured','game_of_the_night','neutral_site'])
   }
 ];
@@ -80,14 +79,6 @@ function executeSqlFile(path) {
     '--remote', '--config', WRANGLER_CONFIG,
     '--file', path,
     '--yes'
-  ], { stdio: 'inherit', env: process.env });
-}
-
-function executeD1Command(sql) {
-  execFileSync('npx', [
-    'wrangler', 'd1', 'execute', DB_NAME,
-    '--remote', '--config', WRANGLER_CONFIG,
-    '--command', sql
   ], { stdio: 'inherit', env: process.env });
 }
 
@@ -146,13 +137,6 @@ try {
   }
 
   await client.query('ROLLBACK');
-
-  console.log('[D1 seed] Core copy complete. Verifying preview D1 row counts...');
-  const countSql = tables
-    .map((table) => `SELECT '${table.name}' AS table_name, COUNT(*) AS row_count FROM \"${table.name}\"`)
-    .join(' UNION ALL ') + ' ORDER BY table_name;';
-  executeD1Command(countSql);
-
   console.log('[D1 seed] PASS: production was read-only; writes were limited to preview D1.');
 } catch (error) {
   try { await client.query('ROLLBACK'); } catch {}
