@@ -11,8 +11,9 @@
     "d1:verify:preview": "npx wrangler d1 execute sectionxscoreboard-preview --remote --config wrangler.jsonc --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\"",
     "d1:verify:core": "node scripts/cloudflare/verify-preview-core.mjs",
     "d1:seed:preview": "node scripts/cloudflare/seed-preview-core.mjs",
+    "d1:seed:xc": "node scripts/cloudflare/seed-preview-xc.mjs",
     "supabase:test:migration-reader": "node scripts/cloudflare/test-supabase-migration-reader.mjs",
-    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npm run d1:seed:preview && npm run d1:verify:core && npx @opennextjs/cloudflare build",
+    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npm run d1:seed:preview && npm run d1:seed:xc && npm run d1:verify:core && npx @opennextjs/cloudflare build",
     "start": "next start",
     "lint": "next lint"
   },
