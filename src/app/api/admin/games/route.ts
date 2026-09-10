@@ -7,7 +7,9 @@ const GAME_COLUMNS = new Set([
   'season_id','sport_id','home_team_id','away_team_id','external_home_opponent_id','external_away_opponent_id',
   'game_date','game_time','location','home_score','away_score','status','verification_status','source','notes',
   'featured','game_of_the_night','rescheduled_date','doubleheader_group_id','game_number','event_name','neutral_site',
-  'parser_confidence','contest_type'
+  'parser_confidence','contest_type','recap','recap_author','is_playoff','playoff_round','playoff_game_id',
+  'result_exempt','result_exempt_reason','league_designation','league_designation_override','league_designation_note',
+  'league_designation_updated_at','schedule_override','schedule_override_note','schedule_override_updated_at'
 ])
 
 function inferredContestType(game:any):'Game'|'Scrimmage'{
@@ -19,10 +21,13 @@ function slugify(value:string){return value.toLowerCase().replace(/[^a-z0-9]+/g,
 function cleanGame(input:any){
   const out:Record<string,any>={}
   for(const [key,value] of Object.entries(input||{}))if(GAME_COLUMNS.has(key)&&value!==undefined)out[key]=value
-  out.contest_type=inferredContestType(input)
+  if(!input?.id || input?.contest_type!==undefined || input?.notes!==undefined)out.contest_type=inferredContestType(input)
   if(out.contest_type==='Scrimmage'){
     out.home_score=null;out.away_score=null
     if(out.status==='Final')out.status='Scheduled'
+  }
+  for(const key of ['featured','game_of_the_night','neutral_site','is_playoff','result_exempt','league_designation_override','schedule_override']){
+    if(typeof out[key]==='boolean')out[key]=out[key]?1:0
   }
   return out
 }
@@ -49,6 +54,20 @@ async function updateGame(db:any,id:string,fields:Record<string,any>){
   if(!entries.length)return
   const sql=`UPDATE games SET ${entries.map(([k])=>`${k}=?`).join(',')}, updated_at=datetime('now') WHERE id=?`
   await db.prepare(sql).bind(...entries.map(([,v])=>v),id).run()
+}
+async function syncPlayoffGame(db:any,gameId:string,fields:Record<string,any>){
+  const row:any=await db.prepare('SELECT id FROM playoff_games WHERE game_id=? LIMIT 1').bind(gameId).first()
+  if(!row?.id)return
+  const updates:Record<string,any>={}
+  if(fields.home_score!==undefined)updates.home_score=fields.home_score
+  if(fields.away_score!==undefined)updates.away_score=fields.away_score
+  if(fields.game_date!==undefined)updates.game_date=fields.game_date
+  if(fields.game_time!==undefined)updates.game_time=fields.game_time
+  if(fields.location!==undefined)updates.location=fields.location
+  if(fields.status!==undefined)updates.status=fields.status==='Final'?'final':fields.status==='Scheduled'?'scheduled':String(fields.status||'').toLowerCase()
+  const entries=Object.entries(updates)
+  if(!entries.length)return
+  await db.prepare(`UPDATE playoff_games SET ${entries.map(([k])=>`${k}=?`).join(',')} WHERE id=?`).bind(...entries.map(([,v])=>v),row.id).run()
 }
 async function recordImportSource(db:any,p:{gameId:string;teamId:string|null;seasonId:string|null;sportId:string|null;source:string;sourceStatus?:any;sourceGameTime?:any;sourceLocation?:any;sourceContestType?:any;sourceNotes?:any}){
   if(!p.gameId||!p.teamId||!p.seasonId||!p.sportId)return
@@ -93,6 +112,7 @@ export async function POST(req:NextRequest){
         const exists:any=await db.prepare('SELECT id FROM games WHERE id=? LIMIT 1').bind(gameId).first()
         if(!exists){results.push({action:'updated',game_id:gameId,error:'Game not found'});continue}
         await updateGame(db,gameId,clean)
+        await syncPlayoffGame(db,gameId,clean)
         await recordImportSource(db,{gameId,teamId:importTeamId,seasonId:clean.season_id||null,sportId:clean.sport_id||null,source:importSource,sourceStatus:clean.status,sourceGameTime:clean.game_time,sourceLocation:clean.location,sourceContestType:clean.contest_type,sourceNotes:clean.notes})
         results.push({action:'updated',game_id:gameId});continue
       }
@@ -113,6 +133,7 @@ export async function POST(req:NextRequest){
         }
         if(mergedContestType==='Scrimmage'){merged.home_score=null;merged.away_score=null;if(merged.status==='Final')merged.status='Scheduled'}
         await updateGame(db,existing.id,merged)
+        await syncPlayoffGame(db,existing.id,merged)
         await recordImportSource(db,{gameId:existing.id,teamId:importTeamId,seasonId:clean.season_id||null,sportId:clean.sport_id||null,source:importSource,sourceStatus:clean.status,sourceGameTime:clean.game_time,sourceLocation:clean.location,sourceContestType:clean.contest_type,sourceNotes:clean.notes})
         results.push({action:'updated',game_id:existing.id});continue
       }
