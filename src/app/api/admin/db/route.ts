@@ -1,58 +1,108 @@
-import { createClient } from '@supabase/supabase-js'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+export const dynamic = 'force-dynamic'
+
+// Keep this intentionally explicit. The browser helper can only reach tables that are
+// part of the Cloudflare migration and are appropriate for admin CRUD operations.
+const ALLOWED_TABLES = new Set([
+  'schools','sports','seasons','teams','team_seasons','external_opponents','games','submissions',
+  'photos','shoutouts','sponsors','site_settings','athletes','coaches','roster_entries','team_coaches',
+  'spotlights','athlete_of_week','weekly_recaps','game_period_scores','stat_definitions','game_team_stats',
+  'game_athlete_stats','photo_athletes','photo_tag_suggestions','playoff_tournaments','playoff_games',
+  'fan_power_rank_ballots','fan_power_rank_snapshots','fan_top_play_nominations','fan_school_support',
+  'fan_school_support_snapshots','fan_game_votes','fan_game_vote_snapshots','athlete_nominations',
+  'advertise_inquiries','game_import_sources','correction_requests','arbiter_team_links','arbiter_game_links',
+  'arbiter_sync_runs','arbiter_sync_actions','arbiter_health_checks','arbiter_automation_runs',
+  'arbiter_roster_freshness','arbiter_roster_automation_runs','arbiter_school_mappings','arbiter_team_mappings',
+  'arbiter_shared_event_ids'
+])
+
+function qid(value:string){return `"${value.replaceAll('"','""')}"`}
+function dbValue(value:any){
+  if(value===undefined)return null
+  if(typeof value==='boolean')return value?1:0
+  if(value!==null&&typeof value==='object')return JSON.stringify(value)
+  return value
+}
+async function columnsFor(db:any,table:string){
+  const result=await db.prepare(`PRAGMA table_info(${qid(table)})`).all()
+  return new Set((result.results||[]).map((r:any)=>String(r.name)))
+}
+function cleanObject(input:any,columns:Set<string>){
+  const out:Record<string,any>={}
+  for(const [key,value] of Object.entries(input||{})){
+    if(columns.has(key)&&value!==undefined)out[key]=dbValue(value)
+  }
+  return out
+}
+function matchClause(match:Record<string,any>,columns:Set<string>){
+  const entries=Object.entries(match||{}).filter(([key])=>columns.has(key))
+  if(!entries.length)throw new Error('A valid match is required for update/delete')
+  return {sql:entries.map(([key])=>`${qid(key)}=?`).join(' AND '),values:entries.map(([,value])=>dbValue(value))}
 }
 
 // POST /api/admin/db
-// Middleware authenticates the admin session before this privileged service-role route can execute.
-// Body: { action: 'insert'|'update'|'upsert'|'delete', table: string, data?: any, match?: any, onConflict?: string }
-export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { action, table, data, match, onConflict } = body
+// Middleware protects /api/admin/* using the existing admin session cookie.
+// Body: { action:'insert'|'update'|'upsert'|'delete', table, data?, match?, onConflict? }
+export async function POST(req:NextRequest){
+  const body=await req.json().catch(()=>null)
+  const action=String(body?.action||''),table=String(body?.table||'')
+  if(!action||!ALLOWED_TABLES.has(table))return NextResponse.json({error:'Unsupported admin database request'},{status:400})
 
-  if (!table || !action) {
-    return NextResponse.json({ error: 'table and action required' }, { status: 400 })
-  }
+  try{
+    const {env}=getCloudflareContext(),db=(env as any).DB
+    if(!db)throw new Error('Cloudflare D1 binding DB is unavailable')
+    const columns=await columnsFor(db,table)
+    if(!columns.size)throw new Error(`D1 table is unavailable: ${table}`)
 
-  const supabase = getAdminClient()
-  let result: any
-
-  try {
-    if (action === 'insert') {
-      result = await supabase.from(table).insert(data)
-    } else if (action === 'update') {
-      let q = supabase.from(table).update(data)
-      if (match) {
-        for (const [k, v] of Object.entries(match)) {
-          q = (q as any).eq(k, v)
-        }
+    if(action==='insert'){
+      const rows=Array.isArray(body.data)?body.data:[body.data]
+      const output:any[]=[]
+      for(const raw of rows){
+        const data=cleanObject(raw,columns),entries=Object.entries(data)
+        if(!entries.length)throw new Error('No valid insert fields supplied')
+        if(columns.has('id')&&!('id' in data))data.id=crypto.randomUUID()
+        const finalEntries=Object.entries(data)
+        const sql=`INSERT INTO ${qid(table)} (${finalEntries.map(([k])=>qid(k)).join(',')}) VALUES (${finalEntries.map(()=>'?').join(',')})`
+        await db.prepare(sql).bind(...finalEntries.map(([,v])=>v)).run()
+        output.push(data)
       }
-      result = await q
-    } else if (action === 'upsert') {
-      result = await supabase.from(table).upsert(data, { onConflict: onConflict || 'id' })
-    } else if (action === 'delete') {
-      let q = supabase.from(table).delete()
-      if (match) {
-        for (const [k, v] of Object.entries(match)) {
-          q = (q as any).eq(k, v)
-        }
-      }
-      result = await q
-    } else {
-      return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+      return NextResponse.json({ok:true,data:Array.isArray(body.data)?output:output[0]})
     }
 
-    if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 500 })
+    if(action==='update'){
+      const data=cleanObject(body.data,columns),entries=Object.entries(data)
+      if(!entries.length)throw new Error('No valid update fields supplied')
+      const where=matchClause(body.match,columns)
+      const sql=`UPDATE ${qid(table)} SET ${entries.map(([k])=>`${qid(k)}=?`).join(',')} WHERE ${where.sql}`
+      const result=await db.prepare(sql).bind(...entries.map(([,v])=>v),...where.values).run()
+      return NextResponse.json({ok:true,data:null,changes:Number(result.meta?.changes||0)})
     }
 
-    return NextResponse.json({ ok: true, data: result.data })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    if(action==='delete'){
+      const where=matchClause(body.match,columns)
+      const result=await db.prepare(`DELETE FROM ${qid(table)} WHERE ${where.sql}`).bind(...where.values).run()
+      return NextResponse.json({ok:true,data:null,changes:Number(result.meta?.changes||0)})
+    }
+
+    if(action==='upsert'){
+      const data=cleanObject(body.data,columns)
+      if(columns.has('id')&&!('id' in data))data.id=crypto.randomUUID()
+      const entries=Object.entries(data)
+      if(!entries.length)throw new Error('No valid upsert fields supplied')
+      const conflict=String(body.onConflict||'id').split(',').map((v:string)=>v.trim()).filter(Boolean)
+      if(!conflict.length||conflict.some((key:string)=>!columns.has(key)))throw new Error('Invalid conflict target')
+      const updateKeys=entries.map(([k])=>k).filter(k=>!conflict.includes(k))
+      const tail=updateKeys.length?`DO UPDATE SET ${updateKeys.map(k=>`${qid(k)}=excluded.${qid(k)}`).join(',')}`:'DO NOTHING'
+      const sql=`INSERT INTO ${qid(table)} (${entries.map(([k])=>qid(k)).join(',')}) VALUES (${entries.map(()=>'?').join(',')}) ON CONFLICT (${conflict.map(qid).join(',')}) ${tail}`
+      await db.prepare(sql).bind(...entries.map(([,v])=>v)).run()
+      return NextResponse.json({ok:true,data})
+    }
+
+    return NextResponse.json({error:'Invalid action'},{status:400})
+  }catch(error:any){
+    console.error('[admin/db]',error)
+    return NextResponse.json({error:error?.message||'D1 admin database error'},{status:500})
   }
 }
