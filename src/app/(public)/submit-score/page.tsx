@@ -1,10 +1,10 @@
 // src/app/(public)/submit-score/page.tsx
 import type { Metadata } from 'next'
-import { createPublicClient as createClient } from '@/lib/supabase/public'
 import PublicLayout from '@/components/layout/PublicLayout'
 import SubmitScoreForm from './SubmitScoreForm'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 
-export const revalidate = 3600
+export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: 'Submit a Score',
@@ -12,9 +12,10 @@ export const metadata: Metadata = {
 }
 
 export default async function SubmitScorePage() {
-  const supabase = createClient()
-  const { data: sports } = await supabase.from('sports').select('*').eq('active_public', true).order('sport_name')
-  const { data: schools } = await supabase.from('schools').select('id, school_name, slug').eq('active', true).order('school_name')
+  const repo = getSportsRepository()
+  const [sportsData, schoolsData] = await Promise.all([repo.getSports(), repo.getSchools()])
+  const sports = sportsData.filter((sport:any)=>sport.active_public !== false)
+  const schools = schoolsData.map((school:any)=>({ id:school.id, school_name:school.school_name, slug:school.slug }))
 
   return (
     <PublicLayout>
