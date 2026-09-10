@@ -7,7 +7,9 @@
     "prebuild": "npm pkg set dependencies.next=15.5.24 devDependencies.eslint-config-next=15.5.24 devDependencies.@opennextjs/cloudflare=1.20.6 devDependencies.wrangler=4.130.0 && npm install --force",
     "build": "next build",
     "postbuild": "next-sitemap",
-    "cloudflare:build": "npm run prebuild && npx wrangler d1 migrations apply sectionxscoreboard-preview --remote && npx @opennextjs/cloudflare build",
+    "d1:migrate:preview": "npx wrangler d1 migrations apply sectionxscoreboard-preview --remote --config wrangler.jsonc",
+    "d1:verify:preview": "npx wrangler d1 execute sectionxscoreboard-preview --remote --config wrangler.jsonc --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\"",
+    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npm run d1:verify:preview && npx @opennextjs/cloudflare build",
     "start": "next start",
     "lint": "next lint"
   },
