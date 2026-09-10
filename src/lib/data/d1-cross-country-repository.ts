@@ -16,6 +16,15 @@ export class D1CrossCountryRepository implements CrossCountryRepository {
     return result.results || []
   }
 
+  async getMeetsForSeason(seasonId: string) {
+    const result = await this.db.prepare(`
+      SELECT * FROM cross_country_meets
+      WHERE season_id = ?
+      ORDER BY meet_date ASC, meet_name ASC
+    `).bind(seasonId).all()
+    return result.results || []
+  }
+
   async getMeetDates(startDate: string, endDate: string) {
     const result = await this.db.prepare(`
       SELECT DISTINCT meet_date
@@ -76,6 +85,18 @@ export class D1CrossCountryRepository implements CrossCountryRepository {
     }))
   }
 
+  async getTeamResultsForSport(sportId: string, meetIds?: string[]) {
+    let sql = 'SELECT * FROM cross_country_team_results WHERE sport_id = ?'
+    const binds: unknown[] = [sportId]
+    if (meetIds?.length) {
+      sql += ` AND meet_id IN (${placeholders(meetIds.length)})`
+      binds.push(...meetIds)
+    }
+    sql += ' ORDER BY meet_id ASC, finish_place ASC'
+    const result = await this.db.prepare(sql).bind(...binds).all()
+    return result.results || []
+  }
+
   async getDualResultsForMeetIds(meetIds: string[]) {
     if (!meetIds.length) return []
     const result = await this.db.prepare(`
@@ -83,6 +104,18 @@ export class D1CrossCountryRepository implements CrossCountryRepository {
       WHERE meet_id IN (${placeholders(meetIds.length)})
       ORDER BY created_at ASC
     `).bind(...meetIds).all()
+    return result.results || []
+  }
+
+  async getDualResultsForSport(sportId: string, meetIds?: string[]) {
+    let sql = 'SELECT * FROM cross_country_dual_results WHERE sport_id = ?'
+    const binds: unknown[] = [sportId]
+    if (meetIds?.length) {
+      sql += ` AND meet_id IN (${placeholders(meetIds.length)})`
+      binds.push(...meetIds)
+    }
+    sql += ' ORDER BY created_at ASC'
+    const result = await this.db.prepare(sql).bind(...binds).all()
     return result.results || []
   }
 }
