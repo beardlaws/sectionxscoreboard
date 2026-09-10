@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react'
 import SponsorDisplay from './SponsorDisplay'
-import { createClient } from '@/lib/supabase/client'
 
 export default function HomeSponsorWrapper({ sponsor }: { sponsor: any }) {
   const [sponsors, setSponsors] = useState<any[]>(sponsor ? [sponsor] : [])
@@ -11,40 +10,24 @@ export default function HomeSponsorWrapper({ sponsor }: { sponsor: any }) {
 
   useEffect(() => {
     let mounted = true
-
     async function loadSponsors() {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('sponsors')
-        .select('*')
-        .eq('active', true)
-        .eq('placement_type', 'homepage')
-        .order('created_at', { ascending: false })
-
-      if (!mounted) return
-
-      const today = new Date().toISOString().slice(0, 10)
-      const eligible = (data || []).filter((item: any) => {
-        if (item.start_date && item.start_date > today) return false
-        if (item.end_date && item.end_date < today) return false
-        return true
-      })
-
-      if (eligible.length) {
-        setSponsors(eligible)
-        setIndex(0)
-      }
+      try {
+        const res = await fetch('/api/sponsors/homepage', { cache: 'no-store' })
+        const json = await res.json().catch(() => ({}))
+        if (!mounted || !res.ok) return
+        if (Array.isArray(json.sponsors) && json.sponsors.length) {
+          setSponsors(json.sponsors)
+          setIndex(0)
+        }
+      } catch {}
     }
-
-    loadSponsors()
+    void loadSponsors()
     return () => { mounted = false }
   }, [])
 
   useEffect(() => {
     if (sponsors.length <= 1) return
-    const timer = window.setInterval(() => {
-      setIndex(current => (current + 1) % sponsors.length)
-    }, 8000)
+    const timer = window.setInterval(() => setIndex(current => (current + 1) % sponsors.length), 8000)
     return () => window.clearInterval(timer)
   }, [sponsors.length])
 
