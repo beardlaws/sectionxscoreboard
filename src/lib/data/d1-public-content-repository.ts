@@ -39,6 +39,10 @@ export class D1PublicContentRepository implements PublicContentRepository {
     return (result.results || []).map((row:any)=>boolify(row,['published','featured']))
   }
 
+  async getSpotlightById(id: string) {
+    return boolify(await this.db.prepare(`SELECT * FROM spotlights WHERE id = ? AND published = 1 LIMIT 1`).bind(id).first(), ['published','featured'])
+  }
+
   async getFeaturedAthlete() {
     const row = await this.db.prepare(`SELECT a.*, s.school_name, s.mascot, s.slug AS school_slug, s.primary_color, s.secondary_color FROM athlete_of_week a LEFT JOIN schools s ON s.id = a.school_id WHERE a.published = 1 ORDER BY a.week_of DESC, a.created_at DESC LIMIT 1`).first()
     if (!row) return null
@@ -46,6 +50,10 @@ export class D1PublicContentRepository implements PublicContentRepository {
   }
 
   async getHomepagePhotos(limit = 12) {
+    return this.getPhotos(limit)
+  }
+
+  async getPhotos(limit = 48) {
     const result = await this.db.prepare(`SELECT p.*, s.school_name, s.slug AS school_slug, s.primary_color, t.team_name, t.slug AS team_slug, sp.sport_name, sp.slug AS sport_slug FROM photos p LEFT JOIN schools s ON s.id = p.school_id LEFT JOIN teams t ON t.id = p.team_id LEFT JOIN sports sp ON sp.id = p.sport_id WHERE p.approved = 1 ORDER BY p.featured DESC, p.created_at DESC LIMIT ?`).bind(limit).all()
     return (result.results || []).map((row:any)=>({ ...boolify(row,['permission_confirmed','approved','featured','tag_reviewed']), school:row.school_id?{id:row.school_id,school_name:row.school_name,slug:row.school_slug,primary_color:row.primary_color}:null, team:row.team_id?{id:row.team_id,team_name:row.team_name,slug:row.team_slug}:null, sport:row.sport_id?{id:row.sport_id,sport_name:row.sport_name,slug:row.sport_slug}:null }))
   }
