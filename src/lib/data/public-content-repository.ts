@@ -5,8 +5,10 @@ export interface PublicContentRepository {
   getSchoolSponsor(schoolId: string, today: string): Promise<any | null>
   getFeaturedSpotlight(): Promise<any | null>
   getSpotlights(limit?: number): Promise<any[]>
+  getSpotlightById(id: string): Promise<any | null>
   getFeaturedAthlete(): Promise<any | null>
   getHomepagePhotos(limit?: number): Promise<any[]>
+  getPhotos(limit?: number): Promise<any[]>
   getLatestWeeklyRecap(): Promise<any | null>
   getTeamRoster(teamId: string, seasonId: string): Promise<any[]>
   getTeamCoaches(teamId: string, seasonId: string): Promise<any[]>
