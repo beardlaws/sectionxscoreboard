@@ -1,12 +1,21 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sectionxscoreboard",
+  "account_id": "3ea6b1d4da3e65818d3d2034576083bb",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-09-10",
   "compatibility_flags": ["nodejs_compat"],
   "build": {
     "command": "npm run cloudflare:build"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sectionxscoreboard-preview",
+      "database_id": "7653dddc-8266-4cb2-a7b0-cd1428879858",
+      "migrations_dir": "cloudflare/d1/migrations"
+    }
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
