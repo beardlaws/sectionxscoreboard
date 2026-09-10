@@ -1,70 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
+import { NextRequest,NextResponse } from 'next/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
-function maskEmail(email: string) {
-  const [name, domain] = String(email || '').split('@')
-  if (!domain) return 'hidden'
-  const visible = name.slice(0, Math.min(2, name.length))
-  return `${visible}${'*'.repeat(Math.max(2, name.length - visible.length))}@${domain}`
+export const dynamic='force-dynamic'
+function maskEmail(email:string){const [name,domain]=String(email||'').split('@');if(!domain)return'hidden';const visible=name.slice(0,Math.min(2,name.length));return `${visible}${'*'.repeat(Math.max(2,name.length-visible.length))}@${domain}`}
+function getDb(){const {env}=getCloudflareContext(),db=(env as any).DB;if(!db)throw new Error('Cloudflare D1 binding DB is unavailable');return db}
+async function ownerFromToken(db:any,token:string){const row:any=await db.prepare('SELECT email FROM fan_follow_preferences WHERE manage_token=? LIMIT 1').bind(token).first();return row?.email||null}
+export async function GET(req:NextRequest){
+ try{const token=req.nextUrl.searchParams.get('token')?.trim()||'';if(!token)return NextResponse.json({error:'Missing management token.'},{status:400});const db=getDb(),email=await ownerFromToken(db,token);if(!email)return NextResponse.json({error:'This management link is invalid.'},{status:404});const result=await db.prepare(`SELECT f.id,f.team_id,f.athlete_id,f.alert_finals,f.alert_schedule_changes,f.alert_live,f.alert_photos,f.active,t.team_name,a.display_name FROM fan_follow_preferences f LEFT JOIN teams t ON t.id=f.team_id LEFT JOIN athletes a ON a.id=f.athlete_id WHERE lower(f.email)=lower(?) ORDER BY f.created_at ASC`).bind(email).all();return NextResponse.json({email:maskEmail(email),follows:(result.results||[]).map((r:any)=>({id:r.id,type:r.team_id?'team':'athlete',name:r.team_name||r.display_name||'Section X follow',active:Boolean(r.active),preferences:{finals:Boolean(r.alert_finals),scheduleChanges:Boolean(r.alert_schedule_changes),live:Boolean(r.alert_live),photos:Boolean(r.alert_photos)}}))})}catch(e:any){return NextResponse.json({error:e?.message||'Could not load follows'},{status:500})}
 }
-
-async function ownerFromToken(token: string) {
-  const db = createAdminClient()
-  const { data } = await db.from('fan_follow_preferences').select('email').eq('manage_token', token).maybeSingle()
-  return { db, email: data?.email || null }
+export async function PATCH(req:NextRequest){
+ try{const body=await req.json(),token=String(body?.token||'').trim(),followId=String(body?.followId||'').trim();if(!token||!followId)return NextResponse.json({error:'Missing management token or follow.'},{status:400});const db=getDb(),email=await ownerFromToken(db,token);if(!email)return NextResponse.json({error:'This management link is invalid.'},{status:404});const row:any=await db.prepare('SELECT id FROM fan_follow_preferences WHERE id=? AND lower(email)=lower(?) LIMIT 1').bind(followId,email).first();if(!row)return NextResponse.json({error:'Follow not found.'},{status:404});const fields:string[]=[],values:any[]=[];if(typeof body.active==='boolean'){fields.push('active=?');values.push(body.active?1:0)}if(body.preferences){fields.push('alert_finals=?','alert_schedule_changes=?','alert_live=?','alert_photos=?');values.push(body.preferences.finals===true?1:0,body.preferences.scheduleChanges===true?1:0,body.preferences.live===true?1:0,body.preferences.photos===true?1:0)}if(fields.length)await db.prepare(`UPDATE fan_follow_preferences SET ${fields.join(',')},updated_at=datetime('now') WHERE id=?`).bind(...values,followId).run();return NextResponse.json({ok:true})}catch(e:any){return NextResponse.json({error:e?.message||'Could not update follow'},{status:500})}
 }
-
-export async function GET(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get('token')?.trim() || ''
-  if (!token) return NextResponse.json({ error: 'Missing management token.' }, { status: 400 })
-  const { db, email } = await ownerFromToken(token)
-  if (!email) return NextResponse.json({ error: 'This management link is invalid.' }, { status: 404 })
-
-  const { data, error } = await db.from('fan_follow_preferences').select(`id,team_id,athlete_id,alert_finals,alert_schedule_changes,alert_live,alert_photos,active,team:teams(team_name,slug),athlete:athletes(display_name,slug)`).ilike('email', email).order('created_at', { ascending: true })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({
-    email: maskEmail(email),
-    follows: (data || []).map((row: any) => ({
-      id: row.id,
-      type: row.team_id ? 'team' : 'athlete',
-      name: (Array.isArray(row.team) ? row.team[0]?.team_name : row.team?.team_name) || (Array.isArray(row.athlete) ? row.athlete[0]?.display_name : row.athlete?.display_name) || 'Section X follow',
-      active: row.active,
-      preferences: { finals: row.alert_finals, scheduleChanges: row.alert_schedule_changes, live: row.alert_live, photos: row.alert_photos },
-    })),
-  })
-}
-
-export async function PATCH(req: NextRequest) {
-  const body = await req.json()
-  const token = String(body?.token || '').trim()
-  const followId = String(body?.followId || '').trim()
-  if (!token || !followId) return NextResponse.json({ error: 'Missing management token or follow.' }, { status: 400 })
-  const { db, email } = await ownerFromToken(token)
-  if (!email) return NextResponse.json({ error: 'This management link is invalid.' }, { status: 404 })
-
-  const patch: any = {}
-  if (typeof body.active === 'boolean') patch.active = body.active
-  if (body.preferences) {
-    patch.alert_finals = body.preferences.finals === true
-    patch.alert_schedule_changes = body.preferences.scheduleChanges === true
-    patch.alert_live = body.preferences.live === true
-    patch.alert_photos = body.preferences.photos === true
-  }
-
-  const { data, error } = await db.from('fan_follow_preferences').update(patch).eq('id', followId).ilike('email', email).select('id').maybeSingle()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!data) return NextResponse.json({ error: 'Follow not found.' }, { status: 404 })
-  return NextResponse.json({ ok: true })
-}
-
-export async function DELETE(req: NextRequest) {
-  const body = await req.json()
-  const token = String(body?.token || '').trim()
-  if (!token) return NextResponse.json({ error: 'Missing management token.' }, { status: 400 })
-  const { db, email } = await ownerFromToken(token)
-  if (!email) return NextResponse.json({ error: 'This management link is invalid.' }, { status: 404 })
-  const { error } = await db.from('fan_follow_preferences').update({ active: false }).ilike('email', email)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+export async function DELETE(req:NextRequest){
+ try{const body=await req.json(),token=String(body?.token||'').trim();if(!token)return NextResponse.json({error:'Missing management token.'},{status:400});const db=getDb(),email=await ownerFromToken(db,token);if(!email)return NextResponse.json({error:'This management link is invalid.'},{status:404});await db.prepare("UPDATE fan_follow_preferences SET active=0,updated_at=datetime('now') WHERE lower(email)=lower(?)").bind(email).run();return NextResponse.json({ok:true})}catch(e:any){return NextResponse.json({error:e?.message||'Could not update follows'},{status:500})}
 }
