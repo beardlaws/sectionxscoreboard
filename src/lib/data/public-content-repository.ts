@@ -11,6 +11,7 @@ export interface PublicContentRepository {
   getHomepagePhotos(limit?: number): Promise<any[]>
   getPhotos(limit?: number): Promise<any[]>
   getLatestWeeklyRecap(): Promise<any | null>
+  getWeeklyRecaps(limit?: number): Promise<any[]>
   getTeamRoster(teamId: string, seasonId: string): Promise<any[]>
   getTeamCoaches(teamId: string, seasonId: string): Promise<any[]>
   getAthleteBySlug(slug: string): Promise<any | null>
