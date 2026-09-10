@@ -1,0 +1,21 @@
+import { writeFileSync,unlinkSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import pg from 'pg'
+const {Client}=pg,connectionString=process.env.SUPABASE_MIGRATION_DATABASE_URL
+if(!connectionString)throw new Error('Missing SUPABASE_MIGRATION_DATABASE_URL')
+const DB='sectionxscoreboard-preview',CFG='wrangler.jsonc',CHUNK=125
+const tables=[
+ {name:'contributor_profiles',key:['id'],columns:['id','user_id','display_name','public_credit_name','email','school_id','bio','status','roles','trust_level','can_submit_photos','can_tag_photos','can_submit_scores','can_live_score','can_publish_photos','submissions_count','verified_count','rejected_count','approved_at','approved_by','last_active_at','created_at','updated_at'],bool:['can_submit_photos','can_tag_photos','can_submit_scores','can_live_score','can_publish_photos']},
+ {name:'contributor_game_assignments',key:['id'],columns:['id','contributor_id','game_id','assignment_role','active','notes','created_at'],bool:['active']},
+ {name:'contributor_activity',key:['id'],columns:['id','contributor_id','event_type','entity_type','entity_id','details','created_at'],bool:[]},
+ {name:'contributor_coverage_requests',key:['id'],columns:['id','game_id','coverage_role','status','notes','requested_by','claimed_by','claimed_at','closed_at','created_at','updated_at'],bool:[]},
+ {name:'contributor_score_updates',key:['id'],columns:['id','contributor_id','game_id','home_score','away_score','game_status','note','update_type','publication_status','before_state','after_state','reviewed_by','reviewed_at','created_at'],bool:[]},
+ {name:'fan_follow_preferences',key:['id'],columns:['id','email','team_id','athlete_id','alert_finals','alert_schedule_changes','alert_live','alert_photos','active','created_at','updated_at','manage_token'],bool:['alert_finals','alert_schedule_changes','alert_live','alert_photos','active']},
+ {name:'fan_notification_events',key:['id'],columns:['id','event_type','game_id','photo_id','dedupe_key','payload','status','created_at','processed_at','last_error'],bool:[]},
+ {name:'fan_notification_deliveries',key:['id'],columns:['id','event_id','follow_id','email','status','provider','provider_id','error','created_at','sent_at'],bool:[]},
+]
+function val(v,b=false){if(v==null)return'NULL';if(b)return v?'1':'0';if(typeof v==='number'||typeof v==='bigint')return String(v);if(v instanceof Date)return `'${v.toISOString().replaceAll("'","''")}'`;if(typeof v==='object')return `'${JSON.stringify(v).replaceAll("'","''")}'`;return `'${String(v).replaceAll("'","''")}'`}
+function upsert(t,r){const values=t.columns.map(c=>val(r[c],t.bool.includes(c))),updates=t.columns.filter(c=>!t.key.includes(c)).map(c=>`"${c}"=excluded."${c}"`).join(',');return `INSERT INTO "${t.name}" (${t.columns.map(c=>`"${c}"`).join(',')}) VALUES (${values.join(',')}) ON CONFLICT (${t.key.map(c=>`"${c}"`).join(',')}) DO UPDATE SET ${updates};`}
+function exec(file){execFileSync('npx',['wrangler','d1','execute',DB,'--remote','--config',CFG,'--file',file,'--yes'],{stdio:'inherit',env:process.env})}
+const client=new Client({connectionString,ssl:{rejectUnauthorized:false},connectionTimeoutMillis:15000,query_timeout:30000,statement_timeout:30000})
+try{await client.connect();const id=(await client.query("SELECT current_user,current_setting('default_transaction_read_only') AS read_only")).rows[0];if(!String(id.current_user).startsWith('cloudflare_migration_reader')||id.read_only!=='on')throw new Error('Refusing seed without guarded read-only migration role');await client.query('BEGIN READ ONLY');for(const t of tables){const result=await client.query(`SELECT ${t.columns.map(c=>`"${c}"`).join(',')} FROM public."${t.name}"`);console.log(`[D1 contributor seed] ${t.name}: ${result.rows.length}`);for(let i=0;i<result.rows.length;i+=CHUNK){const file=`/tmp/sx-${t.name}-${i}.sql`;writeFileSync(file,['PRAGMA foreign_keys = ON;',...result.rows.slice(i,i+CHUNK).map(r=>upsert(t,r))].join('\n'));try{exec(file)}finally{try{unlinkSync(file)}catch{}}}}await client.query('ROLLBACK');console.log('[D1 contributor seed] PASS: source remained read-only.')}catch(e){try{await client.query('ROLLBACK')}catch{};console.error('[D1 contributor seed] FAILED:',e instanceof Error?e.message:e);process.exitCode=1}finally{await client.end().catch(()=>{})}
