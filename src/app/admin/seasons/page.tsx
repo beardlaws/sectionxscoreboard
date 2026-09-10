@@ -1,10 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import AdminLayout from '@/components/layout/AdminLayout'
 import { Check } from 'lucide-react'
-
-const supabase = createClient()
 
 export default function AdminSeasonsPage() {
   const [seasons, setSeasons] = useState<any[]>([])
@@ -14,73 +11,49 @@ export default function AdminSeasonsPage() {
   const [creating, setCreating] = useState(false)
   const [switching, setSwitching] = useState(false)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { void load() }, [])
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('seasons').select('*').order('year', { ascending: false })
-    setSeasons(data || [])
-    setLoading(false)
+    try {
+      const res=await fetch('/api/admin/seasons',{credentials:'include',cache:'no-store'})
+      const json=await res.json().catch(()=>({}))
+      if(!res.ok)throw new Error(json.error||'Could not load seasons')
+      setSeasons(json.seasons||[])
+    } catch(e:any) { alert(e.message||'Could not load seasons') }
+    finally { setLoading(false) }
   }
 
   async function setActive(id: string) {
     setSwitching(true)
     try {
-      // Deactivate each season individually to avoid RLS issues with bulk updates
-      const current = seasons.filter(s => s.is_active && s.id !== id)
-      for (const s of current) {
-        const { error } = await supabase.from('seasons').update({ is_active: false }).eq('id', s.id)
-        if (error) {
-          alert('Error deactivating season: ' + error.message)
-          setSwitching(false)
-          return
-        }
-      }
-      // Activate the selected season
-      const { error } = await supabase.from('seasons').update({ is_active: true }).eq('id', id)
-      if (error) {
-        alert('Error activating season: ' + error.message)
-        setSwitching(false)
-        return
-      }
-      notify('Active season updated! Reload the site to see changes.')
-      load()
-    } catch (e: any) {
-      alert('Unexpected error: ' + e.message)
-    }
-    setSwitching(false)
+      const res=await fetch('/api/admin/seasons',{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'set-active'})})
+      const json=await res.json().catch(()=>({}))
+      if(!res.ok)throw new Error(json.error||'Could not switch season')
+      notify('Active season updated!')
+      await load()
+    } catch (e:any) { alert(e.message||'Could not switch season') }
+    finally { setSwitching(false) }
   }
 
   async function createSeason() {
     if (!newSeason.name || !newSeason.year) return
     setCreating(true)
-    const { error } = await supabase.from('seasons').insert({
-      name: newSeason.name,
-      year: newSeason.year,
-      season_type: newSeason.season_type,
-      is_active: false,
-      start_date: newSeason.start_date || null,
-      end_date: newSeason.end_date || null,
-    })
-    if (error) alert(error.message)
-    else {
+    try{
+      const res=await fetch('/api/admin/seasons',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(newSeason)})
+      const json=await res.json().catch(()=>({}))
+      if(!res.ok)throw new Error(json.error||'Could not create season')
       notify('Season created!')
-      load()
+      await load()
       setNewSeason({ name: '', year: new Date().getFullYear(), season_type: 'Fall', start_date: '', end_date: '' })
-    }
-    setCreating(false)
+    }catch(e:any){alert(e.message||'Could not create season')}
+    finally{setCreating(false)}
   }
 
   function notify(m: string) { setMsg(m); setTimeout(() => setMsg(''), 5000) }
 
-  const SEASON_COLORS: Record<string, string> = {
-    Spring: 'rgba(34,197,94,0.15)',
-    Fall: 'rgba(245,158,11,0.15)',
-    Winter: 'rgba(59,130,246,0.15)',
-  }
-  const SEASON_TEXT: Record<string, string> = {
-    Spring: '#4ade80', Fall: '#fbbf24', Winter: '#60a5fa',
-  }
+  const SEASON_COLORS: Record<string, string> = { Spring:'rgba(34,197,94,0.15)', Fall:'rgba(245,158,11,0.15)', Winter:'rgba(59,130,246,0.15)' }
+  const SEASON_TEXT: Record<string, string> = { Spring:'#4ade80', Fall:'#fbbf24', Winter:'#60a5fa' }
 
   return (
     <AdminLayout>
@@ -89,119 +62,37 @@ export default function AdminSeasonsPage() {
           <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'var(--font-display)' }}>Seasons</h1>
           {msg && <span className="text-sm text-green-400 flex items-center gap-1"><Check size={14} />{msg}</span>}
         </div>
-        <p className="text-slate-400 text-sm mb-5">
-          Manage seasons. Set one season as active — it's what the site shows by default.
-        </p>
+        <p className="text-slate-400 text-sm mb-5">Manage seasons. One active season drives the site defaults.</p>
 
-        {/* Create new season */}
         <div className="card p-4 mb-5">
           <p className="text-sm font-bold text-white mb-3">Create New Season</p>
           <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label className="label">Name</label>
-              <input className="input w-full" placeholder="e.g. Fall 2026"
-                value={newSeason.name}
-                onChange={e => setNewSeason(p => ({ ...p, name: e.target.value }))} />
-            </div>
-            <div>
-              <label className="label">Year</label>
-              <input type="number" className="input w-full" value={newSeason.year}
-                onChange={e => setNewSeason(p => ({ ...p, year: parseInt(e.target.value) }))} />
-            </div>
-            <div>
-              <label className="label">Season Type</label>
-              <select className="input w-full" value={newSeason.season_type}
-                onChange={e => setNewSeason(p => ({ ...p, season_type: e.target.value }))}>
-                <option value="Spring">Spring</option>
-                <option value="Fall">Fall</option>
-                <option value="Winter">Winter</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Start Date</label>
-              <input type="date" className="input w-full" value={newSeason.start_date}
-                onChange={e => setNewSeason(p => ({ ...p, start_date: e.target.value }))}
-                style={{ colorScheme: 'dark' }} />
-            </div>
+            <div><label className="label">Name</label><input className="input w-full" placeholder="e.g. Fall 2026" value={newSeason.name} onChange={e => setNewSeason(p => ({ ...p, name: e.target.value }))} /></div>
+            <div><label className="label">Year</label><input type="number" className="input w-full" value={newSeason.year} onChange={e => setNewSeason(p => ({ ...p, year: parseInt(e.target.value) }))} /></div>
+            <div><label className="label">Season Type</label><select className="input w-full" value={newSeason.season_type} onChange={e => setNewSeason(p => ({ ...p, season_type: e.target.value }))}><option value="Spring">Spring</option><option value="Fall">Fall</option><option value="Winter">Winter</option></select></div>
+            <div><label className="label">Start Date</label><input type="date" className="input w-full" value={newSeason.start_date} onChange={e => setNewSeason(p => ({ ...p, start_date: e.target.value }))} style={{ colorScheme: 'dark' }} /></div>
+            <div><label className="label">End Date</label><input type="date" className="input w-full" value={newSeason.end_date} onChange={e => setNewSeason(p => ({ ...p, end_date: e.target.value }))} style={{ colorScheme: 'dark' }} /></div>
           </div>
-          <button onClick={createSeason} disabled={creating || !newSeason.name} className="btn-primary">
-            {creating ? 'Creating...' : '+ Create Season'}
-          </button>
+          <button onClick={createSeason} disabled={creating || !newSeason.name} className="btn-primary">{creating ? 'Creating...' : '+ Create Season'}</button>
         </div>
 
-        {/* Seasons list */}
         {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
           <div className="space-y-2">
             {seasons.map(s => (
-              <div key={s.id}
-                className={`card p-4 flex items-center gap-4 ${s.is_active ? 'border-emerald-500/30' : ''}`}
-                style={{ background: s.is_active ? 'rgba(34,197,94,0.04)' : undefined }}>
+              <div key={s.id} className={`card p-4 flex items-center gap-4 ${s.is_active ? 'border-emerald-500/30' : ''}`} style={{ background: s.is_active ? 'rgba(34,197,94,0.04)' : undefined }}>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <p className="font-bold text-white" style={{ fontFamily: 'var(--font-display)' }}>{s.name}</p>
-                    {s.is_active && (
-                      <span className="text-xs font-black text-emerald-400 px-2 py-0.5 rounded-full"
-                        style={{ background: 'rgba(34,197,94,0.15)', fontFamily: 'var(--font-display)' }}>
-                        ✓ ACTIVE
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded"
-                      style={{
-                        background: SEASON_COLORS[s.season_type] || 'rgba(255,255,255,0.1)',
-                        color: SEASON_TEXT[s.season_type] || '#94a3b8',
-                        fontFamily: 'var(--font-display)',
-                      }}>
-                      {s.season_type}
-                    </span>
-                    <span className="text-xs text-slate-500">{s.year}</span>
-                    {s.start_date && <span className="text-xs text-slate-600">{s.start_date} → {s.end_date || '?'}</span>}
-                  </div>
+                  <div className="flex items-center gap-2 mb-0.5"><p className="font-bold text-white" style={{ fontFamily: 'var(--font-display)' }}>{s.name}</p>{s.is_active&&<span className="text-xs font-black text-emerald-400 px-2 py-0.5 rounded-full" style={{background:'rgba(34,197,94,0.15)',fontFamily:'var(--font-display)'}}>✓ ACTIVE</span>}</div>
+                  <div className="flex items-center gap-3"><span className="text-xs font-bold px-2 py-0.5 rounded" style={{background:SEASON_COLORS[s.season_type]||'rgba(255,255,255,0.1)',color:SEASON_TEXT[s.season_type]||'#94a3b8',fontFamily:'var(--font-display)'}}>{s.season_type}</span><span className="text-xs text-slate-500">{s.year}</span>{s.start_date&&<span className="text-xs text-slate-600">{s.start_date} → {s.end_date||'?'}</span>}</div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {!s.is_active && (
-                    <button onClick={() => setActive(s.id)} disabled={switching}
-                      className="text-xs px-3 py-1.5 rounded-lg font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-50"
-                      style={{ fontFamily: 'var(--font-display)' }}>
-                      {switching ? 'Switching...' : 'Set Active'}
-                    </button>
-                  )}
-                  {s.is_active && (
-                    <span className="text-xs text-emerald-400 flex items-center gap-1">
-                      <Check size={12} /> Current Season
-                    </span>
-                  )}
-                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">{!s.is_active?<button onClick={()=>setActive(s.id)} disabled={switching} className="text-xs px-3 py-1.5 rounded-lg font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-50" style={{fontFamily:'var(--font-display)'}}>{switching?'Switching...':'Set Active'}</button>:<span className="text-xs text-emerald-400 flex items-center gap-1"><Check size={12}/> Current Season</span>}</div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Also provide direct SQL option */}
         <div className="mt-6 rounded-xl p-4 border border-white/6" style={{ background: 'rgba(8,12,20,0.6)' }}>
-          <p className="text-xs font-black text-slate-400 mb-2 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>
-            If Set Active isn't working
-          </p>
-          <p className="text-xs text-slate-500 mb-2">Run this in Supabase SQL Editor to manually switch seasons:</p>
-          <div className="rounded-lg p-3 font-mono text-xs text-slate-300" style={{ background: 'rgba(0,0,0,0.4)' }}>
-            <p>UPDATE seasons SET is_active = false;</p>
-            <p>UPDATE seasons SET is_active = true</p>
-            <p>WHERE name = 'Fall 2026';</p>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-xl p-4 border border-white/6" style={{ background: 'rgba(8,12,20,0.6)' }}>
-          <p className="text-xs font-black text-slate-400 mb-2 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>
-            Season Workflow
-          </p>
-          <div className="space-y-1 text-xs text-slate-500">
-            <p>1. Click "Set Active" on Fall 2026 — site switches automatically</p>
-            <p>2. Add teams to Fall 2026 via Teams admin (Football, Soccer, Volleyball)</p>
-            <p>3. Import games as normal — they go into the active season</p>
-            <p>4. Spring 2026 data stays in the database, accessible via season switcher</p>
-            <p>5. Repeat for Winter 2026-27 (Basketball, Hockey, Wrestling)</p>
-          </div>
+          <p className="text-xs font-black text-slate-400 mb-2 uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Season Workflow</p>
+          <div className="space-y-1 text-xs text-slate-500"><p>1. Create the next season before schedules arrive.</p><p>2. Activate it when the site should switch defaults.</p><p>3. Add or activate teams for that season.</p><p>4. Import schedules and scores into the active season.</p><p>5. Previous seasons remain available for history.</p></div>
         </div>
       </div>
     </AdminLayout>
