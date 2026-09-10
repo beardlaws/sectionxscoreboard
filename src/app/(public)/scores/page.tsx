@@ -4,6 +4,7 @@ import PublicLayout from '@/components/layout/PublicLayout'
 import ScoresClient from './ScoresClient'
 import { sectionXDate, sectionXDateOffset } from '@/lib/sectionx-time'
 import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
+import { getCrossCountryRepository } from '@/lib/data/runtime-cross-country-repository'
 
 export const metadata: Metadata = {
   title: 'Scores',
@@ -18,6 +19,7 @@ export default async function ScoresPage({
 }) {
   const params = await searchParams
   const repo = getSportsRepository()
+  const xcRepo = getCrossCountryRepository()
   const today = sectionXDate()
   const selectedDate = params.date || today
 
@@ -28,15 +30,27 @@ export default async function ScoresPage({
 
   const activeSeason = (allSeasons || []).find((s: any) => s.is_active)
   const selectedSeasonId = params.season || activeSeason?.id || null
+  const startDate = sectionXDateOffset(-30)
+  const endDate = sectionXDateOffset(14)
 
-  const [games, datesWithGames] = await Promise.all([
+  const [games, gameDates, xcMeets, xcDates] = await Promise.all([
     repo.getGamesByDate(selectedDate),
-    repo.getDatesWithGames(sectionXDateOffset(-30), sectionXDateOffset(14), selectedSeasonId),
+    repo.getDatesWithGames(startDate, endDate, selectedSeasonId),
+    xcRepo.getMeetsByDate(selectedDate),
+    xcRepo.getMeetDates(startDate, endDate),
   ])
 
-  // Cross-country meet/result tables and sponsor inventory migrate in a later pass.
-  // Keep the preview explicit rather than silently reading those features from Supabase.
-  const xcMeets: any[] = []
+  const meetIds = xcMeets.map((meet: any) => String(meet.id))
+  const xcResults = await xcRepo.getTeamResultsForMeetIds(meetIds)
+  const crossCountryMeets = xcMeets.map((meet: any) => ({
+    ...meet,
+    results: xcResults.filter((result: any) => result.meet_id === meet.id),
+  }))
+
+  const datesWithGames = [...new Set([...gameDates, ...xcDates])].sort()
+
+  // Sponsor inventory migrates in a later pass. Keep preview explicit instead of
+  // silently reading that remaining feature from Supabase.
   const scoresSponsor = null
 
   const SEASON_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -60,7 +74,7 @@ export default async function ScoresPage({
         )}
         {scoresSponsor && <div />}
       </div>
-      <ScoresClient games={games || []} crossCountryMeets={xcMeets} sports={sports || []} selectedDate={selectedDate} today={today} datesWithGames={datesWithGames} />
+      <ScoresClient games={games || []} crossCountryMeets={crossCountryMeets} sports={sports || []} selectedDate={selectedDate} today={today} datesWithGames={datesWithGames} />
     </PublicLayout>
   )
 }
