@@ -36,6 +36,34 @@ export class D1PublicContentRepository implements PublicContentRepository {
     return boolify(row, ['active','show_on_scores'])
   }
 
+  async getSportSponsor(sportId: string, today: string) {
+    const row = await this.db.prepare(`
+      SELECT * FROM sponsors
+      WHERE active = 1
+        AND placement_type = 'sport'
+        AND sport_id = ?
+        AND (start_date IS NULL OR start_date <= ?)
+        AND (end_date IS NULL OR end_date >= ?)
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).bind(sportId, today, today).first()
+    return boolify(row, ['active','show_on_scores'])
+  }
+
+  async getSchoolSponsor(schoolId: string, today: string) {
+    const row = await this.db.prepare(`
+      SELECT * FROM sponsors
+      WHERE active = 1
+        AND placement_type = 'school'
+        AND school_id = ?
+        AND (start_date IS NULL OR start_date <= ?)
+        AND (end_date IS NULL OR end_date >= ?)
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).bind(schoolId, today, today).first()
+    return boolify(row, ['active','show_on_scores'])
+  }
+
   async getFeaturedSpotlight() {
     const row = await this.db.prepare(`SELECT * FROM spotlights WHERE published = 1 AND featured = 1 ORDER BY created_at DESC LIMIT 1`).first()
     return boolify(row, ['published','featured'])
