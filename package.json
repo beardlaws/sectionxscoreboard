@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npm install next@14.2.35 --no-save",
+    "prebuild": "npm pkg set dependencies.next=15.5.24 devDependencies.eslint-config-next=15.5.24 && npm install --force",
     "build": "next build",
     "postbuild": "next-sitemap",
     "start": "next start",
