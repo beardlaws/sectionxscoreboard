@@ -12,7 +12,7 @@
     "d1:verify:core": "node scripts/cloudflare/verify-preview-core.mjs",
     "d1:seed:preview": "node scripts/cloudflare/seed-preview-core.mjs",
     "supabase:test:migration-reader": "node scripts/cloudflare/test-supabase-migration-reader.mjs",
-    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npx @opennextjs/cloudflare build",
+    "cloudflare:build": "npm run prebuild && npm run d1:migrate:preview && npm run d1:seed:preview && npm run d1:verify:core && npx @opennextjs/cloudflare build",
     "start": "next start",
     "lint": "next lint"
   },
@@ -36,7 +36,7 @@
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.0",
-    "postcss": "^8",
+    "postcss": "^8.4.0",
     "tailwindcss": "^3.3.0",
     "typescript": "^5"
   }
