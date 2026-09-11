@@ -40,6 +40,7 @@ function mapGameRow(row: any) {
     source: row.source,
     notes: row.notes,
     contest_type: row.contest_type || 'Game',
+    league_designation: row.league_designation,
     featured: Boolean(row.featured),
     game_of_the_night: Boolean(row.game_of_the_night),
     rescheduled_date: row.rescheduled_date,
