@@ -17,6 +17,8 @@ function teamName(row: any, side: 'home' | 'away') {
 export async function GET() {
   try {
     const database = db()
+    const { env } = getCloudflareContext()
+    const runtimeEnv = env as any
     const today = new Date().toISOString().slice(0, 10)
     const future = new Date(Date.now() + 45 * 86400_000).toISOString().slice(0, 10)
 
@@ -104,7 +106,18 @@ export async function GET() {
       away: teamName(row, 'away'),
     }))
 
-    return NextResponse.json({ ok: true, games, contributors, broadcasts })
+    const readiness = {
+      d1: true,
+      realtimeKitConfigured: Boolean(
+        runtimeEnv.CLOUDFLARE_ACCOUNT_ID &&
+        runtimeEnv.REALTIMEKIT_APP_ID &&
+        runtimeEnv.REALTIMEKIT_API_TOKEN
+      ),
+      publisherPreset: String(runtimeEnv.REALTIMEKIT_PUBLISHER_PRESET || 'section-x-broadcaster'),
+      listenerPreset: String(runtimeEnv.REALTIMEKIT_LISTENER_PRESET || 'section-x-listener'),
+    }
+
+    return NextResponse.json({ ok: true, readiness, games, contributors, broadcasts })
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Could not load live audio admin.' }, { status: 500 })
   }
