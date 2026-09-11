@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { createPublicClient as createClient } from '@/lib/supabase/public'
+import { getCrossCountryRepository } from '@/lib/data/runtime-cross-country-repository'
 
 function formatTime(t:string|null){
   if(!t)return 'TBD'
@@ -9,20 +9,27 @@ function formatTime(t:string|null){
 }
 
 export default async function CrossCountryTeamSection({teamId,sportId,seasonId}:{teamId:string;sportId:string;seasonId:string}){
-  const db=createClient()
-  const {data:myRows}=await db.from('cross_country_team_results').select('id,meet_id,team_score,finish_place,meet:cross_country_meets(id,meet_name,meet_date,meet_time,location,status,meet_type,season_id)').eq('team_id',teamId).eq('sport_id',sportId)
-  const entries=(myRows||[]).map((r:any)=>({...r,meet:Array.isArray(r.meet)?r.meet[0]:r.meet})).filter((r:any)=>r.meet?.season_id===seasonId).sort((a:any,b:any)=>String(a.meet.meet_date).localeCompare(String(b.meet.meet_date)))
+  const repo=getCrossCountryRepository()
+  const meets=await repo.getMeetsForSeason(seasonId)
+  const meetIds=meets.map((m:any)=>m.id)
+  const [teamRows,duals]=await Promise.all([
+    repo.getTeamResultsForSport(sportId,meetIds),
+    repo.getDualResultsForSport(sportId,meetIds),
+  ])
+  const meetById=new Map(meets.map((m:any)=>[m.id,m]))
+  const entries=(teamRows||[])
+    .filter((r:any)=>r.team_id===teamId)
+    .map((r:any)=>({...r,meet:meetById.get(r.meet_id)}))
+    .filter((r:any)=>r.meet)
+    .sort((a:any,b:any)=>String(a.meet.meet_date).localeCompare(String(b.meet.meet_date)))
   const finalEntries=entries.filter((r:any)=>r.meet?.status==='Final')
   const upcoming=entries.filter((r:any)=>['Scheduled','Live','Postponed'].includes(r.meet?.status))
   let leagueWins=0,leagueLosses=0,leagueTies=0
-  const {data:duals}=await db.from('cross_country_dual_results')
-    .select('meet_id,team_a_id,team_b_id,outcome_a,meet:cross_country_meets(status,meet_type,season_id)')
-    .eq('sport_id',sportId)
-    .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`)
   for(const d of duals||[]){
-    const meet=Array.isArray((d as any).meet)?(d as any).meet[0]:(d as any).meet
-    if(meet?.season_id!==seasonId||meet?.status!=='Final'||meet?.meet_type!=='League')continue
-    const isA=(d as any).team_a_id===teamId
+    const meet:any=meetById.get((d as any).meet_id)
+    if(meet?.status!=='Final'||meet?.meet_type!=='League')continue
+    const isA=(d as any).team_a_id===teamId,isB=(d as any).team_b_id===teamId
+    if(!isA&&!isB)continue
     const outcome=isA?(d as any).outcome_a:((d as any).outcome_a==='W'?'L':(d as any).outcome_a==='L'?'W':'T')
     if(outcome==='W')leagueWins++
     else if(outcome==='L')leagueLosses++
