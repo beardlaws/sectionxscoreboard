@@ -67,7 +67,15 @@ export class CloudflareRealtimeKitProvider implements LiveAudioProvider {
       }),
     })
     const id = String(result?.id || result?.participant?.id || '')
-    const token = String(result?.token || result?.auth_token || result?.participant?.token || '')
+    const token = String(
+      result?.authToken ||
+      result?.auth_token ||
+      result?.token ||
+      result?.participant?.authToken ||
+      result?.participant?.auth_token ||
+      result?.participant?.token ||
+      '',
+    )
     if (!id || !token) throw new Error('RealtimeKit did not return participant credentials.')
     return { providerParticipantId: id, token }
   }
