@@ -42,6 +42,8 @@ jobs:
       - name: Run vinext compatibility check
         run: npx --yes vinext@latest check
 
-      - name: Compile current Next.js app
+      - name: Prepare actual Cloudflare build dependencies
+        run: npm run cloudflare:prepare
+
+      - name: Compile migration app
         run: npx next build --no-lint
-        continue-on-error: true
