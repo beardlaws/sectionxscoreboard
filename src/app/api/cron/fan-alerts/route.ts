@@ -81,14 +81,15 @@ async function upsertDelivery(db: any, args: {
 
 export async function GET(req: NextRequest) {
   const { env } = getCloudflareContext()
-  const db = (env as any).DB
+  const runtimeEnv = env as any
+  const db = runtimeEnv.DB
   if (!db) return NextResponse.json({ ok: false, error: 'Cloudflare D1 binding DB is unavailable' }, { status: 503 })
 
   const token = req.headers.get('x-sectionx-automation-key') || ''
-  const expected = String((env as any).SECTIONX_AUTOMATION_KEY || (env as any).CRON_SECRET || process.env.SECTIONX_AUTOMATION_KEY || process.env.CRON_SECRET || '')
+  const expected = String(runtimeEnv.SECTIONX_AUTOMATION_KEY || runtimeEnv.CRON_SECRET || process.env.SECTIONX_AUTOMATION_KEY || process.env.CRON_SECRET || '')
   if (!expected || token !== expected) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
-  if (!fanEmailConfigured()) {
+  if (!fanEmailConfigured(runtimeEnv)) {
     return NextResponse.json({ ok: true, configured: false, message: 'Fan alert queue is armed; add RESEND_API_KEY or BREVO_API_KEY to begin email delivery.' })
   }
 
@@ -145,7 +146,7 @@ export async function GET(req: NextRequest) {
         if (existing?.status === 'sent') continue
 
         const copy = emailCopy(event, game, follow.manage_token)
-        const result = await sendFanEmail({ to: follow.email, subject: copy.subject, html: copy.html })
+        const result = await sendFanEmail({ to: follow.email, subject: copy.subject, html: copy.html }, runtimeEnv)
         const now = new Date().toISOString()
 
         if (result.error) {
