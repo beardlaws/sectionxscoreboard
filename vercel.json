@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "cloudflare-migration": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/arbiter-health",
