@@ -42,6 +42,28 @@ jobs:
             exit 1
           fi
 
+      - name: Block hidden Vercel and Supabase runtime assumptions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -RInE "(vercel\.app|VERCEL_URL|NEXT_PUBLIC_SUPABASE|https?://[^\"'[:space:]]*supabase\.co)" src \
+            --exclude-dir=supabase \
+            --exclude='*.map' \
+            | tee /tmp/provider-assumptions.txt || true
+          count=$(wc -l < /tmp/provider-assumptions.txt | tr -d ' ')
+          echo "PROVIDER_ASSUMPTION_COUNT=$count"
+          if [ "$count" -ne 0 ]; then
+            echo "Launch-blocking provider-specific runtime assumptions remain outside the rollback adapter."
+            exit 1
+          fi
+
+      - name: Validate cutover scripts parse
+        run: |
+          node --check scripts/cloudflare/seed-preview-operational-state.mjs
+          node --check scripts/cloudflare/reconcile-production-to-d1.mjs
+          node --check scripts/cloudflare/migrate-legacy-photos-to-r2.mjs
+          node --check scripts/cloudflare/migrate-legacy-logos-to-r2.mjs
+
       - name: Run vinext compatibility check
         run: npx --yes vinext@latest check
 
@@ -51,15 +73,22 @@ jobs:
       - name: Apply D1 migrations locally
         run: npx wrangler d1 migrations apply sectionxscoreboard-preview --local --config wrangler.jsonc
 
-      - name: Verify critical D1 tables exist
+      - name: Verify launch-critical D1 tables exist
         shell: bash
         run: |
           set -euo pipefail
           for table in \
-            games schools teams sports seasons photos \
-            cross_country_meets cross_country_dual_results \
+            games schools teams sports seasons external_opponents team_seasons \
+            submissions correction_requests photos photo_tag_suggestions athletes roster_entries \
+            sponsors sponsor_impressions sponsor_viewable_impressions sponsor_clicks site_traffic_events \
+            score_alert_subscriptions staff_power_rank_snapshots \
+            game_import_sources game_period_scores game_athlete_stats \
+            cross_country_meets cross_country_dual_results cross_country_individual_results \
+            playoff_tournaments playoff_games \
             admin_exception_resolutions admin_events \
             contributor_profiles contributor_auth_accounts contributor_auth_sessions \
+            fan_follow_preferences fan_notification_events fan_notification_deliveries \
+            arbiter_game_links arbiter_team_links arbiter_sync_runs arbiter_health_checks \
             broadcasts broadcast_assignments broadcast_participant_sessions broadcast_events; do
             echo "Checking $table"
             npx wrangler d1 execute sectionxscoreboard-preview --local --config wrangler.jsonc --command "SELECT COUNT(*) AS count FROM $table;" >/dev/null
