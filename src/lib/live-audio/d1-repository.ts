@@ -42,6 +42,16 @@ export class D1BroadcastRepository implements BroadcastRepository {
     return row ? mapBroadcast(row) : null
   }
 
+  async getLiveByGame(gameId: string) {
+    const row = await this.db.prepare(`
+      SELECT * FROM broadcasts
+      WHERE game_id=? AND status='live' AND public_enabled=1
+      ORDER BY started_at DESC, created_at DESC
+      LIMIT 1
+    `).bind(gameId).first()
+    return row ? mapBroadcast(row) : null
+  }
+
   async listForSubject(subjectId: string) {
     const result = await this.db.prepare(`
       SELECT b.*, a.id AS assignment_id, a.broadcast_id, a.subject_id, a.display_name, a.role, a.active
