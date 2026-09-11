@@ -14,8 +14,11 @@ try{
   const identity=await client.query(`select current_user as u,current_setting('default_transaction_read_only') as ro`)
   if(!String(identity.rows[0].u).startsWith('cloudflare_migration_reader')||identity.rows[0].ro!=='on')throw new Error('Refusing to run without read-only migration role')
   await client.query('BEGIN READ ONLY')
-  const {rows}=await client.query(`select id,photo_url from public.photos where approved=true and photo_url is not null order by created_at asc`)
-  console.log(`[legacy photos] ${rows.length} approved photo records found`)
+  // Preserve every source photo, including a photo that might be awaiting
+  // moderation at cutover time. Production currently has only approved photos,
+  // but the final migration must remain correct if a fan uploads one mid-sync.
+  const {rows}=await client.query(`select id,photo_url from public.photos where photo_url is not null order by created_at asc`)
+  console.log(`[legacy photos] ${rows.length} photo records found`)
   mkdirSync('/tmp/sectionx-photo-migration',{recursive:true})
   let copied=0,skipped=0,failed=0
   for(const row of rows){
