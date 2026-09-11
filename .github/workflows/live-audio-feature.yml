@@ -1,0 +1,50 @@
+name: Section X Live Audio Validation
+
+on:
+  push:
+    branches:
+      - feature/cloudflare-live-audio-v2
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/cloudflare-live-audio-v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refresh lockfile for RealtimeKit
+        run: npm install --package-lock-only --force
+
+      - name: Install dependencies
+        run: npm install --force
+
+      - name: Apply D1 migrations locally
+        run: npx wrangler d1 migrations apply sectionxscoreboard-preview --local --config wrangler.jsonc
+
+      - name: Compile app
+        run: npx next build --no-lint
+
+      - name: Commit refreshed lockfile when needed
+        shell: bash
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "Update lockfile for RealtimeKit"
+          git push origin HEAD:feature/cloudflare-live-audio-v2
