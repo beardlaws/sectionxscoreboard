@@ -59,7 +59,7 @@ jobs:
             games schools teams sports seasons photos \
             cross_country_meets cross_country_dual_results \
             admin_exception_resolutions admin_events \
-            contributor_profiles contributor_accounts contributor_sessions \
+            contributor_profiles contributor_auth_accounts contributor_auth_sessions \
             broadcasts broadcast_assignments broadcast_participant_sessions broadcast_events; do
             echo "Checking $table"
             npx wrangler d1 execute sectionxscoreboard-preview --local --config wrangler.jsonc --command "SELECT COUNT(*) AS count FROM $table;" >/dev/null
