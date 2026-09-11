@@ -1,25 +1,25 @@
 export const revalidate = 60
-import { createPublicClient as createClient } from '@/lib/supabase/public'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
+import { getTeamPhotoRepository } from '@/lib/data/runtime-team-photo-repository'
 
 type Props={params:{slug:string}}
 
 function dateLabel(value:string){return new Date(`${value}T12:00:00`).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}
 
 export default async function TeamPhotosPage({params}:Props){
- const supabase=createClient()
- const {data:team}=await supabase.from('teams').select('id,team_name,slug,sport_id,school:schools(school_name,slug,primary_color,secondary_color),sport:sports(sport_name)').eq('slug',params.slug).single()
+ const sportsRepository=getSportsRepository(),photoRepository=getTeamPhotoRepository()
+ const [team,season]=await Promise.all([
+  sportsRepository.getTeamBySlug(params.slug),
+  sportsRepository.getActiveSeason(),
+ ])
  if(!team)notFound()
  const school:any=team.school,sport:any=team.sport
- const {data:season}=await supabase.from('seasons').select('id,name').eq('is_active',true).single()
- let gameQuery=supabase.from('games').select(`id,game_date,game_time,status,home_team_id,away_team_id,home_team:teams!games_home_team_id_fkey(team_name,school:schools(school_name)),away_team:teams!games_away_team_id_fkey(team_name,school:schools(school_name)),external_home:external_opponents!games_external_home_opponent_id_fkey(name),external_away:external_opponents!games_external_away_opponent_id_fkey(name)`).or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`).eq('sport_id',team.sport_id)
- if(season)gameQuery=gameQuery.eq('season_id',season.id)
- const {data:gamesData}=await gameQuery.order('game_date',{ascending:false})
- const games:any[]=gamesData||[],gameIds=games.map(g=>g.id)
- let photos:any[]=[]
- if(gameIds.length){const {data}=await supabase.from('photos').select('id,game_id,photo_url,caption,photographer_credit_name,created_at').eq('approved',true).in('game_id',gameIds).order('created_at',{ascending:false});photos=data||[]}
+ const games:any[]=await sportsRepository.getGamesForTeam(team.id,season?.id||null)
+ const gameIds=games.map(g=>g.id)
+ const photos:any[]=await photoRepository.getApprovedPhotosForGameIds(gameIds)
  const byGame=new Map<string,any[]>()
  for(const photo of photos){const list=byGame.get(photo.game_id)||[];list.push(photo);byGame.set(photo.game_id,list)}
  const albums=games.map(game=>({game,photos:byGame.get(game.id)||[]})).filter(x=>x.photos.length)
