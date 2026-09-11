@@ -1,4 +1,5 @@
 // src/app/admin/page.tsx
+// Production deploy marker: Live Audio control room enabled on Cloudflare.
 import { getCloudflareContext } from '@opennextjs/cloudflare'
 import AdminLayout from '@/components/layout/AdminLayout'
 import Link from 'next/link'
