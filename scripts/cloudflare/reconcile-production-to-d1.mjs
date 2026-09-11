@@ -8,12 +8,12 @@ if (!connectionString) throw new Error('Missing SUPABASE_MIGRATION_DATABASE_URL'
 const DB_NAME = 'sectionxscoreboard-preview'
 const WRANGLER_CONFIG = 'wrangler.jsonc'
 
-// Every source-owned table below is expected to survive the cutover. Cloudflare-
-// native tables such as contributor_auth_* and broadcasts are intentionally not
-// compared to Supabase because Supabase is not authoritative for those tables.
+// Every Supabase production table is represented here. Cloudflare-native tables
+// such as contributor_auth_* and broadcasts are intentionally not compared to
+// Supabase because Supabase is not authoritative for those tables.
 const TABLES = [
   'schools','sports','seasons','external_opponents','teams','team_seasons','games','import_logs','game_import_sources',
-  'submissions','correction_requests','photos','photo_tag_suggestions','photo_athletes',
+  'submissions','correction_requests','photos','photo_tag_suggestions','photo_athletes','shoutouts',
   'athletes','coaches','roster_entries','team_coaches','site_settings','spotlights','athlete_of_week','weekly_recaps',
   'sponsors','advertise_inquiries','sponsor_impressions','sponsor_viewable_impressions','sponsor_clicks','site_traffic_events',
   'game_period_scores','stat_definitions','game_team_stats','game_athlete_stats',
@@ -142,7 +142,7 @@ try {
     console.error('\n[reconcile] FAIL: D1 is not an exact launch candidate. Run the final sync and reconcile again.')
     process.exitCode = 1
   } else {
-    console.log(`\n[reconcile] PASS: ${TABLES.length} source-owned tables, game state, R2 pointers and relational integrity are launch-ready.`)
+    console.log(`\n[reconcile] PASS: all ${TABLES.length} Supabase production tables, game state, R2 pointers and relational integrity are launch-ready.`)
   }
 } finally {
   await client.end().catch(() => {})
