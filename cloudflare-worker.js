@@ -18,6 +18,10 @@ const CRON_ROUTES = new Map([
   ['*/30 * * * *', ['/api/cron/arbiter-roster-watchdog']],
 ])
 
+function automationEnabled(env) {
+  return String(env.CLOUDFLARE_AUTOMATION_ENABLED || '').toLowerCase() === 'true'
+}
+
 async function runCronRoute(path, env, ctx) {
   const secret = env.CRON_SECRET || env.SECTIONX_AUTOMATION_KEY
   if (!secret) throw new Error('Neither CRON_SECRET nor SECTIONX_AUTOMATION_KEY is configured on the Cloudflare Worker')
@@ -42,6 +46,15 @@ export default {
   fetch: handler.fetch,
 
   async scheduled(controller, env, ctx) {
+    // The migration Worker is also our staging environment. Cron Triggers exist
+    // there so the schedule can be validated, but they must not mutate data or
+    // send fan alerts until the production cutover is deliberate. Enable them
+    // only by setting CLOUDFLARE_AUTOMATION_ENABLED=true on the Worker.
+    if (!automationEnabled(env)) {
+      console.log(`Cloudflare automation is gated off; skipping ${controller.cron}`)
+      return
+    }
+
     const paths = CRON_ROUTES.get(controller.cron)
     if (!paths?.length) {
       console.warn(`No Section X cron route mapped for ${controller.cron}`)
