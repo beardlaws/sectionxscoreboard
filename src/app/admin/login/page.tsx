@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 
 function safeAdminDestination(value: string | null) {
   if (!value) return '/admin'
@@ -10,12 +10,16 @@ function safeAdminDestination(value: string | null) {
   return value.startsWith('/admin') && !value.startsWith('//') ? value : '/admin'
 }
 
+function requestedDestination() {
+  if (typeof window === 'undefined') return '/admin'
+  return safeAdminDestination(new URLSearchParams(window.location.search).get('next'))
+}
+
 export default function AdminLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -30,7 +34,7 @@ export default function AdminLoginPage() {
       })
 
       if (res.ok) {
-        router.replace(safeAdminDestination(searchParams.get('next')))
+        router.replace(requestedDestination())
         router.refresh()
       } else if (res.status === 503) {
         setError('Admin authentication is not configured on this deployment.')
