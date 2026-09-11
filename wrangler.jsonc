@@ -16,6 +16,12 @@
       "migrations_dir": "cloudflare/d1/migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "sectionxscoreboard-photos-preview"
+    }
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
