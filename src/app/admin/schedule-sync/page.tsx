@@ -1,117 +1,28 @@
-import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import AdminLayout from '@/components/layout/AdminLayout'
 import ScheduleSync from './ScheduleSync'
 import PersistentArbiterMappings from './PersistentArbiterMappings'
 import SchoolMappingManager from './SchoolMappingManager'
 
-export const revalidate = 0
-
-function getAdminClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+export const dynamic='force-dynamic'
 
 export default async function ScheduleSyncPage() {
-  const supabase = createClient()
-  const adminSupabase = getAdminClient()
-
-  const [
-    teamsResult,
-    sportsResult,
-    seasonsResult,
-    teamSeasonsResult,
-    teamMappingsResult,
-    schoolMappingsResult,
-    schoolsResult,
-  ] = await Promise.all([
-    supabase
-      .from('teams')
-      .select(`
-        id,
-        team_name,
-        sport_id,
-        level,
-        active,
-        school:schools(
-          id,
-          school_name,
-          slug,
-          alias
-        )
-      `)
-      .order('team_name'),
-
-    supabase
-      .from('sports')
-      .select('id, sport_name, gender, season_type, active_public, slug, homepage_priority')
-      .order('sport_name'),
-
-    supabase
-      .from('seasons')
-      .select('*')
-      .order('year', { ascending: false }),
-
-    supabase
-      .from('team_seasons')
-      .select('team_id, season_id, active_for_season'),
-
-    adminSupabase
-      .from('arbiter_team_mappings')
-      .select('team_id, school_id, schedule_url'),
-
-    adminSupabase
-      .from('arbiter_school_mappings')
-      .select('school_id, school_url'),
-
-    adminSupabase
-      .from('schools')
-      .select('id, school_name, arbiter_school_url, arbiter_entity_id, active, is_section_x')
-      .eq('active', true)
-      .eq('is_section_x', true)
-      .order('school_name'),
+  const {env}=getCloudflareContext(),db=(env as any).DB
+  if(!db)throw new Error('Cloudflare D1 binding DB is unavailable')
+  const [teamsR,sportsR,seasonsR,teamSeasonsR,teamMappingsR,schoolMappingsR,schoolsR]=await Promise.all([
+    db.prepare(`SELECT t.id,t.team_name,t.sport_id,t.level,t.active,s.id school_id,s.school_name,s.slug school_slug,s.alias school_alias FROM teams t LEFT JOIN schools s ON s.id=t.school_id ORDER BY t.team_name`).all(),
+    db.prepare(`SELECT id,sport_name,gender,season_type,active_public,slug,homepage_priority FROM sports ORDER BY sport_name`).all(),
+    db.prepare(`SELECT * FROM seasons ORDER BY year DESC`).all(),
+    db.prepare(`SELECT team_id,season_id,active_for_season FROM team_seasons`).all(),
+    db.prepare(`SELECT team_id,school_id,schedule_url FROM arbiter_team_mappings`).all(),
+    db.prepare(`SELECT school_id,school_url FROM arbiter_school_mappings`).all(),
+    db.prepare(`SELECT id,school_name,arbiter_school_url,arbiter_entity_id,active,is_section_x FROM schools WHERE active=1 AND is_section_x=1 ORDER BY school_name`).all(),
   ])
-
-  if (teamsResult.error) throw new Error(teamsResult.error.message)
-  if (sportsResult.error) throw new Error(sportsResult.error.message)
-  if (seasonsResult.error) throw new Error(seasonsResult.error.message)
-  if (teamSeasonsResult.error) throw new Error(teamSeasonsResult.error.message)
-  if (teamMappingsResult.error) throw new Error(teamMappingsResult.error.message)
-  if (schoolMappingsResult.error) throw new Error(schoolMappingsResult.error.message)
-  if (schoolsResult.error) throw new Error(schoolsResult.error.message)
-
-  const teams = (teamsResult.data || []).map((team: any) => ({
-    ...team,
-    school: Array.isArray(team.school)
-      ? team.school[0] || null
-      : team.school || null,
-  }))
-
-  const teamSchoolMap = Object.fromEntries(
-    teams.map((team: any) => [team.id, team.school?.id || null])
-  )
-
-  return (
-    <AdminLayout>
-      <PersistentArbiterMappings
-        teamMappings={teamMappingsResult.data || []}
-        schoolMappings={schoolMappingsResult.data || []}
-        teamSchoolMap={teamSchoolMap}
-      />
-      <SchoolMappingManager
-        schools={schoolsResult.data || []}
-        teams={teams}
-        sports={sportsResult.data || []}
-        teamMappings={teamMappingsResult.data || []}
-      />
-      <ScheduleSync
-        teams={teams}
-        sports={sportsResult.data || []}
-        seasons={seasonsResult.data || []}
-        teamSeasons={teamSeasonsResult.data || []}
-      />
-    </AdminLayout>
-  )
+  const teams=(teamsR.results||[]).map((t:any)=>({id:t.id,team_name:t.team_name,sport_id:t.sport_id,level:t.level,active:Boolean(t.active),school:t.school_id?{id:t.school_id,school_name:t.school_name,slug:t.school_slug,alias:t.school_alias}:null}))
+  const teamSchoolMap=Object.fromEntries(teams.map((team:any)=>[team.id,team.school?.id||null]))
+  return <AdminLayout>
+    <PersistentArbiterMappings teamMappings={teamMappingsR.results||[]} schoolMappings={schoolMappingsR.results||[]} teamSchoolMap={teamSchoolMap}/>
+    <SchoolMappingManager schools={schoolsR.results||[]} teams={teams} sports={sportsR.results||[]} teamMappings={teamMappingsR.results||[]}/>
+    <ScheduleSync teams={teams} sports={sportsR.results||[]} seasons={seasonsR.results||[]} teamSeasons={teamSeasonsR.results||[]}/>
+  </AdminLayout>
 }
