@@ -14,6 +14,7 @@ const CHUNK = 200
 // rather than the core scoreboard graph. These must survive the cutover too.
 const tables = [
   { name:'import_logs', key:['id'], columns:['id','import_type','raw_input','rows_parsed','rows_approved','rows_rejected','status','imported_by','created_at'], bool:[] },
+  { name:'game_import_sources', key:['id'], columns:['id','game_id','team_id','season_id','sport_id','source','imported_at','source_status','source_game_time','source_location','source_contest_type','source_notes'], bool:[] },
   { name:'submissions', key:['id'], columns:['id','submitter_name','submitter_email','sport_name','home_team_name','away_team_name','home_score','away_score','game_date','notes','status','reviewed_by','created_at'], bool:[] },
   { name:'correction_requests', key:['id'], columns:['id','game_id','submitter_name','submitter_email','correction_text','status','created_at'], bool:[] },
   { name:'advertise_inquiries', key:['id'], columns:['id','business_name','contact_name','email','phone','package_interest','school_interest','sport_interest','message','reviewed','created_at'], bool:['reviewed'] },
