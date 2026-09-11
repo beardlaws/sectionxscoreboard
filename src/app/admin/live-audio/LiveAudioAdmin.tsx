@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 type Game = { id:string; gameDate:string; gameTime:string|null; sport:string|null; gender:string|null; home:string; away:string; label:string }
 type Contributor = { id:string; subjectId:string; name:string; email:string|null }
+type Readiness = { d1:boolean; realtimeKitConfigured:boolean; publisherPreset:string; listenerPreset:string }
 type Broadcast = {
   id:string; gameId:string; title:string; status:string; publicEnabled:boolean; rightsStatus:string; rightsHolder:string|null;
   rightsApprovedBy:string|null; rightsApprovedAt:string|null; rightsDocumentUrl:string|null; rightsNotes:string|null;
@@ -14,6 +15,7 @@ export default function LiveAudioAdmin(){
   const [games,setGames]=useState<Game[]>([])
   const [contributors,setContributors]=useState<Contributor[]>([])
   const [broadcasts,setBroadcasts]=useState<Broadcast[]>([])
+  const [readiness,setReadiness]=useState<Readiness|null>(null)
   const [gameId,setGameId]=useState('')
   const [working,setWorking]=useState(false)
   const [error,setError]=useState('')
@@ -23,7 +25,7 @@ export default function LiveAudioAdmin(){
     const response=await fetch('/api/admin/live-audio',{cache:'no-store'})
     const data=await response.json()
     if(!response.ok)throw new Error(data.error||'Could not load live audio admin.')
-    setGames(data.games||[]);setContributors(data.contributors||[]);setBroadcasts(data.broadcasts||[])
+    setGames(data.games||[]);setContributors(data.contributors||[]);setBroadcasts(data.broadcasts||[]);setReadiness(data.readiness||null)
     setGameId((current)=>current||data.games?.[0]?.id||'')
   }
 
@@ -56,6 +58,18 @@ export default function LiveAudioAdmin(){
     </div>
 
     {error?<div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>:null}
+
+    {readiness?<div className={`rounded-xl border p-4 ${readiness.d1&&readiness.realtimeKitConfigured?'border-emerald-500/30 bg-emerald-500/10':'border-amber-500/30 bg-amber-500/10'}`}>
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className={`text-sm font-black ${readiness.d1&&readiness.realtimeKitConfigured?'text-emerald-200':'text-amber-200'}`}>
+            {readiness.d1&&readiness.realtimeKitConfigured?'BROADCAST ENGINE READY':'BROADCAST ENGINE NEEDS CONFIGURATION'}
+          </div>
+          <div className="mt-1 text-xs text-slate-300">D1: {readiness.d1?'ready':'missing'} • RealtimeKit: {readiness.realtimeKitConfigured?'configured':'missing credentials'}</div>
+        </div>
+        <div className="text-[11px] text-slate-400">Publisher: {readiness.publisherPreset} • Listener: {readiness.listenerPreset}</div>
+      </div>
+    </div>:null}
 
     <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
       <h2 className="font-black text-white">Create Broadcast</h2>
