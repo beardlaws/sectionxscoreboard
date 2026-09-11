@@ -26,10 +26,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit remaining direct Supabase dependencies
+      - name: Block direct Supabase dependencies
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           echo "Direct Supabase references outside src/lib/supabase:"
           grep -RInE "(@/lib/supabase|@supabase/)" src \
             --exclude-dir=supabase \
@@ -37,7 +37,10 @@ jobs:
             | tee /tmp/direct-supabase.txt || true
           count=$(wc -l < /tmp/direct-supabase.txt | tr -d ' ')
           echo "DIRECT_SUPABASE_REFERENCE_COUNT=$count"
-          echo "This audit is informational until the migration reaches zero references."
+          if [ "$count" -ne 0 ]; then
+            echo "Cloudflare cutover is complete. Feature code must not reintroduce direct Supabase dependencies."
+            exit 1
+          fi
 
       - name: Run vinext compatibility check
         run: npx --yes vinext@latest check
@@ -52,7 +55,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for table in games schools teams sports seasons photos cross_country_meets cross_country_dual_results admin_exception_resolutions admin_events; do
+          for table in \
+            games schools teams sports seasons photos \
+            cross_country_meets cross_country_dual_results \
+            admin_exception_resolutions admin_events \
+            contributor_profiles contributor_accounts contributor_sessions \
+            broadcasts broadcast_assignments broadcast_participant_sessions broadcast_events; do
             echo "Checking $table"
             npx wrangler d1 execute sectionxscoreboard-preview --local --config wrangler.jsonc --command "SELECT COUNT(*) AS count FROM $table;" >/dev/null
           done
