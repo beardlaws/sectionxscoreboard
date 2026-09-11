@@ -1,24 +1,32 @@
 // src/app/admin/import/page.tsx
 import Link from 'next/link'
 import { ShieldCheck } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 import AdminLayout from '@/components/layout/AdminLayout'
 import ImportCenter from './ImportCenter'
 
 export const revalidate = 0
 
 export default async function ImportPage() {
-  const supabase = createClient()
-
-  const [
-    { data: teams },
-    { data: sports },
-    { data: seasons },
-  ] = await Promise.all([
-    supabase.from('teams').select('*, school:schools(school_name, alias, primary_color, slug)'),
-    supabase.from('sports').select('*').order('sport_name'),
-    supabase.from('seasons').select('*').order('year', { ascending: false }),
+  const repository = getSportsRepository()
+  const [schools,sports,seasons] = await Promise.all([
+    repository.getSchools(),
+    repository.getSports(),
+    repository.getSeasons(),
   ])
+  const teamGroups = await Promise.all((schools || []).map(async (school:any) => {
+    const schoolTeams = await repository.getTeamsForSchool(school.id)
+    return (schoolTeams || []).map((team:any) => ({
+      ...team,
+      school: {
+        school_name: school.school_name,
+        alias: school.alias,
+        primary_color: school.primary_color,
+        slug: school.slug,
+      },
+    }))
+  }))
+  const teams = teamGroups.flat()
 
   return (
     <AdminLayout>
@@ -38,7 +46,7 @@ export default async function ImportPage() {
           </Link>
         </div>
       </div>
-      <ImportCenter teams={teams || []} sports={sports || []} seasons={seasons || []} />
+      <ImportCenter teams={teams} sports={sports || []} seasons={seasons || []} />
     </AdminLayout>
   )
 }
