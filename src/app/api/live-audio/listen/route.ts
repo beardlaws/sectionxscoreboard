@@ -6,8 +6,14 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   try {
     const broadcastId = String(req.nextUrl.searchParams.get('broadcastId') || '')
-    if (!broadcastId) return NextResponse.json({ error: 'Broadcast is required.' }, { status: 400 })
-    const broadcast = await getBroadcastRepository().getById(broadcastId)
+    const gameId = String(req.nextUrl.searchParams.get('gameId') || '')
+    if (!broadcastId && !gameId) return NextResponse.json({ error: 'Broadcast or game is required.' }, { status: 400 })
+
+    const repository = getBroadcastRepository()
+    const broadcast = broadcastId
+      ? await repository.getById(broadcastId)
+      : await repository.getLiveByGame(gameId)
+
     if (!broadcast || !broadcast.publicEnabled || broadcast.status !== 'live') {
       return NextResponse.json({ live: false, broadcast: null })
     }
