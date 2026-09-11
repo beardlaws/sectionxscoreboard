@@ -74,7 +74,7 @@ export async function POST(req:NextRequest){
         let ext=allExternals.find((e:any)=>norm(e.name)===target)
         if(!ext){
           const id=crypto.randomUUID(),slug=slugify(row.name)
-          await db.prepare(`INSERT INTO external_opponents (id,name,slug,state,is_section_x,created_at,updated_at) VALUES (?,?,?,?,0,?,?)`).bind(id,row.name,slug,'NY',now,now).run()
+          await db.prepare(`INSERT INTO external_opponents (id,name,slug,state,is_section_x,created_at) VALUES (?,?,?,?,0,?)`).bind(id,row.name,slug,'NY',now).run()
           ext={id,name:row.name,slug};allExternals.push(ext)
         }
         statements.push(db.prepare(`INSERT INTO cross_country_team_results (id,meet_id,sport_id,external_opponent_id,team_score,finish_place,is_section_x,created_at) VALUES (?,?,?,?,?,?,0,?)`).bind(crypto.randomUUID(),meet.id,sport.id,ext.id,row.score,row.place,now))
