@@ -7,18 +7,22 @@ if (!connectionString) throw new Error('Missing SUPABASE_MIGRATION_DATABASE_URL'
 
 const DB_NAME = 'sectionxscoreboard-preview'
 const WRANGLER_CONFIG = 'wrangler.jsonc'
+
+// Every source-owned table below is expected to survive the cutover. Cloudflare-
+// native tables such as contributor_auth_* and broadcasts are intentionally not
+// compared to Supabase because Supabase is not authoritative for those tables.
 const TABLES = [
-  'schools',
-  'sports',
-  'seasons',
-  'teams',
-  'games',
-  'photos',
-  'athletes',
-  'roster_entries',
-  'arbiter_game_links',
-  'contributor_profiles',
-  'sponsors',
+  'schools','sports','seasons','external_opponents','teams','team_seasons','games','import_logs',
+  'submissions','correction_requests','photos','photo_tag_suggestions','photo_athletes',
+  'athletes','coaches','roster_entries','team_coaches','site_settings','spotlights','athlete_of_week','weekly_recaps',
+  'sponsors','advertise_inquiries','sponsor_impressions','sponsor_viewable_impressions','sponsor_clicks','site_traffic_events',
+  'game_period_scores','stat_definitions','game_team_stats','game_athlete_stats',
+  'playoff_tournaments','playoff_games',
+  'cross_country_meets','cross_country_team_results','cross_country_dual_results','cross_country_individual_results',
+  'fan_power_rank_ballots','fan_power_rank_snapshots','fan_top_play_nominations','fan_school_support','fan_school_support_snapshots','fan_game_votes','fan_game_vote_snapshots','athlete_nominations','staff_power_rank_snapshots',
+  'contributor_profiles','contributor_game_assignments','contributor_activity','contributor_coverage_requests','contributor_score_updates',
+  'fan_follow_preferences','fan_notification_events','fan_notification_deliveries','score_alert_subscriptions',
+  'arbiter_team_links','arbiter_game_links','arbiter_sync_runs','arbiter_sync_actions','arbiter_health_checks','arbiter_automation_runs','arbiter_roster_freshness','arbiter_roster_automation_runs','arbiter_school_mappings','arbiter_team_mappings','arbiter_shared_event_ids','admin_exception_resolutions',
 ]
 
 function d1Rows(sql) {
@@ -59,8 +63,8 @@ try {
     throw new Error('Migration reader is not read-only; refusing to reconcile.')
   }
 
-  console.log('\nTABLE'.padEnd(30), 'SUPABASE'.padStart(10), 'D1'.padStart(10), 'RESULT'.padStart(10))
-  console.log('-'.repeat(64))
+  console.log('\nTABLE'.padEnd(40), 'SUPABASE'.padStart(10), 'D1'.padStart(10), 'RESULT'.padStart(10))
+  console.log('-'.repeat(74))
 
   for (const table of TABLES) {
     const source = await client.query(`SELECT COUNT(*)::bigint AS count FROM public."${table}"`)
@@ -70,7 +74,7 @@ try {
     const match = sourceCount === destinationCount
     if (!match) failed = true
     console.log(
-      table.padEnd(30),
+      table.padEnd(40),
       String(sourceCount).padStart(10),
       String(destinationCount).padStart(10),
       (match ? 'PASS' : 'MISMATCH').padStart(10),
@@ -114,7 +118,7 @@ try {
     console.error('\n[reconcile] FAIL: D1 is not an exact launch candidate. Run the final sync and reconcile again.')
     process.exitCode = 1
   } else {
-    console.log('\n[reconcile] PASS: critical source counts and game operational state match D1.')
+    console.log(`\n[reconcile] PASS: ${TABLES.length} source-owned tables plus game operational freshness match D1.`)
   }
 } finally {
   await client.end().catch(() => {})
