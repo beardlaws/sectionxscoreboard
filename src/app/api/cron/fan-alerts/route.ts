@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { fanEmailConfigured, sendFanEmail } from '@/lib/fan-alerts/email'
 
 export const dynamic = 'force-dynamic'
@@ -12,22 +12,16 @@ const prefColumn: Record<string, string> = {
   photo: 'alert_photos',
 }
 
-function joined<T = any>(value: T | T[] | null | undefined): T | null {
-  return Array.isArray(value) ? value[0] || null : value || null
-}
-
 function esc(value: unknown) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c))
 }
 
+function placeholders(n: number) { return Array.from({ length: n }, () => '?').join(',') }
+
 function gameNames(game: any) {
-  const home = joined<any>(game?.home_team)
-  const away = joined<any>(game?.away_team)
-  const homeSchool = joined<any>(home?.school)
-  const awaySchool = joined<any>(away?.school)
   return {
-    home: home?.team_name || homeSchool?.school_name || 'Home team',
-    away: away?.team_name || awaySchool?.school_name || 'Away team',
+    home: game?.home_team_name || game?.home_school_name || 'Home team',
+    away: game?.away_team_name || game?.away_school_name || 'Away team',
   }
 }
 
@@ -64,67 +58,90 @@ function emailCopy(event: any, game: any, manageToken: string) {
   }
 }
 
+async function upsertDelivery(db: any, args: {
+  eventId: string
+  followId: string
+  email: string
+  status: string
+  provider: string | null
+  providerId: string | null
+  error: string | null
+  sentAt: string | null
+}) {
+  const existing: any = await db.prepare('SELECT id FROM fan_notification_deliveries WHERE event_id=? AND follow_id=? LIMIT 1')
+    .bind(args.eventId, args.followId).first()
+  if (existing?.id) {
+    await db.prepare('UPDATE fan_notification_deliveries SET email=?,status=?,provider=?,provider_id=?,error=?,sent_at=? WHERE id=?')
+      .bind(args.email, args.status, args.provider, args.providerId, args.error, args.sentAt, existing.id).run()
+    return
+  }
+  await db.prepare('INSERT INTO fan_notification_deliveries (id,event_id,follow_id,email,status,provider,provider_id,error,created_at,sent_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .bind(crypto.randomUUID(), args.eventId, args.followId, args.email, args.status, args.provider, args.providerId, args.error, new Date().toISOString(), args.sentAt).run()
+}
+
 export async function GET(req: NextRequest) {
-  const db = createAdminClient()
+  const { env } = getCloudflareContext()
+  const db = (env as any).DB
+  if (!db) return NextResponse.json({ ok: false, error: 'Cloudflare D1 binding DB is unavailable' }, { status: 503 })
+
   const token = req.headers.get('x-sectionx-automation-key') || ''
-  const { data: allowed, error: authError } = await db.rpc('verify_sectionx_automation_key', { p_token: token })
-  if (authError || allowed !== true) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  const expected = String((env as any).SECTIONX_AUTOMATION_KEY || (env as any).CRON_SECRET || process.env.SECTIONX_AUTOMATION_KEY || process.env.CRON_SECRET || '')
+  if (!expected || token !== expected) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   if (!fanEmailConfigured()) {
     return NextResponse.json({ ok: true, configured: false, message: 'Fan alert queue is armed; add RESEND_API_KEY or BREVO_API_KEY to begin email delivery.' })
   }
 
-  const { data: events, error } = await db
-    .from('fan_notification_events')
-    .select('*')
-    .in('status', ['pending', 'error'])
-    .order('created_at', { ascending: true })
-    .limit(30)
-
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-
+  const eventResult = await db.prepare("SELECT * FROM fan_notification_events WHERE status IN ('pending','error') ORDER BY created_at ASC LIMIT 30").all()
+  const events = eventResult.results || []
   let sent = 0, skipped = 0, failed = 0
 
-  for (const event of events || []) {
+  for (const event of events as any[]) {
     try {
       let game: any = null
       let teamIds: string[] = []
       let athleteIds: string[] = []
 
       if (event.game_id) {
-        const { data } = await db.from('games').select(`id,game_date,game_time,status,home_score,away_score,home_team_id,away_team_id,home_team:teams!games_home_team_id_fkey(id,team_name,school:schools(school_name)),away_team:teams!games_away_team_id_fkey(id,team_name,school:schools(school_name))`).eq('id', event.game_id).maybeSingle()
-        game = data
-        teamIds = [data?.home_team_id, data?.away_team_id].filter(Boolean)
+        game = await db.prepare(`
+          SELECT g.id,g.game_date,g.game_time,g.status,g.home_score,g.away_score,g.home_team_id,g.away_team_id,
+            ht.team_name AS home_team_name,hs.school_name AS home_school_name,
+            at.team_name AS away_team_name,ats.school_name AS away_school_name
+          FROM games g
+          LEFT JOIN teams ht ON ht.id=g.home_team_id LEFT JOIN schools hs ON hs.id=ht.school_id
+          LEFT JOIN teams at ON at.id=g.away_team_id LEFT JOIN schools ats ON ats.id=at.school_id
+          WHERE g.id=? LIMIT 1`).bind(event.game_id).first()
+        teamIds = [game?.home_team_id, game?.away_team_id].filter(Boolean)
       }
 
       if (event.photo_id) {
-        const { data: tags } = await db.from('photo_athletes').select('athlete_id').eq('photo_id', event.photo_id)
-        athleteIds = (tags || []).map((x: any) => x.athlete_id).filter(Boolean)
+        const tags = await db.prepare('SELECT athlete_id FROM photo_athletes WHERE photo_id=?').bind(event.photo_id).all()
+        athleteIds = (tags.results || []).map((x: any) => x.athlete_id).filter(Boolean)
       }
 
       const follows: any[] = []
       if (teamIds.length) {
-        const { data } = await db.from('fan_follow_preferences').select('*').eq('active', true).in('team_id', teamIds)
-        follows.push(...(data || []))
+        const rows = await db.prepare(`SELECT * FROM fan_follow_preferences WHERE active=1 AND team_id IN (${placeholders(teamIds.length)})`).bind(...teamIds).all()
+        follows.push(...(rows.results || []))
       }
       if (athleteIds.length) {
-        const { data } = await db.from('fan_follow_preferences').select('*').eq('active', true).in('athlete_id', athleteIds)
-        follows.push(...(data || []))
+        const rows = await db.prepare(`SELECT * FROM fan_follow_preferences WHERE active=1 AND athlete_id IN (${placeholders(athleteIds.length)})`).bind(...athleteIds).all()
+        follows.push(...(rows.results || []))
       }
 
-      const unique = Array.from(new Map(follows.map(f => [f.id, f])).values())
+      const unique = Array.from(new Map(follows.map((f: any) => [f.id, f])).values()) as any[]
       const pref = prefColumn[event.event_type]
-      const wanted = unique.filter((f: any) => pref && f[pref] === true)
+      const wanted = unique.filter((f: any) => pref && Boolean(f[pref]))
 
       if (!wanted.length) {
-        await db.from('fan_notification_events').update({ status: 'skipped', processed_at: new Date().toISOString(), last_error: null }).eq('id', event.id)
+        await db.prepare("UPDATE fan_notification_events SET status='skipped',processed_at=?,last_error=NULL WHERE id=?").bind(new Date().toISOString(), event.id).run()
         skipped++
         continue
       }
 
       let eventFailed = false
       for (const follow of wanted) {
-        const { data: existing } = await db.from('fan_notification_deliveries').select('id,status').eq('event_id', event.id).eq('follow_id', follow.id).maybeSingle()
+        const existing: any = await db.prepare('SELECT id,status FROM fan_notification_deliveries WHERE event_id=? AND follow_id=? LIMIT 1').bind(event.id, follow.id).first()
         if (existing?.status === 'sent') continue
 
         const copy = emailCopy(event, game, follow.manage_token)
@@ -134,19 +151,21 @@ export async function GET(req: NextRequest) {
         if (result.error) {
           eventFailed = true
           failed++
-          await db.from('fan_notification_deliveries').upsert({ event_id: event.id, follow_id: follow.id, email: follow.email, status: 'error', provider: result.provider || null, provider_id: result.id || null, error: result.error }, { onConflict: 'event_id,follow_id' })
+          await upsertDelivery(db, { eventId: event.id, followId: follow.id, email: follow.email, status: 'error', provider: result.provider || null, providerId: result.id || null, error: result.error, sentAt: null })
         } else {
           sent++
-          await db.from('fan_notification_deliveries').upsert({ event_id: event.id, follow_id: follow.id, email: follow.email, status: 'sent', provider: result.provider || null, provider_id: result.id || null, error: null, sent_at: now }, { onConflict: 'event_id,follow_id' })
+          await upsertDelivery(db, { eventId: event.id, followId: follow.id, email: follow.email, status: 'sent', provider: result.provider || null, providerId: result.id || null, error: null, sentAt: now })
         }
       }
 
-      await db.from('fan_notification_events').update({ status: eventFailed ? 'error' : 'sent', processed_at: eventFailed ? null : new Date().toISOString(), last_error: eventFailed ? 'One or more deliveries failed.' : null }).eq('id', event.id)
+      await db.prepare('UPDATE fan_notification_events SET status=?,processed_at=?,last_error=? WHERE id=?')
+        .bind(eventFailed ? 'error' : 'sent', eventFailed ? null : new Date().toISOString(), eventFailed ? 'One or more deliveries failed.' : null, event.id).run()
     } catch (eventError) {
       failed++
-      await db.from('fan_notification_events').update({ status: 'error', last_error: eventError instanceof Error ? eventError.message : String(eventError) }).eq('id', event.id)
+      await db.prepare("UPDATE fan_notification_events SET status='error',last_error=? WHERE id=?")
+        .bind(eventError instanceof Error ? eventError.message : String(eventError), event.id).run()
     }
   }
 
-  return NextResponse.json({ ok: true, configured: true, events: events?.length || 0, sent, skipped, failed })
+  return NextResponse.json({ ok: true, configured: true, events: events.length, sent, skipped, failed })
 }
