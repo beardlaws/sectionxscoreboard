@@ -26,6 +26,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit remaining direct Supabase dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          echo "Direct Supabase references outside src/lib/supabase:"
+          grep -RInE "(@/lib/supabase|@supabase/)" src \
+            --exclude-dir=supabase \
+            --exclude='*.map' \
+            | tee /tmp/direct-supabase.txt || true
+          count=$(wc -l < /tmp/direct-supabase.txt | tr -d ' ')
+          echo "DIRECT_SUPABASE_REFERENCE_COUNT=$count"
+          echo "This audit is informational until the migration reaches zero references."
+
       - name: Run vinext compatibility check
         run: npx --yes vinext@latest check
 
