@@ -17,21 +17,11 @@ const nextConfig = {
       },
     ],
   },
-  async redirects() {
-    return [
-      {
-        source: '/:path*',
-        has: [
-          {
-            type: 'host',
-            value: 'sectionxscoreboard.com',
-          },
-        ],
-        destination: 'https://www.sectionxscoreboard.com/:path*',
-        permanent: true,
-      },
-    ]
-  },
+  // Do not perform hostname canonicalization inside Next.js.
+  // Cloudflare Workers can execute behind multiple hostnames (workers.dev,
+  // apex, and www), and an application-level host redirect can loop when the
+  // platform forwards/normalizes host headers. Canonical host redirects belong
+  // at the edge after the production cutover is verified.
   async headers() {
     return [
       {
@@ -40,7 +30,8 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), browsing-topics=()' },
+          // Live Audio needs first-party microphone access in the broadcaster console.
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=(), browsing-topics=()' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
         ],
