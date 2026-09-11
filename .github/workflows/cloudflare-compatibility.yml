@@ -45,5 +45,17 @@ jobs:
       - name: Prepare actual Cloudflare build dependencies
         run: npm run cloudflare:prepare
 
+      - name: Apply D1 migrations locally
+        run: npx wrangler d1 migrations apply sectionxscoreboard-preview --local --config wrangler.jsonc
+
+      - name: Verify critical D1 tables exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          for table in games schools teams sports seasons photos cross_country_meets cross_country_dual_results admin_exception_resolutions admin_events; do
+            echo "Checking $table"
+            npx wrangler d1 execute sectionxscoreboard-preview --local --config wrangler.jsonc --command "SELECT COUNT(*) AS count FROM $table;" >/dev/null
+          done
+
       - name: Compile migration app
         run: npx next build --no-lint
