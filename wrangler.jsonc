@@ -2,11 +2,22 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sectionxscoreboard",
   "account_id": "3ea6b1d4da3e65818d3d2034576083bb",
-  "main": ".open-next/worker.js",
+  "main": "cloudflare-worker.js",
   "compatibility_date": "2026-09-10",
   "compatibility_flags": ["nodejs_compat"],
   "build": {
     "command": "npm run cloudflare:build"
+  },
+  "triggers": {
+    "crons": [
+      "0 11 * * *",
+      "30 10 * * *",
+      "0 2 * * *",
+      "0 4 * * *",
+      "0 6 * * *",
+      "0 8 * * *",
+      "0 9 * * *"
+    ]
   },
   "d1_databases": [
     {
