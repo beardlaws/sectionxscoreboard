@@ -1,7 +1,14 @@
-import { createAdminClient } from '@/lib/supabase/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
 const BOYS_URL='https://www.northcountrysports.net/sxxcboys.html'
 const GIRLS_URL='https://www.northcountrysports.net/sxxcgirls.html'
+
+function getDb(){
+  const {env}=getCloudflareContext()
+  const db=(env as any).DB
+  if(!db)throw new Error('Cloudflare D1 binding DB is unavailable')
+  return db
+}
 
 function decodeHtml(value:string){return value.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&ndash;|&#8211;/gi,'–').replace(/&mdash;|&#8212;/gi,'—').replace(/&#(\d+);/g,(_,c)=>String.fromCharCode(Number(c)))}
 function linesFrom(html:string){return decodeHtml(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<br\s*\/?\s*>/gi,'\n').replace(/<\/(?:p|div|li|h1|h2|h3|h4|h5|h6|tr|td|section|article)>/gi,'\n').replace(/<[^>]+>/g,' ')).split(/\r?\n/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean)}
@@ -45,21 +52,17 @@ function parseBlockPairs(lines:string[],expectedNames:string[]){
       continue
     }
     const bothInc=line.match(/^(.*?)\s*(?:&|,)\s*(.*?)\s*,?\s*inc\.?$/i)
-    if(bothInc&&!/\d/.test(line)){
-      pairs.push({aName:bothInc[1].trim(),bName:bothInc[2].trim(),aScore:null,bScore:null,outcome:'T',raw:line});continue
-    }
+    if(bothInc&&!/\d/.test(line)){pairs.push({aName:bothInc[1].trim(),bName:bothInc[2].trim(),aScore:null,bScore:null,outcome:'T',raw:line});continue}
     const segs=parseSegments(line)
     if(segs.length>=2){for(const p of pairsFromSegments(segs))pairs.push({...p,raw:line})}
   }
-  const mentionedInc=new Set<string>()
-  const scoredTeams=new Set<string>()
+  const mentionedInc=new Set<string>(),scoredTeams=new Set<string>()
   for(const line of lines){
     for(const seg of parseSegments(line)){if(seg.score==null)mentionedInc.add(norm(seg.name));else scoredTeams.add(norm(seg.name))}
     const incList=line.match(/^(.*?),\s*(.*?)\s+inc\.?$/i)
     if(incList&&!/\d/.test(line)){mentionedInc.add(norm(incList[1]));mentionedInc.add(norm(incList[2]))}
   }
-  const expected=expectedNames.map(n=>({raw:n,norm:norm(n)}))
-  const seen=new Set(pairs.map(p=>[norm(p.aName),norm(p.bName)].sort().join('|')))
+  const expected=expectedNames.map(n=>({raw:n,norm:norm(n)})),seen=new Set(pairs.map(p=>[norm(p.aName),norm(p.bName)].sort().join('|')))
   for(let i=0;i<expected.length;i++)for(let j=i+1;j<expected.length;j++){
     const a=expected[i],b=expected[j],key=[a.norm,b.norm].sort().join('|')
     if(seen.has(key))continue
@@ -80,9 +83,7 @@ function sectionForDate(lines:string[],date:string){
 function blocksFromSection(lines:string[]){
   const blocks:{heading:string;lines:string[]}[]=[];let current:{heading:string;lines:string[]}|null=null
   for(const line of lines){
-    if(/^(Meet at|League Meet|Interdivisionals|Non League)/i.test(line)){
-      current={heading:line,lines:[]};blocks.push(current);continue
-    }
+    if(/^(Meet at|League Meet|Interdivisionals|Non League)/i.test(line)){current={heading:line,lines:[]};blocks.push(current);continue}
     if(!current){current={heading:'',lines:[]};blocks.push(current)}
     current.lines.push(line)
   }
@@ -103,35 +104,35 @@ async function fetchPage(url:string){
 }
 
 export async function previewNorthCountrySportsCrossCountry(date:string){
-  const db=createAdminClient()
+  const db=getDb()
   const [boysLines,girlsLines]=await Promise.all([fetchPage(BOYS_URL),fetchPage(GIRLS_URL)])
   const boysBlocks=blocksFromSection(sectionForDate(boysLines,date)),girlsBlocks=blocksFromSection(sectionForDate(girlsLines,date))
-  const [{data:meets},{data:sports},{data:teams}]=await Promise.all([
-    db.from('cross_country_meets').select('*').eq('meet_date',date).order('meet_time'),
-    db.from('sports').select('id,gender').in('slug',['boys-cross-country','girls-cross-country']),
-    db.from('teams').select('id,sport_id,team_name,slug,school:schools(school_name,slug)').eq('active',true)
+  const [meetQ,sportQ,teamQ]=await Promise.all([
+    db.prepare(`SELECT * FROM cross_country_meets WHERE meet_date=? ORDER BY meet_time`).bind(date).all(),
+    db.prepare(`SELECT id,gender,slug FROM sports WHERE slug IN ('boys-cross-country','girls-cross-country')`).all(),
+    db.prepare(`SELECT t.id,t.sport_id,t.team_name,t.slug,s.school_name,s.slug AS school_slug FROM teams t LEFT JOIN schools s ON s.id=t.school_id WHERE COALESCE(t.active,1)=1`).all(),
   ])
+  const meets=meetQ.results||[],sports=sportQ.results||[],teams=teamQ.results||[]
   const suggestions:any[]=[]
-  for(const meet of meets||[]){
-    const {data:participants}=await db.from('cross_country_team_results').select('sport_id,team_id').eq('meet_id',meet.id)
+  for(const meet of meets){
+    const participantQ=await db.prepare(`SELECT sport_id,team_id FROM cross_country_team_results WHERE meet_id=?`).bind(meet.id).all()
+    const participants=participantQ.results||[]
     const suggestion:any={meetId:meet.id,meetName:meet.meet_name,status:meet.status,boys:[],girls:[],confidence:'none',sourceUrl:BOYS_URL,sourceUrls:{boys:BOYS_URL,girls:GIRLS_URL}}
     let matchedPairs=0,expectedPairs=0
     for(const gender of ['Boys','Girls']){
-      const sport:any=(sports||[]).find((s:any)=>s.gender===gender);if(!sport)continue
-      const expectedIds=(participants||[]).filter((p:any)=>p.sport_id===sport.id&&p.team_id).map((p:any)=>p.team_id)
-      const expectedTeams=expectedIds.map((id:string)=>(teams||[]).find((t:any)=>t.id===id)).filter(Boolean) as any[]
-      const expectedNames=expectedTeams.map((t:any)=>{const school=Array.isArray(t.school)?t.school[0]:t.school;return school?.school_name||t.team_name})
+      const sport:any=sports.find((s:any)=>s.gender===gender);if(!sport)continue
+      const expectedIds=participants.filter((p:any)=>p.sport_id===sport.id&&p.team_id).map((p:any)=>p.team_id)
+      const expectedTeams=expectedIds.map((id:string)=>teams.find((t:any)=>t.id===id)).filter(Boolean) as any[]
+      const expectedNames=expectedTeams.map((t:any)=>t.school_name||t.team_name)
       expectedPairs+=expectedIds.length*(expectedIds.length-1)/2
       const block=bestBlock(gender==='Boys'?boysBlocks:girlsBlocks,meet)
       const rawPairs=parseBlockPairs(block?.lines||[],expectedNames)
-      const mapped:any[]=[]
-      const seen=new Set<string>()
+      const mapped:any[]=[],seen=new Set<string>()
       for(const p of rawPairs){
-        const find=(name:string)=>expectedTeams.find((t:any)=>{const school=Array.isArray(t.school)?t.school[0]:t.school;const aliases=[school?.school_name,school?.slug,t.team_name,t.slug].map(norm).filter(Boolean);const n=norm(name);return aliases.some(a=>a===n||a.startsWith(n)||n.startsWith(a))})
+        const find=(name:string)=>expectedTeams.find((t:any)=>{const aliases=[t.school_name,t.school_slug,t.team_name,t.slug].map(norm).filter(Boolean);const n=norm(name);return aliases.some(a=>a===n||a.startsWith(n)||n.startsWith(a))})
         const a=find(p.aName),b=find(p.bName);if(!a||!b||a.id===b.id)continue
         const key=[a.id,b.id].sort().join('|');if(seen.has(key))continue;seen.add(key)
-        const aSchool=Array.isArray(a.school)?a.school[0]:a.school,bSchool=Array.isArray(b.school)?b.school[0]:b.school
-        mapped.push({teamAId:a.id,teamBId:b.id,teamA:aSchool?.school_name||a.team_name,teamB:bSchool?.school_name||b.team_name,teamAScore:p.aScore,teamBScore:p.bScore,outcomeA:p.outcome,summary:(aSchool?.school_name||a.team_name)+' '+(p.aScore??'INC')+', '+(bSchool?.school_name||b.team_name)+' '+(p.bScore??'INC')})
+        mapped.push({teamAId:a.id,teamBId:b.id,teamA:a.school_name||a.team_name,teamB:b.school_name||b.team_name,teamAScore:p.aScore,teamBScore:p.bScore,outcomeA:p.outcome,summary:(a.school_name||a.team_name)+' '+(p.aScore??'INC')+', '+(b.school_name||b.team_name)+' '+(p.bScore??'INC')})
       }
       matchedPairs+=mapped.length;suggestion[gender.toLowerCase()]=mapped;suggestion[gender.toLowerCase()+'Block']=block?.heading||''
     }
