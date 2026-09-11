@@ -1,11 +1,13 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+export const dynamic = 'force-dynamic'
+
+function getDb() {
+  const { env } = getCloudflareContext()
+  const db = (env as any).DB
+  if (!db) throw new Error('Cloudflare D1 binding DB is unavailable')
+  return db
 }
 
 function normalizeTime(value: unknown): string | null {
@@ -45,13 +47,12 @@ type VerifiedUpdate = {
 }
 
 export async function POST(req: NextRequest) {
-  // Middleware authenticates the admin session before this service-role writer executes.
   try {
     const body = await req.json()
     const updates: VerifiedUpdate[] = Array.isArray(body?.updates) ? body.updates : []
     if (!updates.length) return NextResponse.json({ error: 'No verified updates supplied.' }, { status: 400 })
 
-    const supabase = getAdminClient()
+    const db = getDb()
     const results: any[] = []
 
     for (const item of updates) {
@@ -69,15 +70,15 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const { data: updated, error: updateError } = await supabase
-        .from('games')
-        .update(patch)
-        .eq('id', item.id)
-        .select('id, game_time, status')
-        .single()
+      const fields = Object.keys(patch)
+      const values = fields.map(field => patch[field])
+      await db.prepare(`UPDATE games SET ${fields.map(field => `${field}=?`).join(',')}, updated_at=datetime('now') WHERE id=?`)
+        .bind(...values, item.id)
+        .run()
 
-      if (updateError || !updated) {
-        results.push({ id: item.id, ok: false, error: updateError?.message || 'Update returned no row.' })
+      const updated: any = await db.prepare('SELECT id, game_time, status FROM games WHERE id=? LIMIT 1').bind(item.id).first()
+      if (!updated) {
+        results.push({ id: item.id, ok: false, error: 'Update returned no row.' })
         continue
       }
 
@@ -91,18 +92,21 @@ export async function POST(req: NextRequest) {
       if (verified && item.season_id && item.sport_id && sourceIds.length) {
         let sourceTrackingFailed = false
         for (const sourceTeamId of sourceIds) {
-          const { error: sourceError } = await supabase
-            .from('game_import_sources')
-            .upsert({
-              game_id: item.id,
-              team_id: sourceTeamId,
-              season_id: item.season_id,
-              sport_id: item.sport_id,
-              source: 'arbiter',
-              imported_at: new Date().toISOString(),
-            }, { onConflict: 'game_id,team_id,season_id,sport_id' })
-          if (sourceError) {
-            results.push({ id: item.id, ok: false, error: `Game updated but source tracking failed for ${sourceTeamId}: ${sourceError.message}` })
+          try {
+            const existing: any = await db.prepare('SELECT id FROM game_import_sources WHERE game_id=? AND team_id=? AND season_id=? AND sport_id=? LIMIT 1')
+              .bind(item.id, sourceTeamId, item.season_id, item.sport_id)
+              .first()
+            if (existing?.id) {
+              await db.prepare("UPDATE game_import_sources SET source='arbiter', imported_at=datetime('now') WHERE id=?")
+                .bind(existing.id)
+                .run()
+            } else {
+              await db.prepare("INSERT INTO game_import_sources (id,game_id,team_id,season_id,sport_id,source,imported_at) VALUES (?,?,?,?,?,'arbiter',datetime('now'))")
+                .bind(crypto.randomUUID(), item.id, sourceTeamId, item.season_id, item.sport_id)
+                .run()
+            }
+          } catch (error: any) {
+            results.push({ id: item.id, ok: false, error: `Game updated but source tracking failed for ${sourceTeamId}: ${error?.message || String(error)}` })
             sourceTrackingFailed = true
             break
           }
