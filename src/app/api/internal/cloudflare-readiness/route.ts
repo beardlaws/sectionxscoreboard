@@ -10,14 +10,17 @@ async function countR2Objects(bucket: any) {
   if (!bucket) return null
   let cursor: string | undefined
   let count = 0
-
   do {
     const page = await bucket.list({ limit: 1000, ...(cursor ? { cursor } : {}) })
     count += Array.isArray(page?.objects) ? page.objects.length : 0
     cursor = page?.truncated && page?.cursor ? String(page.cursor) : undefined
   } while (cursor)
-
   return count
+}
+
+async function count(db: any, table: string) {
+  const row: any = await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()
+  return Number(row?.count || 0)
 }
 
 export async function GET() {
@@ -32,19 +35,25 @@ export async function GET() {
       return Response.json({
         ok: false,
         backend: 'cloudflare',
-        releaseMarker: 'cutover-readiness-v2',
+        releaseMarker: 'cutover-readiness-v3',
         deployment: version ? { id: version.id || null, tag: version.tag || null } : null,
         bindings: { d1: false, r2: Boolean(photos), assets: Boolean(runtimeEnv.ASSETS) },
         error: 'D1 binding missing',
       }, { status: 503, headers: { 'cache-control': 'no-store' } })
     }
 
-    const [games, schools, photoRows, broadcasts, latestGame, r2Count] = await Promise.all([
-      db.prepare('SELECT COUNT(*) AS count FROM games').first(),
-      db.prepare('SELECT COUNT(*) AS count FROM schools').first(),
-      db.prepare('SELECT COUNT(*) AS count FROM photos').first(),
-      db.prepare('SELECT COUNT(*) AS count FROM broadcasts').first().catch(() => ({ count: 0 })),
+    const [
+      games, schools, teams, athletes, rosterEntries, photoRows, arbiterLinks,
+      scoreAlerts, fanFollows, trafficEvents, sponsorImpressions, broadcasts,
+      latestGame, referencedLogos, r2Count,
+    ] = await Promise.all([
+      count(db,'games'), count(db,'schools'), count(db,'teams'), count(db,'athletes'),
+      count(db,'roster_entries'), count(db,'photos'), count(db,'arbiter_game_links'),
+      count(db,'score_alert_subscriptions'), count(db,'fan_follow_preferences'),
+      count(db,'site_traffic_events'), count(db,'sponsor_impressions'),
+      count(db,'broadcasts').catch(() => 0),
       db.prepare('SELECT game_date, updated_at FROM games ORDER BY game_date DESC, updated_at DESC LIMIT 1').first(),
+      db.prepare("SELECT COUNT(*) AS count FROM schools WHERE logo_url IS NOT NULL AND trim(logo_url) <> ''").first(),
       countR2Objects(photos).catch(() => null),
     ])
 
@@ -53,6 +62,8 @@ export async function GET() {
       automationSecret: present(runtimeEnv.CRON_SECRET) || present(runtimeEnv.SECTIONX_AUTOMATION_KEY),
       automationEnabled: String(runtimeEnv.CLOUDFLARE_AUTOMATION_ENABLED || '').toLowerCase() === 'true',
       arbiter: present(runtimeEnv.ARBITER_CLIENT_ID) && present(runtimeEnv.ARBITER_CLIENT_SECRET),
+      contributorEmail: present(runtimeEnv.RESEND_API_KEY),
+      fanEmail: present(runtimeEnv.RESEND_API_KEY) || present(runtimeEnv.BREVO_API_KEY),
       realtimeKit: present(runtimeEnv.CLOUDFLARE_ACCOUNT_ID) && present(runtimeEnv.REALTIMEKIT_APP_ID) && present(runtimeEnv.REALTIMEKIT_API_TOKEN),
       r2Read: r2Count !== null,
     }
@@ -61,30 +72,31 @@ export async function GET() {
     if (!checks.adminAuth) missing.push('admin-auth')
     if (!checks.automationSecret) missing.push('automation-secret')
     if (!checks.arbiter) missing.push('arbiter')
+    if (!checks.contributorEmail) missing.push('contributor-email')
+    if (!checks.fanEmail) missing.push('fan-email')
     if (!checks.realtimeKit) missing.push('realtimekit')
     if (!photos) missing.push('r2-binding')
     else if (!checks.r2Read) missing.push('r2-read')
 
+    const logoCount = Number((referencedLogos as any)?.count || 0)
+    const minimumReferencedMedia = photoRows + logoCount
+
     return Response.json({
-      // Automation is deliberately allowed to remain disabled while this Worker
-      // is staging. It becomes a cutover gate, not a staging-readiness failure.
+      // Automation remains deliberately disabled in staging. It is turned on
+      // only as part of the controlled production scheduler handoff.
       ok: missing.length === 0,
       backend: 'cloudflare',
-      releaseMarker: 'cutover-readiness-v2',
+      releaseMarker: 'cutover-readiness-v3',
       deployment: version ? { id: version.id || null, tag: version.tag || null } : null,
-      bindings: {
-        d1: true,
-        r2: Boolean(photos),
-        assets: Boolean(runtimeEnv.ASSETS),
-      },
+      bindings: { d1: true, r2: Boolean(photos), assets: Boolean(runtimeEnv.ASSETS) },
       checks,
       missing,
       counts: {
-        games: Number((games as any)?.count || 0),
-        schools: Number((schools as any)?.count || 0),
-        photos: Number((photoRows as any)?.count || 0),
-        broadcasts: Number((broadcasts as any)?.count || 0),
-        r2Objects: r2Count,
+        games, schools, teams, athletes, rosterEntries, photos: photoRows,
+        arbiterGameLinks: arbiterLinks, scoreAlertSubscriptions: scoreAlerts,
+        fanFollows, siteTrafficEvents: trafficEvents, sponsorImpressions,
+        broadcasts, referencedLogos: logoCount, r2Objects: r2Count,
+        minimumReferencedMedia,
       },
       data: {
         latestGameDate: (latestGame as any)?.game_date || null,
@@ -101,7 +113,7 @@ export async function GET() {
     return Response.json({
       ok: false,
       backend: 'cloudflare',
-      releaseMarker: 'cutover-readiness-v2',
+      releaseMarker: 'cutover-readiness-v3',
       error: error instanceof Error ? error.message : 'Cloudflare readiness check failed.',
     }, { status: 500, headers: { 'cache-control': 'no-store' } })
   }
