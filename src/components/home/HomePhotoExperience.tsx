@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import HomeClient from '@/components/home/HomeClient'
 
-type Props = Record<string, any> & { homepagePhotos?: any[] }
+type Props = Record<string, any> & { homepagePhotos?: any[] | null }
 
 const ROTATE_MS = 6000
 const HomeClientAny = HomeClient as any
 
-export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps }: Props) {
-  const photos = useMemo(() => homepagePhotos.filter(photo => photo?.photo_url), [homepagePhotos])
+export default function HomePhotoExperience({ homepagePhotos, ...homeProps }: Props) {
+  const safePhotos = Array.isArray(homepagePhotos) ? homepagePhotos : []
+  const photos = useMemo(() => safePhotos.filter(photo => photo?.photo_url), [safePhotos])
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [reduceMotion, setReduceMotion] = useState(false)
@@ -17,6 +18,7 @@ export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps 
   const active = photos[index] || homeProps.featuredPhoto || null
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
     const sync = () => setReduceMotion(media.matches)
     sync()
@@ -33,7 +35,7 @@ export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps 
   }, [photos.length, paused, reduceMotion])
 
   useEffect(() => {
-    if (!photos.length) return
+    if (!photos.length || typeof document === 'undefined') return
     const heroLink = document.querySelector<HTMLAnchorElement>('section a[href="/photos"]')
     if (!heroLink) return
 
@@ -100,7 +102,6 @@ export default function HomePhotoExperience({ homepagePhotos = [], ...homeProps 
       heroLink.removeEventListener('touchend', touchEnd)
     }
   }, [active?.game?.id, index, photos])
-
 
   return <HomeClientAny {...homeProps} featuredPhoto={active} />
 }
