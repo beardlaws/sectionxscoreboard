@@ -1,5 +1,5 @@
 import { ImageResponse } from 'next/og'
-import { createClient } from '@/lib/supabase/server'
+import { getGameCenterRepository } from '@/lib/data/runtime-game-center-repository'
 import { isScrimmage } from '@/lib/gameType'
 
 export const runtime = 'nodejs'
@@ -33,21 +33,7 @@ function statusKey(value: string | null) {
 }
 
 export default async function Image({ params }: { params: { id: string } }) {
-  const supabase = createClient()
-  const { data } = await supabase
-    .from('games')
-    .select(`
-      game_date, game_time, status, contest_type, notes, home_score, away_score,
-      sport:sports(sport_name, gender),
-      home_team:teams!games_home_team_id_fkey(school:schools(school_name, logo_url, primary_color, secondary_color)),
-      away_team:teams!games_away_team_id_fkey(school:schools(school_name, logo_url, primary_color, secondary_color)),
-      external_home:external_opponents!games_external_home_opponent_id_fkey(name),
-      external_away:external_opponents!games_external_away_opponent_id_fkey(name)
-    `)
-    .eq('id', params.id)
-    .single()
-
-  const game: any = data || {}
+  const game: any = await getGameCenterRepository().getGame(params.id) || {}
   const homeTeam = joined<any>(game.home_team)
   const awayTeam = joined<any>(game.away_team)
   const homeSchool = joined<any>(homeTeam?.school)
