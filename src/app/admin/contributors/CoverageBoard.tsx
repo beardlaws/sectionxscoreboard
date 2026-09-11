@@ -2,16 +2,16 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { adminDb } from '@/lib/adminDb'
 
 function one(v:any){return Array.isArray(v)?v[0]:v}
 function gameLabel(g:any){const home=one(g.home_team)?.team_name||'Home',away=one(g.away_team)?.team_name||'Away',s=one(g.sport);const sport=s?(s.gender&&s.gender!=='Both'?`${s.gender} ${s.sport_name}`:s.sport_name):'Sport';return `${g.game_date} · ${sport} · ${away} at ${home}`}
 function roleLabel(v:string){return String(v||'coverage').replace(/-/g,' ')}
+async function action(body:any){const r=await fetch('/api/admin/contributors',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Coverage action failed.');return j}
 
 export default function CoverageBoard({profiles,games,requests}:{profiles:any[];games:any[];requests:any[]}){
   const router=useRouter(),[gameId,setGameId]=useState(''),[role,setRole]=useState('photographer'),[notes,setNotes]=useState(''),[busy,setBusy]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState('')
-  async function create(){if(!gameId)return;setBusy('create');setMessage('');setError('');try{await adminDb.insert('contributor_coverage_requests',{game_id:gameId,coverage_role:role,status:'open',notes:notes.trim()||null,requested_by:'admin'});setGameId('');setNotes('');setMessage('Coverage opportunity opened.');router.refresh()}catch(e:any){setError(e.message||'Could not open coverage request.')}finally{setBusy('')}}
-  async function cancel(id:string){setBusy(id);setMessage('');setError('');try{await adminDb.update('contributor_coverage_requests',{status:'cancelled',closed_at:new Date().toISOString(),updated_at:new Date().toISOString()},{id});setMessage('Coverage request closed.');router.refresh()}catch(e:any){setError(e.message||'Could not close coverage request.')}finally{setBusy('')}}
+  async function create(){if(!gameId)return;setBusy('create');setMessage('');setError('');try{await action({action:'coverage-create',gameId,role,notes:notes.trim()||null});setGameId('');setNotes('');setMessage('Coverage opportunity opened.');router.refresh()}catch(e:any){setError(e.message||'Could not open coverage request.')}finally{setBusy('')}}
+  async function cancel(id:string){setBusy(id);setMessage('');setError('');try{await action({action:'coverage-close',id});setMessage('Coverage request closed.');router.refresh()}catch(e:any){setError(e.message||'Could not close coverage request.')}finally{setBusy('')}}
   return <section className="space-y-3">
     <div><div className="text-xs uppercase tracking-widest text-amber-300 font-black">Coverage Network</div><h2 className="text-xl font-black text-white mt-1">Coverage Board</h2><p className="text-sm text-slate-500 mt-1">Open a game for photographers, score reporters, or trusted live scorers. Approved contributors can claim matching opportunities from their dashboard.</p></div>
     {error&&<div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300 text-sm">{error}</div>}{message&&<div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-emerald-300 text-sm">{message}</div>}
