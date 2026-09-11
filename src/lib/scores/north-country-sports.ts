@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { applyPreviewRows, previewScores, ScoreRecord } from '@/lib/scores/intelligence'
 import { previewNorthCountrySportsCrossCountry } from '@/lib/scores/north-country-sports-xc'
 
@@ -19,6 +19,13 @@ const SPORT_HEADINGS: Record<string, string> = {
   'GIRLS SOFTBALL': 'Girls Softball',
   'BOYS LACROSSE': 'Boys Lacrosse',
   'GIRLS LACROSSE': 'Girls Lacrosse',
+}
+
+function getDb() {
+  const { env } = getCloudflareContext()
+  const db = (env as any).DB
+  if (!db) throw new Error('Cloudflare D1 binding DB is unavailable')
+  return db
 }
 
 function decodeHtml(value: string) {
@@ -48,10 +55,7 @@ function htmlLines(html: string) {
 
 function longDate(date: string) {
   return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
+    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
   }).format(new Date(`${date}T12:00:00Z`))
 }
 
@@ -67,111 +71,44 @@ function cleanTeam(value: string) {
 function resultRecord(line: string, date: string, sport: string): ScoreRecord | null {
   const match = line.match(/^(.+?)\s+(\d+)\s*[,\.]\s*(.+?)\s+(\d+)(?:\s+\([^)]*\))?\s*$/)
   if (!match) return null
-
-  const away = cleanTeam(match[1])
-  const home = cleanTeam(match[3])
+  const away = cleanTeam(match[1]), home = cleanTeam(match[3])
   if (!away || !home) return null
-
-  return {
-    date,
-    sport,
-    away,
-    awayScore: Number(match[2]),
-    home,
-    homeScore: Number(match[4]),
-    status: 'Final',
-    sourceKey: `${date}:${sport}:${away}:${home}`,
-    sourceUrl: SOURCE_URL,
-  }
+  return { date, sport, away, awayScore: Number(match[2]), home, homeScore: Number(match[4]), status: 'Final', sourceKey: `${date}:${sport}:${away}:${home}`, sourceUrl: SOURCE_URL }
 }
 
 export async function fetchNorthCountrySportsScores(date: string) {
-  const response = await fetch(SOURCE_URL, {
-    cache: 'no-store',
-    headers: {
-      'User-Agent': 'SectionXScoreboard/1.0 (+https://sectionxscoreboard.com)',
-      Accept: 'text/html,application/xhtml+xml',
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`North Country Sports returned HTTP ${response.status}`)
-  }
-
-  const html = await response.text()
-  const lines = htmlLines(html)
+  const response = await fetch(SOURCE_URL, { cache: 'no-store', headers: { 'User-Agent': 'SectionXScoreboard/1.0 (+https://sectionxscoreboard.com)', Accept: 'text/html,application/xhtml+xml' } })
+  if (!response.ok) throw new Error(`North Country Sports returned HTTP ${response.status}`)
+  const lines = htmlLines(await response.text())
   const marker = `${longDate(date)} SCORES`.toLowerCase()
   const start = lines.findIndex(line => line.toLowerCase() === marker)
-
-  if (start < 0) {
-    return {
-      source: 'northcountrysports' as const,
-      sourceUrl: SOURCE_URL,
-      date,
-      published: false,
-      records: [] as ScoreRecord[],
-      reason: `No published score block found for ${longDate(date)}.`,
-    }
-  }
+  if (start < 0) return { source: 'northcountrysports' as const, sourceUrl: SOURCE_URL, date, published: false, records: [] as ScoreRecord[], reason: `No published score block found for ${longDate(date)}.` }
 
   const records: ScoreRecord[] = []
   let sport = ''
-
   for (let i = start + 1; i < lines.length; i++) {
-    const line = lines[i]
-    const upper = line.toUpperCase()
-
+    const line = lines[i], upper = line.toUpperCase()
     if (/^SCORES FOR\b/i.test(line) || /^[A-Z][A-Za-z]+ \d{1,2}, \d{4} SCORES$/i.test(line)) break
-
-    if (SPORT_HEADINGS[upper]) {
-      sport = SPORT_HEADINGS[upper]
-      continue
-    }
-
-    if (/^COLLEGE\b/i.test(line)) {
-      sport = ''
-      continue
-    }
-
+    if (SPORT_HEADINGS[upper]) { sport = SPORT_HEADINGS[upper]; continue }
+    if (/^COLLEGE\b/i.test(line)) { sport = ''; continue }
     if (!sport) continue
-
     const record = resultRecord(line, date, sport)
     if (record) records.push(record)
   }
-
-  return {
-    source: 'northcountrysports' as const,
-    sourceUrl: SOURCE_URL,
-    date,
-    published: true,
-    records,
-    reason: records.length ? null : 'Score block was published, but no supported game scores were parsed.',
-  }
+  return { source: 'northcountrysports' as const, sourceUrl: SOURCE_URL, date, published: true, records, reason: records.length ? null : 'Score block was published, but no supported game scores were parsed.' }
 }
 
 async function coverageForDate(date: string) {
-  const db = createAdminClient()
-  const { data, error } = await db
-    .from('games')
-    .select('id,status,contest_type,home_score,away_score,result_exempt')
-    .eq('game_date', date)
-
-  if (error) throw new Error(`Could not calculate score coverage: ${error.message}`)
-
-  const rows = data || []
+  const db = getDb()
+  const result = await db.prepare(`SELECT id,status,contest_type,home_score,away_score,result_exempt FROM games WHERE game_date=?`).bind(date).all()
+  const rows = result.results || []
   const official = rows.filter((g: any) => {
-    const type = String(g.contest_type || '').toLowerCase()
-    const status = String(g.status || '').toLowerCase()
+    const type = String(g.contest_type || '').toLowerCase(), status = String(g.status || '').toLowerCase()
     return type !== 'scrimmage' && !['canceled', 'cancelled', 'postponed'].includes(status)
   })
-  const complete = official.filter((g: any) =>
-    String(g.status || '').toLowerCase() === 'final' &&
-    g.home_score != null &&
-    g.away_score != null
-  ).length
+  const complete = official.filter((g: any) => String(g.status || '').toLowerCase() === 'final' && g.home_score != null && g.away_score != null).length
   const exempt = official.filter((g: any) => Boolean(g.result_exempt)).length
   const accounted = Math.min(official.length, complete + exempt)
-
   return {
     officialGames: official.length,
     complete,
@@ -184,50 +121,20 @@ async function coverageForDate(date: string) {
 }
 
 export async function runNorthCountrySportsSweep(date: string, apply = true) {
-  const db = createAdminClient()
+  const db = getDb()
   const source = await fetchNorthCountrySportsScores(date)
   const preview = await previewScores(source.records, 'northcountrysports')
   const safeRows = (preview.rows || []).filter((row: any) => row.safeToApply)
-  const applied = apply
-    ? await applyPreviewRows(safeRows, 'northcountrysports')
-    : { updated: 0, skipped: 0, failed: 0, gamesCreated: 0, actions: [] }
-
+  const applied = apply ? await applyPreviewRows(safeRows, 'northcountrysports') : { updated: 0, skipped: 0, failed: 0, gamesCreated: 0, actions: [] }
   const coverage = await coverageForDate(date)
-  let crossCountry:any=null
-  try{crossCountry=await previewNorthCountrySportsCrossCountry(date)}catch(e:any){crossCountry={published:false,error:e?.message||'XC check failed',suggestions:[]}}
+  let crossCountry: any = null
+  try { crossCountry = await previewNorthCountrySportsCrossCountry(date) } catch (e: any) { crossCountry = { published: false, error: e?.message || 'XC check failed', suggestions: [] } }
   const audit = {
-    source: source.source,
-    sourceUrl: source.sourceUrl,
-    date,
-    published: source.published,
-    parsed: source.records.length,
-    preview: preview.summary,
-    applied,
-    coverage,
-    crossCountry:{published:crossCountry?.published||false,suggestions:(crossCountry?.suggestions||[]).map((s:any)=>({meetId:s.meetId,meetName:s.meetName,matched:s.matched,expected:s.expected,confidence:s.confidence}))},
+    source: source.source, sourceUrl: source.sourceUrl, date, published: source.published, parsed: source.records.length, preview: preview.summary, applied, coverage,
+    crossCountry: { published: crossCountry?.published || false, suggestions: (crossCountry?.suggestions || []).map((s: any) => ({ meetId: s.meetId, meetName: s.meetName, matched: s.matched, expected: s.expected, confidence: s.confidence })) },
   }
+  await db.prepare(`INSERT INTO import_logs (id,import_type,raw_input,rows_parsed,rows_approved,rows_rejected,status,imported_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+    .bind(crypto.randomUUID(), 'overnight-score-sweep', JSON.stringify(audit), source.records.length, applied.updated, Math.max(source.records.length - applied.updated, 0), applied.failed ? 'partial' : source.published ? 'complete' : 'waiting-source', 'automation:northcountrysports', new Date().toISOString()).run()
 
-  await db.from('import_logs').insert({
-    import_type: 'overnight-score-sweep',
-    raw_input: JSON.stringify(audit),
-    rows_parsed: source.records.length,
-    rows_approved: applied.updated,
-    rows_rejected: Math.max(source.records.length - applied.updated, 0),
-    status: applied.failed ? 'partial' : source.published ? 'complete' : 'waiting-source',
-    imported_by: 'automation:northcountrysports',
-  })
-
-  return {
-    ok: applied.failed === 0,
-    source: source.source,
-    sourceUrl: source.sourceUrl,
-    date,
-    published: source.published,
-    reason: source.reason,
-    parsed: source.records.length,
-    preview: preview.summary,
-    applied,
-    coverage,
-    crossCountry:audit.crossCountry,
-  }
+  return { ok: applied.failed === 0, source: source.source, sourceUrl: source.sourceUrl, date, published: source.published, reason: source.reason, parsed: source.records.length, preview: preview.summary, applied, coverage, crossCountry: audit.crossCountry }
 }
