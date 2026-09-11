@@ -2,7 +2,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 export default function CorrectionForm({ gameId }: { gameId: string }) {
   const [open, setOpen] = useState(false)
@@ -11,20 +10,26 @@ export default function CorrectionForm({ gameId }: { gameId: string }) {
   const [text, setText] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleSubmit = async () => {
     if (!text.trim()) return
     setLoading(true)
-    const supabase = createClient()
-    await supabase.from('correction_requests').insert({
-      game_id: gameId,
-      submitter_name: name,
-      submitter_email: email,
-      correction_text: text,
-      status: 'pending',
-    })
-    setSubmitted(true)
-    setLoading(false)
+    setError('')
+    try {
+      const response = await fetch('/api/corrections', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ gameId, submitterName: name, submitterEmail: email, correctionText: text }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || 'Could not submit correction.')
+      setSubmitted(true)
+    } catch (err: any) {
+      setError(err?.message || 'Could not submit correction.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (submitted) {
@@ -68,6 +73,7 @@ export default function CorrectionForm({ gameId }: { gameId: string }) {
               <label className="label">What's incorrect?</label>
               <textarea className="textarea" value={text} onChange={e => setText(e.target.value)} placeholder="Describe the correction..." rows={3} />
             </div>
+            {error && <p className="text-xs text-red-400">{error}</p>}
             <div className="flex gap-2">
               <button className="btn-primary" onClick={handleSubmit} disabled={loading || !text.trim()}>
                 {loading ? 'Submitting...' : 'Submit Correction'}
