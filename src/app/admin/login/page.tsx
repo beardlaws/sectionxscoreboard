@@ -1,29 +1,47 @@
 'use client'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+
+function safeAdminDestination(value: string | null) {
+  if (!value) return '/admin'
+  // Keep post-login navigation strictly inside the first-party admin surface.
+  // This avoids open redirects while still returning operators to the page
+  // middleware originally protected, such as /admin/live-audio.
+  return value.startsWith('/admin') && !value.startsWith('//') ? value : '/admin'
+}
 
 export default function AdminLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const res = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    })
-    if (res.ok) {
-      router.push('/admin')
-      router.refresh()
-    } else {
-      setError('Wrong password.')
+
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+
+      if (res.ok) {
+        router.replace(safeAdminDestination(searchParams.get('next')))
+        router.refresh()
+      } else if (res.status === 503) {
+        setError('Admin authentication is not configured on this deployment.')
+      } else {
+        setError('Wrong password.')
+      }
+    } catch {
+      setError('Unable to reach the admin login service.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
@@ -39,6 +57,7 @@ export default function AdminLoginPage() {
             placeholder="Password"
             className="input w-full"
             autoFocus
+            autoComplete="current-password"
           />
           {error && <p className="text-red-400 text-sm">{error}</p>}
           <button type="submit" disabled={loading} className="btn-primary w-full">
