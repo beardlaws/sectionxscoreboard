@@ -21,16 +21,19 @@ try{
   for(const row of rows){
     try{
       if(!/^https?:\/\//i.test(row.photo_url)){skipped++;continue}
-      const current=execFileSync('npx',['wrangler','d1','execute',DB_NAME,'--remote','--config',CONFIG,'--command',`SELECT storage_provider FROM photos WHERE id='${esc(row.id)}' LIMIT 1;`],{encoding:'utf8',env:process.env})
-      if(current.includes('"storage_provider": "r2"')||current.includes('"storage_provider":"r2"')){skipped++;continue}
+      // Deliberately overwrite every referenced legacy object during the final
+      // sync. The metadata seed copies the authoritative Supabase photo_url back
+      // into D1 before this step, so relying on an old storage_provider='r2'
+      // flag could leave D1 pointing at Supabase or hide a missing R2 object.
       const response=await fetch(row.photo_url)
       if(!response.ok)throw new Error(`download ${response.status}`)
       const type=response.headers.get('content-type')||'image/jpeg'
       const ext=type.includes('png')?'png':type.includes('webp')?'webp':type.includes('heic')?'heic':'jpg'
       const key=`legacy/${row.id}.${ext}`,file=`/tmp/sectionx-photo-migration/${row.id}.${ext}`
-      writeFileSync(file,Buffer.from(await response.arrayBuffer()))
+      const buffer=Buffer.from(await response.arrayBuffer())
+      writeFileSync(file,buffer)
       try{execFileSync('npx',['wrangler','r2','object','put',`${BUCKET}/${key}`,'--file',file,'--remote','--config',CONFIG],{stdio:'inherit',env:process.env})}finally{try{unlinkSync(file)}catch{}}
-      execFileSync('npx',['wrangler','d1','execute',DB_NAME,'--remote','--config',CONFIG,'--command',`UPDATE photos SET photo_url='/media/photos/${esc(key)}',storage_provider='r2',storage_key='${esc(key)}',mime_type='${esc(type)}' WHERE id='${esc(row.id)}';`],{stdio:'inherit',env:process.env})
+      execFileSync('npx',['wrangler','d1','execute',DB_NAME,'--remote','--config',CONFIG,'--command',`UPDATE photos SET photo_url='/media/photos/${esc(key)}',storage_provider='r2',storage_key='${esc(key)}',mime_type='${esc(type)}',file_size_bytes=${buffer.byteLength} WHERE id='${esc(row.id)}';`],{stdio:'inherit',env:process.env})
       copied++
     }catch(error){failed++;console.error(`[legacy photos] ${row.id}:`,error instanceof Error?error.message:error)}
   }
