@@ -73,22 +73,26 @@ jobs:
       - name: Apply D1 migrations locally
         run: npx wrangler d1 migrations apply sectionxscoreboard-preview --local --config wrangler.jsonc
 
-      - name: Verify launch-critical D1 tables exist
+      - name: Verify complete source and Cloudflare-native D1 schema
         shell: bash
         run: |
           set -euo pipefail
           for table in \
-            games schools teams sports seasons external_opponents team_seasons \
-            submissions correction_requests photos photo_tag_suggestions athletes roster_entries \
-            sponsors sponsor_impressions sponsor_viewable_impressions sponsor_clicks site_traffic_events \
-            score_alert_subscriptions staff_power_rank_snapshots \
-            game_import_sources game_period_scores game_athlete_stats \
-            cross_country_meets cross_country_dual_results cross_country_individual_results \
+            schools sports seasons external_opponents teams team_seasons games import_logs game_import_sources \
+            submissions correction_requests photos photo_tag_suggestions photo_athletes shoutouts \
+            athletes coaches roster_entries team_coaches site_settings spotlights athlete_of_week weekly_recaps \
+            sponsors advertise_inquiries sponsor_impressions sponsor_viewable_impressions sponsor_clicks site_traffic_events \
+            game_period_scores stat_definitions game_team_stats game_athlete_stats \
             playoff_tournaments playoff_games \
+            cross_country_meets cross_country_team_results cross_country_dual_results cross_country_individual_results \
+            fan_power_rank_ballots fan_power_rank_snapshots fan_top_play_nominations fan_school_support fan_school_support_snapshots \
+            fan_game_votes fan_game_vote_snapshots athlete_nominations staff_power_rank_snapshots \
+            contributor_profiles contributor_game_assignments contributor_activity contributor_coverage_requests contributor_score_updates \
+            fan_follow_preferences fan_notification_events fan_notification_deliveries score_alert_subscriptions \
+            arbiter_team_links arbiter_game_links arbiter_sync_runs arbiter_sync_actions arbiter_health_checks arbiter_automation_runs \
+            arbiter_roster_freshness arbiter_roster_automation_runs arbiter_school_mappings arbiter_team_mappings arbiter_shared_event_ids \
             admin_exception_resolutions admin_events \
-            contributor_profiles contributor_auth_accounts contributor_auth_sessions \
-            fan_follow_preferences fan_notification_events fan_notification_deliveries \
-            arbiter_game_links arbiter_team_links arbiter_sync_runs arbiter_health_checks \
+            contributor_auth_accounts contributor_auth_sessions contributor_auth_codes \
             broadcasts broadcast_assignments broadcast_participant_sessions broadcast_events; do
             echo "Checking $table"
             npx wrangler d1 execute sectionxscoreboard-preview --local --config wrangler.jsonc --command "SELECT COUNT(*) AS count FROM $table;" >/dev/null
