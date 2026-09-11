@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { recordScheduleHealthCheck } from '@/lib/arbiter/health'
 import { runLiveOperationsCheck } from '@/lib/arbiter/live-operations'
 
@@ -9,11 +9,13 @@ export const maxDuration=300
 export async function GET(req:NextRequest){
   const secret=process.env.CRON_SECRET
   if(!secret||req.headers.get('authorization')!==`Bearer ${secret}`)return NextResponse.json({ok:false,error:'Unauthorized'},{status:401})
-  const db=createAdminClient()
+  const {env}=getCloudflareContext()
+  const db=(env as any).DB
+  if(!db)return NextResponse.json({ok:false,error:'Cloudflare D1 binding DB is unavailable'},{status:500})
   try{
-    const {data:rows,error}=await db.from('seasons').select('id,name,year,season_type,is_active').in('season_type',['Fall','Winter','Spring']).order('year',{ascending:false})
-    if(error)throw new Error(`Could not load seasons: ${error.message}`)
-    const seasons=rows||[],active=seasons.find((s:any)=>s.is_active)||seasons[0]||null
+    const query=await db.prepare(`SELECT id,name,year,season_type,is_active FROM seasons WHERE season_type IN ('Fall','Winter','Spring') ORDER BY year DESC`).all()
+    const seasons=(query.results||[]).map((s:any)=>({...s,is_active:Boolean(s.is_active)}))
+    const active=seasons.find((s:any)=>s.is_active)||seasons[0]||null
     if(!active)throw new Error('No season found for Arbiter health monitoring.')
     const y=Number(active.year),schoolYearStart=String(active.season_type)==='Spring'?y-1:y
     const cycle=seasons.filter((s:any)=>(s.season_type==='Fall'&&Number(s.year)===schoolYearStart)||(s.season_type==='Winter'&&Number(s.year)===schoolYearStart)||(s.season_type==='Spring'&&Number(s.year)===schoolYearStart+1))
