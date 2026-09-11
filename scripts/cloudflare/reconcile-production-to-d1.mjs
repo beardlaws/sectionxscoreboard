@@ -12,7 +12,7 @@ const WRANGLER_CONFIG = 'wrangler.jsonc'
 // native tables such as contributor_auth_* and broadcasts are intentionally not
 // compared to Supabase because Supabase is not authoritative for those tables.
 const TABLES = [
-  'schools','sports','seasons','external_opponents','teams','team_seasons','games','import_logs',
+  'schools','sports','seasons','external_opponents','teams','team_seasons','games','import_logs','game_import_sources',
   'submissions','correction_requests','photos','photo_tag_suggestions','photo_athletes',
   'athletes','coaches','roster_entries','team_coaches','site_settings','spotlights','athlete_of_week','weekly_recaps',
   'sponsors','advertise_inquiries','sponsor_impressions','sponsor_viewable_impressions','sponsor_clicks','site_traffic_events',
