@@ -1,0 +1,68 @@
+name: Cloudflare Final Data Sync
+
+on:
+  push:
+    branches:
+      - cloudflare-migration
+    paths:
+      - .cloudflare-final-sync-trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-final-data-sync
+  cancel-in-progress: false
+
+jobs:
+  final-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 3ea6b1d4da3e65818d3d2034576083bb
+      SUPABASE_MIGRATION_DATABASE_URL: ${{ secrets.SUPABASE_MIGRATION_DATABASE_URL }}
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify required migration secrets exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN SUPABASE_MIGRATION_DATABASE_URL; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing GitHub Actions secret: $name"
+              missing=1
+            else
+              echo "$name is configured"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Run authoritative Supabase to D1 and R2 final sync
+        run: npm run d1:sync:final
+
+      - name: Verify final D1 reconciliation again
+        run: npm run d1:reconcile:production
+
+      - name: Record R2 inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object list sectionxscoreboard-photos-preview --remote --config wrangler.jsonc > /tmp/r2-list.txt || true
+          echo "R2 inventory command completed"
+          wc -l /tmp/r2-list.txt || true
