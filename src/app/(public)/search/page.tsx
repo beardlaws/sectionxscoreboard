@@ -1,19 +1,18 @@
 import Link from 'next/link'
 import PublicLayout from '@/components/layout/PublicLayout'
-import { createClient } from '@/lib/supabase/server'
+import { getSearchRepository } from '@/lib/data/runtime-search-repository'
 
 export const revalidate=0
 export const metadata={title:'Search | Section X Scoreboard',description:'Search Section X schools, teams and athletes.'}
 const esc=(v:string)=>v.replace(/[,%()]/g,' ').trim()
 export default async function SearchPage({searchParams}:{searchParams:{q?:string}}){
-  const q=esc(String(searchParams?.q||'')).slice(0,60),supabase=createClient()
+  const q=esc(String(searchParams?.q||'')).slice(0,60)
   let schools:any[]=[],teams:any[]=[],athletes:any[]=[]
   if(q.length>=2){
-    const [s,t,a]=await Promise.all([
-      supabase.from('schools').select('id,school_name,mascot,slug,city').or(`school_name.ilike.%${q}%,mascot.ilike.%${q}%`).limit(12),
-      supabase.from('teams').select('id,team_name,slug,school:schools(school_name,slug),sport:sports(sport_name,gender)').ilike('team_name',`%${q}%`).limit(18),
-      supabase.from('athletes').select('id,display_name,slug,school:schools(school_name,slug)').ilike('display_name',`%${q}%`).eq('active',true).limit(18),
-    ]);schools=s.data||[];teams=t.data||[];athletes=a.data||[]
+    const results=await getSearchRepository().search(q)
+    schools=results.schools
+    teams=results.teams
+    athletes=results.athletes
   }
   const total=schools.length+teams.length+athletes.length
   return <PublicLayout><div className="max-w-4xl mx-auto px-4 py-8"><div className="text-[10px] font-black uppercase tracking-[.18em] text-yellow-300">Find anything</div><h1 className="mt-1 text-3xl font-black text-white">Search Section X</h1><form className="mt-5 flex gap-2"><input autoFocus name="q" defaultValue={q} placeholder="School, team or athlete…" className="input flex-1"/><button className="btn-primary px-5">Search</button></form>
