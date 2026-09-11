@@ -1,5 +1,5 @@
 import AdminLayout from '@/components/layout/AdminLayout'
-import { createAdminClient } from '@/lib/supabase/server'
+import { getNotificationHealthRepository } from '@/lib/data/runtime-notification-health-repository'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -32,26 +32,9 @@ function StatusPill({ value }: { value?: string | null }) {
 }
 
 export default async function NotificationHealthPage() {
-  const db = createAdminClient()
-  const [
-    pendingResult,
-    errorResult,
-    sentResult,
-    activeFollowsResult,
-    eventsResult,
-    deliveriesResult,
-  ] = await Promise.all([
-    db.from('fan_notification_events').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-    db.from('fan_notification_events').select('*', { count: 'exact', head: true }).eq('status', 'error'),
-    db.from('fan_notification_events').select('*', { count: 'exact', head: true }).eq('status', 'sent'),
-    db.from('fan_follow_preferences').select('*', { count: 'exact', head: true }).eq('active', true),
-    db.from('fan_notification_events').select('id,event_type,status,game_id,photo_id,created_at,processed_at,last_error').order('created_at', { ascending: false }).limit(20),
-    db.from('fan_notification_deliveries').select('id,event_id,email,status,provider,provider_id,error,created_at,sent_at').order('created_at', { ascending: false }).limit(25),
-  ])
-
-  const queryErrors = [pendingResult.error, errorResult.error, sentResult.error, activeFollowsResult.error, eventsResult.error, deliveriesResult.error].filter(Boolean)
-  const events = eventsResult.data || []
-  const deliveries = deliveriesResult.data || []
+  const snapshot = await getNotificationHealthRepository().getSnapshot()
+  const events = snapshot.events
+  const deliveries = snapshot.deliveries
 
   return <AdminLayout>
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -61,14 +44,12 @@ export default async function NotificationHealthPage() {
         <p className="mt-2 text-sm text-white/45">Live visibility into the Section X follow queue and outbound delivery audit.</p>
       </div>
 
-      {queryErrors.length > 0 && <div className="mb-5 rounded-xl border border-red-400/20 bg-red-400/[.05] p-4 text-sm text-red-300">One or more notification health queries failed. Check the server logs before relying on these totals.</div>}
-
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-7">
         {[
-          ['Active follows', activeFollowsResult.count ?? 0, 'Fans currently opted in'],
-          ['Pending', pendingResult.count ?? 0, 'Waiting for dispatcher'],
-          ['Sent events', sentResult.count ?? 0, 'Completed event batches'],
-          ['Errors', errorResult.count ?? 0, 'Needs attention'],
+          ['Active follows', snapshot.activeFollows, 'Fans currently opted in'],
+          ['Pending', snapshot.pending, 'Waiting for dispatcher'],
+          ['Sent events', snapshot.sent, 'Completed event batches'],
+          ['Errors', snapshot.errors, 'Needs attention'],
         ].map(([label, value, note]) => <div key={String(label)} className="card p-4">
           <div className="text-[10px] uppercase tracking-widest text-white/35 font-black">{label}</div>
           <div className="mt-2 text-3xl font-black text-white">{String(value)}</div>
