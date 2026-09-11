@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { runNorthCountrySportsSweep } from '@/lib/scores/north-country-sports'
 import { sectionXDate, sectionXDateOffset } from '@/lib/sectionx-time'
 
@@ -15,8 +16,10 @@ function easternHour(date = new Date()) {
 }
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
+  const { env } = getCloudflareContext()
+  const secret = String((env as any).CRON_SECRET || (env as any).SECTIONX_AUTOMATION_KEY || process.env.CRON_SECRET || process.env.SECTIONX_AUTOMATION_KEY || '')
+  const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || req.headers.get('x-sectionx-automation-key') || ''
+  if (!secret || token !== secret) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
