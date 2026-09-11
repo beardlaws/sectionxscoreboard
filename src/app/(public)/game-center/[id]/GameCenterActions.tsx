@@ -1,8 +1,9 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Share2, Check, Radio } from 'lucide-react'
+import { Share2, Check, Radio, Headphones } from 'lucide-react'
 import CorrectionForm from '../../games/[id]/CorrectionForm'
 import FollowButton from '@/components/FollowButton'
 
@@ -12,11 +13,17 @@ type FanContext = {
   awayTeam?: { id: string; name: string } | null
 }
 
+type LiveAudioContext = {
+  live: boolean
+  broadcast: { id: string; title: string } | null
+}
+
 const shortFollowName = (name: string) => name.replace(' Central High School','').replace(' Central School','').replace(' High School','').replace(' School','')
 
 export default function GameCenterActions({ gameId, shareTitle }: { gameId: string; shareTitle: string }) {
   const [copied, setCopied] = useState(false)
   const [context, setContext] = useState<FanContext | null>(null)
+  const [liveAudio, setLiveAudio] = useState<LiveAudioContext>({ live: false, broadcast: null })
   const router = useRouter()
 
   useEffect(() => {
@@ -28,16 +35,23 @@ export default function GameCenterActions({ gameId, shareTitle }: { gameId: stri
         return
       }
       try {
-        const response = await fetch(`/api/fan-context?gameId=${encodeURIComponent(gameId)}`, { cache: 'no-store' })
-        if (!response.ok) return
-        const next = await response.json() as FanContext
-        if (cancelled) return
-        setContext(next)
-        if (!first && next.game?.live && document.visibilityState === 'visible') router.refresh()
-        timer = window.setTimeout(() => tick(false), next.game?.live ? 45000 : 180000)
-      } catch {
-        if (!cancelled) timer = window.setTimeout(() => tick(false), 180000)
-      }
+        const [fanResponse, audioResponse] = await Promise.all([
+          fetch(`/api/fan-context?gameId=${encodeURIComponent(gameId)}`, { cache: 'no-store' }),
+          fetch(`/api/live-audio/listen?gameId=${encodeURIComponent(gameId)}`, { cache: 'no-store' }),
+        ])
+        if (fanResponse.ok) {
+          const next = await fanResponse.json() as FanContext
+          if (!cancelled) {
+            setContext(next)
+            if (!first && next.game?.live && document.visibilityState === 'visible') router.refresh()
+          }
+        }
+        if (audioResponse.ok) {
+          const nextAudio = await audioResponse.json() as LiveAudioContext
+          if (!cancelled) setLiveAudio(nextAudio)
+        }
+      } catch {}
+      if (!cancelled) timer = window.setTimeout(() => tick(false), context?.game?.live || liveAudio.live ? 30000 : 180000)
     }
     tick(true)
     return () => { cancelled = true; if (timer) window.clearTimeout(timer) }
@@ -54,6 +68,7 @@ export default function GameCenterActions({ gameId, shareTitle }: { gameId: stri
   }
 
   return <div className="flex flex-wrap items-center justify-center gap-3">
+    {liveAudio.live && liveAudio.broadcast && <Link href={`/live/${liveAudio.broadcast.id}`} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-red-950/30 hover:bg-red-500 transition-colors"><Headphones size={15} /> LISTEN LIVE</Link>}
     {context?.game?.live && <div className="inline-flex items-center gap-2 rounded-xl border border-yellow-300/20 bg-yellow-300/[0.06] px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-yellow-200"><Radio size={13} className="animate-pulse" /> Live updates on · 45s refresh</div>}
     {context?.awayTeam && <FollowButton targetType="team" targetId={context.awayTeam.id} targetName={context.awayTeam.name} compact buttonLabel={`Follow ${shortFollowName(context.awayTeam.name)}`} />}
     {context?.homeTeam && <FollowButton targetType="team" targetId={context.homeTeam.id} targetName={context.homeTeam.name} compact buttonLabel={`Follow ${shortFollowName(context.homeTeam.name)}`} />}
