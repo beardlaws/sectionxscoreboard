@@ -19,8 +19,8 @@ const CRON_ROUTES = new Map([
 ])
 
 async function runCronRoute(path, env, ctx) {
-  const secret = env.CRON_SECRET
-  if (!secret) throw new Error('CRON_SECRET is not configured on the Cloudflare Worker')
+  const secret = env.CRON_SECRET || env.SECTIONX_AUTOMATION_KEY
+  if (!secret) throw new Error('Neither CRON_SECRET nor SECTIONX_AUTOMATION_KEY is configured on the Cloudflare Worker')
 
   const request = new Request(`https://sectionxscoreboard.com${path}`, {
     method: 'GET',
