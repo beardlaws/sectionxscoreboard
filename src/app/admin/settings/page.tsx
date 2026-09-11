@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { adminDb } from '@/lib/adminDb';
 import { Save, Loader } from 'lucide-react';
 
@@ -24,7 +23,6 @@ const SETTING_DEFINITIONS = [
 ];
 
 export default function AdminSettingsPage() {
-  const supabase = createClient();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,11 +31,14 @@ export default function AdminSettingsPage() {
   useEffect(() => { fetchSettings(); }, []);
 
   async function fetchSettings() {
-    const { data } = await supabase.from('site_settings').select('*');
-    const map: Record<string, string> = {};
-    (data || []).forEach((s: Setting) => { map[s.key] = s.value; });
-    setSettings(map);
-    setLoading(false);
+    try {
+      const result = await adminDb.select('site_settings', { limit: 500 });
+      const map: Record<string, string> = {};
+      ((result?.data || []) as Setting[]).forEach((s: Setting) => { map[s.key] = s.value; });
+      setSettings(map);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function saveSettings() {
@@ -56,11 +57,7 @@ export default function AdminSettingsPage() {
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold font-display text-white">Site Settings</h1>
-        <button
-          onClick={saveSettings}
-          disabled={saving}
-          className="btn-primary flex items-center gap-2"
-        >
+        <button onClick={saveSettings} disabled={saving} className="btn-primary flex items-center gap-2">
           {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
           {saved ? 'Saved!' : 'Save Settings'}
         </button>
@@ -75,24 +72,13 @@ export default function AdminSettingsPage() {
               <label className="block text-white font-medium mb-1">{def.label}</label>
               {def.description && <p className="text-xs text-slate-400 mb-2">{def.description}</p>}
               {def.key === 'alert_banner' || def.key === 'submission_notice' ? (
-                <textarea
-                  value={settings[def.key] ?? def.default ?? ''}
-                  onChange={e => setSettings({ ...settings, [def.key]: e.target.value })}
-                  rows={2}
-                  className="input w-full resize-none"
-                />
+                <textarea value={settings[def.key] ?? def.default ?? ''} onChange={e => setSettings({ ...settings, [def.key]: e.target.value })} rows={2} className="input w-full resize-none" />
               ) : (
-                <input
-                  type="text"
-                  value={settings[def.key] ?? def.default ?? ''}
-                  onChange={e => setSettings({ ...settings, [def.key]: e.target.value })}
-                  className="input w-full"
-                />
+                <input type="text" value={settings[def.key] ?? def.default ?? ''} onChange={e => setSettings({ ...settings, [def.key]: e.target.value })} className="input w-full" />
               )}
             </div>
           ))}
 
-          {/* Active Season Display (read-only — managed in Seasons) */}
           <div className="card p-4 border-dashed border-white/20">
             <p className="text-slate-400 text-sm">
               💡 Active season is managed in <a href="/admin/seasons" className="text-ice hover:underline">Season Manager</a>.
