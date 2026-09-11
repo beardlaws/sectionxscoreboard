@@ -27,7 +27,7 @@
     "d1:sync:final": "npm run d1:migrate:preview && npm run d1:seed:preview && npm run d1:seed:xc && npm run d1:seed:xc-individuals && npm run d1:seed:public-content && npm run d1:seed:game-center && npm run d1:seed:playoffs && npm run d1:seed:fan-zone && npm run d1:seed:game-operations && npm run d1:seed:arbiter-operations && npm run d1:seed:contributors-fan && npm run r2:migrate:legacy-photos && npm run r2:migrate:legacy-logos && npm run d1:verify:core && npm run d1:write:probe",
     "supabase:test:migration-reader": "node scripts/cloudflare/test-supabase-migration-reader.mjs",
     "cloudflare:prepare": "npm install --force --no-save next@15.5.24 react@19.1.1 react-dom@19.1.1 pg@8.16.3 eslint-config-next@15.5.24 @opennextjs/cloudflare@1.20.6 wrangler@4.130.0",
-    "cloudflare:build": "npm run cloudflare:prepare && npm run d1:sync:final && npx @opennextjs/cloudflare build",
+    "cloudflare:build": "npm run cloudflare:prepare && npm run d1:migrate:preview && npm run d1:verify:core && npx @opennextjs/cloudflare build",
     "start": "next start",
     "lint": "next lint"
   },
