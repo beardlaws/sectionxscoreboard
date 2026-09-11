@@ -7,7 +7,7 @@ import { PhotoGalleryGrid } from '@/components/PhotoLightbox'
 import { getSportsRepository } from '@/lib/data/runtime-sports-repository'
 import { getTeamPhotoRepository } from '@/lib/data/runtime-team-photo-repository'
 
-type Props = { params: { slug: string; gameId: string } }
+type Props = { params: Promise<{ slug: string; gameId: string }> }
 
 function dateLabel(value: string) {
   const clean = String(value || '').slice(0, 10)
@@ -18,14 +18,15 @@ function dateLabel(value: string) {
 }
 
 export default async function TeamGamePhotoAlbumPage({ params }: Props) {
+  const { slug, gameId } = await params
   const sportsRepository = getSportsRepository()
   const photoRepository = getTeamPhotoRepository()
-  const team = await sportsRepository.getTeamBySlug(params.slug)
+  const team = await sportsRepository.getTeamBySlug(slug)
   if (!team) notFound()
 
   const season = await sportsRepository.getActiveSeason()
   const games = await sportsRepository.getGamesForTeam(team.id, season?.id || null)
-  const game: any = games.find((candidate: any) => candidate.id === params.gameId)
+  const game: any = games.find((candidate: any) => candidate.id === gameId)
   if (!game) notFound()
 
   const photos = (await photoRepository.getApprovedPhotosForGameIds([game.id]))
