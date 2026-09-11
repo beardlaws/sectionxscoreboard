@@ -24,6 +24,7 @@ import {
   Newspaper,
   Medal,
   ClipboardCheck,
+  Radio,
 } from 'lucide-react'
 
 const navSections = [
@@ -61,6 +62,7 @@ const navSections = [
     label: 'Community',
     items: [
       { href: '/admin/contributors', label: 'Contributors', icon: Users },
+      { href: '/admin/live-audio', label: 'Live Audio', icon: Radio },
     ],
   },
   {
