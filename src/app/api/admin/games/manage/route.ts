@@ -8,11 +8,13 @@ function getDb(){const {env}=getCloudflareContext(),db=(env as any).DB;if(!db)th
 export async function GET(req:NextRequest){
   try{
     const db=getDb(),sp=req.nextUrl.searchParams
-    const seasonId=sp.get('seasonId')||'',sportId=sp.get('sportId')||'',status=sp.get('status')||'',playoff=sp.get('playoff')||''
+    const seasonId=sp.get('seasonId')||'',sportId=sp.get('sportId')||'',status=sp.get('status')||'',playoff=sp.get('playoff')||'',startDate=sp.get('startDate')||'',endDate=sp.get('endDate')||''
     const where:string[]=[],values:any[]=[]
     if(seasonId){where.push('g.season_id=?');values.push(seasonId)}
     if(sportId){where.push('g.sport_id=?');values.push(sportId)}
     if(status){where.push('g.status=?');values.push(status)}
+    if(startDate){where.push('g.game_date>=?');values.push(startDate)}
+    if(endDate){where.push('g.game_date<=?');values.push(endDate)}
     if(playoff==='playoff')where.push('g.is_playoff=1')
     if(playoff==='regular')where.push('COALESCE(g.is_playoff,0)=0')
     const sql=`SELECT g.*,
@@ -27,7 +29,7 @@ export async function GET(req:NextRequest){
       LEFT JOIN external_opponents eh ON eh.id=g.external_home_opponent_id
       LEFT JOIN external_opponents ea ON ea.id=g.external_away_opponent_id
       ${where.length?`WHERE ${where.join(' AND ')}`:''}
-      ORDER BY g.game_date DESC,g.game_time ASC LIMIT 500`
+      ORDER BY g.game_date ${startDate||endDate?'ASC':'DESC'},g.game_time ASC LIMIT 500`
     const result=await db.prepare(sql).bind(...values).all()
     const games=(result.results||[]).map((g:any)=>({
       ...g,featured:Boolean(g.featured),game_of_the_night:Boolean(g.game_of_the_night),neutral_site:Boolean(g.neutral_site),is_playoff:Boolean(g.is_playoff),result_exempt:Boolean(g.result_exempt),
