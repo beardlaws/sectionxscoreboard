@@ -3,15 +3,12 @@
 // Use on school pages, homepage, anywhere
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 interface Props {
   schoolId?: string
   schoolName?: string
   compact?: boolean // compact mode for sidebars
 }
-
-const supabase = createClient()
 
 export default function ScoreAlertSignup({ schoolId, schoolName, compact = false }: Props) {
   const [email, setEmail] = useState('')
@@ -23,21 +20,22 @@ export default function ScoreAlertSignup({ schoolId, schoolName, compact = false
     if (!email || !email.includes('@')) { setError('Enter a valid email address.'); return }
     setLoading(true); setError('')
     try {
-      const { error: dbError } = await supabase.from('score_alert_subscriptions').insert({
-        email: email.toLowerCase().trim(),
-        school_id: schoolId || null,
-        all_section_x: !schoolId,
-        confirmed: true,
+      const response = await fetch('/api/score-alerts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, schoolId: schoolId || null }),
       })
-      if (dbError && dbError.code !== '23505') { // ignore duplicate
-        setError('Something went wrong. Try again.')
-        setLoading(false); return
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.ok) {
+        setError(payload?.error || 'Something went wrong. Try again.')
+        return
       }
       setSubmitted(true)
     } catch {
       setError('Something went wrong. Try again.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   if (submitted) {
