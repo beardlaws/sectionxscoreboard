@@ -22,11 +22,24 @@ function automationEnabled(env) {
   return String(env.CLOUDFLARE_AUTOMATION_ENABLED || '').toLowerCase() === 'true'
 }
 
+function canonicalRedirect(request) {
+  const url = new URL(request.url)
+  if (url.hostname !== 'sectionxscoreboard.com') return null
+
+  // Canonicalize only the real apex hostname at the Cloudflare edge. Keeping
+  // this outside Next/OpenNext avoids the proxy host-normalization redirect
+  // loop encountered during the first cutover rehearsal.
+  url.hostname = 'www.sectionxscoreboard.com'
+  return Response.redirect(url.toString(), 308)
+}
+
 async function runCronRoute(path, env, ctx) {
   const secret = env.CRON_SECRET || env.SECTIONX_AUTOMATION_KEY
   if (!secret) throw new Error('Neither CRON_SECRET nor SECTIONX_AUTOMATION_KEY is configured on the Cloudflare Worker')
 
-  const request = new Request(`https://sectionxscoreboard.com${path}`, {
+  // Scheduled work calls the Next handler directly, so use the canonical host
+  // and skip the public apex redirect entirely.
+  const request = new Request(`https://www.sectionxscoreboard.com${path}`, {
     method: 'GET',
     headers: {
       authorization: `Bearer ${secret}`,
@@ -43,7 +56,11 @@ async function runCronRoute(path, env, ctx) {
 }
 
 export default {
-  fetch: handler.fetch,
+  async fetch(request, env, ctx) {
+    const redirect = canonicalRedirect(request)
+    if (redirect) return redirect
+    return handler.fetch(request, env, ctx)
+  },
 
   async scheduled(controller, env, ctx) {
     // The migration Worker is also our staging environment. Cron Triggers exist
