@@ -34,6 +34,7 @@ export async function GET() {
     const checks = {
       adminAuth: present(runtimeEnv.ADMIN_PASSWORD) && present(runtimeEnv.ADMIN_SESSION_TOKEN),
       automationSecret: present(runtimeEnv.CRON_SECRET) || present(runtimeEnv.SECTIONX_AUTOMATION_KEY),
+      automationEnabled: String(runtimeEnv.CLOUDFLARE_AUTOMATION_ENABLED || '').toLowerCase() === 'true',
       arbiter: present(runtimeEnv.ARBITER_CLIENT_ID) && present(runtimeEnv.ARBITER_CLIENT_SECRET),
       realtimeKit: present(runtimeEnv.CLOUDFLARE_ACCOUNT_ID) && present(runtimeEnv.REALTIMEKIT_APP_ID) && present(runtimeEnv.REALTIMEKIT_API_TOKEN),
       r2Read: Boolean(r2List),
@@ -48,6 +49,8 @@ export async function GET() {
     else if (!checks.r2Read) missing.push('r2-read')
 
     return Response.json({
+      // Automation is deliberately allowed to remain disabled while this Worker
+      // is staging. It becomes a cutover gate, not a staging-readiness failure.
       ok: missing.length === 0,
       backend: 'cloudflare',
       bindings: {
