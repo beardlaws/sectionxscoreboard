@@ -29,6 +29,7 @@ export default function BroadcastConsole() {
   const [live, setLive] = useState(false)
   const [muted, setMuted] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [, setClockTick] = useState(0)
   const [online, setOnline] = useState(true)
   const [error, setError] = useState('')
   const pendingStart = useRef<string | null>(null)
@@ -96,6 +97,12 @@ export default function BroadcastConsole() {
       }
     })()
   }, [meeting, selectedDeviceId])
+
+  useEffect(() => {
+    if (!live || !startedAt) return
+    const timer = window.setInterval(() => setClockTick((tick) => tick + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [live, startedAt])
 
   useEffect(() => {
     return () => stopMicTest()
