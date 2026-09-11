@@ -77,6 +77,19 @@ try {
     }
   }
 
+  // Core game seeding intentionally happens before import_logs. Restore the
+  // optional games.import_id relationship only after import_logs exists in D1.
+  const imports = await client.query('SELECT id,import_id FROM public.games WHERE import_id IS NOT NULL ORDER BY id')
+  console.log(`[D1 operational state] game import links: ${imports.rows.length}`)
+  for (let i=0; i<imports.rows.length; i+=CHUNK) {
+    const file = `/tmp/sx-game-import-links-${i}.sql`
+    writeFileSync(file, [
+      'PRAGMA foreign_keys = ON;',
+      ...imports.rows.slice(i,i+CHUNK).map(r => `UPDATE games SET import_id=${val(r.import_id)} WHERE id=${val(r.id)};`),
+    ].join('\n'), 'utf8')
+    try { execute(file) } finally { try { unlinkSync(file) } catch {} }
+  }
+
   await client.query('ROLLBACK')
   console.log('[D1 operational state] PASS: operational/history state copied; source remained read-only.')
 } catch (error) {
