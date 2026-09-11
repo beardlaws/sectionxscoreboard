@@ -13,6 +13,25 @@ export const metadata: Metadata = {
 }
 export const dynamic = 'force-dynamic'
 
+function normalizeDateOnly(value: unknown): string | null {
+  if (value == null) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const isoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (isoPrefix) return isoPrefix[1]
+
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
+function normalizeDateList(values: unknown[]) {
+  return values
+    .map(normalizeDateOnly)
+    .filter((value): value is string => Boolean(value))
+}
+
 export default async function ScoresPage({
   searchParams,
 }: {
@@ -23,7 +42,7 @@ export default async function ScoresPage({
   const xcRepo = getCrossCountryRepository()
   const contentRepo = getPublicContentRepository()
   const today = sectionXDate()
-  const selectedDate = params.date || today
+  const selectedDate = normalizeDateOnly(params.date) || today
 
   const [allSeasons, sports, scoresSponsor] = await Promise.all([
     repo.getSeasons(),
@@ -36,7 +55,7 @@ export default async function ScoresPage({
   const startDate = sectionXDateOffset(-30)
   const endDate = sectionXDateOffset(14)
 
-  const [games, gameDates, xcMeets, xcDates] = await Promise.all([
+  const [games, gameDatesRaw, xcMeets, xcDatesRaw] = await Promise.all([
     repo.getGamesByDate(selectedDate),
     repo.getDatesWithGames(startDate, endDate, selectedSeasonId),
     xcRepo.getMeetsByDate(selectedDate),
@@ -50,6 +69,8 @@ export default async function ScoresPage({
     results: xcResults.filter((result: any) => result.meet_id === meet.id),
   }))
 
+  const gameDates = normalizeDateList(gameDatesRaw || [])
+  const xcDates = normalizeDateList(xcDatesRaw || [])
   const datesWithGames = [...new Set([...gameDates, ...xcDates])].sort()
 
   const SEASON_COLORS: Record<string, { bg: string; text: string; border: string }> = {
