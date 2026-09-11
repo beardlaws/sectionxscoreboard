@@ -2,15 +2,14 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import PublicLayout from '@/components/layout/PublicLayout'
-import { createPublicClient as createClient } from '@/lib/supabase/public'
+import { getCrossCountryMeetRepository } from '@/lib/data/runtime-cross-country-meet-repository'
 import { xcTeamName } from '@/lib/cross-country'
 import { format, parseISO } from 'date-fns'
 
 export const revalidate = 60
 
 export async function generateMetadata({params}:{params:{id:string}}):Promise<Metadata>{
-  const db=createClient()
-  const {data:meet}=await db.from('cross_country_meets').select('meet_name,meet_date').eq('id',params.id).maybeSingle()
+  const meet=await getCrossCountryMeetRepository().getMeet(params.id)
   if(!meet)return {}
   return {title:`${meet.meet_name} Cross Country Results`,description:`Section X cross country results from ${meet.meet_name} on ${meet.meet_date}.`}
 }
@@ -34,7 +33,6 @@ function TeamTable({label,rows}:{label:string;rows:any[]}){
     </table></div>:<div className="p-6 text-sm text-white/30">No team results reported.</div>}
   </section>
 }
-
 
 function DualTable({label,rows}:{label:string;rows:any[]}) {
   return <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] overflow-hidden">
@@ -80,16 +78,12 @@ function IndividualTable({label,rows}:{label:string;rows:any[]}){
 }
 
 export default async function CrossCountryMeetPage({params}:{params:{id:string}}){
-  const db=createClient()
-  const [{data:meet},{data:teamResults},{data:dualResults},{data:individualResults}]=await Promise.all([
-    db.from('cross_country_meets').select('*').eq('id',params.id).maybeSingle(),
-    db.from('cross_country_team_results').select(`*,sport:sports(id,slug,gender,sport_name),team:teams(id,team_name,slug,school:schools(id,school_name,slug,primary_color,logo_url)),external_opponent:external_opponents(id,name,slug)`).eq('meet_id',params.id).order('finish_place',{ascending:true}),
-    db.from('cross_country_dual_results').select(`*,sport:sports(id,slug,gender,sport_name),team_a:teams!cross_country_dual_results_team_a_id_fkey(id,team_name,slug,school:schools(id,school_name,slug)),team_b:teams!cross_country_dual_results_team_b_id_fkey(id,team_name,slug,school:schools(id,school_name,slug))`).eq('meet_id',params.id).order('created_at',{ascending:true}),
-    db.from('cross_country_individual_results').select(`*,sport:sports(id,slug,gender,sport_name),athlete:athletes(id,display_name,slug),team:teams(id,team_name,school:schools(id,school_name,slug)),external_opponent:external_opponents(id,name,slug)`).eq('meet_id',params.id).order('finish_place',{ascending:true})
+  const repo=getCrossCountryMeetRepository()
+  const [meet,teamRows,dualRows,individualRows]=await Promise.all([
+    repo.getMeet(params.id),repo.getTeamResults(params.id),repo.getDualResults(params.id),repo.getIndividualResults(params.id)
   ])
   if(!meet)notFound()
 
-  const teamRows=teamResults||[], dualRows=dualResults||[], individualRows=individualResults||[]
   const boys=teamRows.filter((r:any)=>r.sport?.gender==='Boys')
   const girls=teamRows.filter((r:any)=>r.sport?.gender==='Girls')
   const boysDuals=dualRows.filter((r:any)=>r.sport?.gender==='Boys')
@@ -103,14 +97,8 @@ export default async function CrossCountryMeetPage({params}:{params:{id:string}}
     <div className="rounded-2xl border border-lime-400/15 bg-lime-400/[0.035] px-4 py-3 mb-6 text-sm text-white/55"><span className="font-black text-lime-300">Cross country scoring:</span> the top five finishers score for each team, their places are added together, and the lowest total wins.</div>
     <div className="space-y-5">
       {meet.meet_type==='League'
-        ? <>
-            <DualTable label="Boys Cross Country" rows={boysDuals}/>
-            <DualTable label="Girls Cross Country" rows={girlsDuals}/>
-          </>
-        : <>
-            <TeamTable label="Boys Cross Country" rows={boys}/>
-            <TeamTable label="Girls Cross Country" rows={girls}/>
-          </>}
+        ? <><DualTable label="Boys Cross Country" rows={boysDuals}/><DualTable label="Girls Cross Country" rows={girlsDuals}/></>
+        : <><TeamTable label="Boys Cross Country" rows={boys}/><TeamTable label="Girls Cross Country" rows={girls}/></>}
       <IndividualTable label="Boys Cross Country" rows={boysIndividuals}/>
       <IndividualTable label="Girls Cross Country" rows={girlsIndividuals}/>
     </div>
